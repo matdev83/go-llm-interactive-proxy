@@ -8,9 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/expansion"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/rewrite"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair/repair"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // Spec: b-leg-path-virtualization Task 7.3, the feature-integration half of the
@@ -122,6 +126,152 @@ func newExpansionAboveRepairFin() *mandatoryExpansionFin {
 	fin := newMandatoryExpansionFin()
 	fin.order = repair.DefaultFinalizerOrder + 1
 	return fin
+}
+
+// composedExpansionProbe wraps the REAL shipped path-virtualization expansion
+// finalizer so a composition test can observe exactly what it decided without changing
+// any of its behavior. ID(), Order(), and ToolCallBufferingRequirement() are promoted
+// from the embedded production finalizer, so toolcall.MaterializeSorted sorts on the
+// real production order value and the assembler reads the real production mandatory
+// declaration. Only Finalize is intercepted, and only to record.
+//
+// Task 8.1 shipped that finalizer, so the subtest below now drives it instead of a
+// stand-in. That is a strengthening, not a convenience: the failure mode this subtest
+// exists to forbid - releasing a malformed, alias-bearing argument document - is
+// decided by the production code, so it has to be asserted against the production code.
+type composedExpansionProbe struct {
+	*expansion.Finalizer
+
+	calls  int
+	seen   []byte
+	result toolcall.Result
+}
+
+func (p *composedExpansionProbe) Finalize(
+	ctx context.Context,
+	call toolcall.CompletedCall,
+	tool lipapi.ToolDef,
+	catalog []lipapi.ToolDef,
+	meta toolcall.Meta,
+) (toolcall.Result, error) {
+	res, err := p.Finalizer.Finalize(ctx, call, tool, catalog, meta)
+	p.calls++
+	p.seen = append(p.seen[:0], call.ArgsJSON...)
+	p.result = res
+	return res, err
+}
+
+var _ toolcall.Finalizer = (*composedExpansionProbe)(nil)
+
+// compositionProjectRoot is the authoritative workspace root the shipped expansion
+// finalizer derives its mapping from. It is only ever read from the finalizer metadata
+// the runtime hands every finalizer, which is what Task 6.2 populated; the fixture's
+// own root constant stays the client-visible spelling the tests assert on.
+const compositionProjectRoot = mandatoryRealRoot
+
+// newComposedExpansionProbe builds the REAL shipped expansion finalizer at its own
+// production order, with an operator profile that claims the fixture's exact tool name
+// and the fixture's own argument key, so the composition observes the production
+// selector path rather than a stub's unconditional string replacement.
+//
+// The profile is REQUIRED rather than optional: the shipped pass selects nothing for a
+// tool no layer claims, so without one this probe would correctly pass every call
+// through and the subtest below would prove nothing about it.
+func newComposedExpansionProbe(t *testing.T) *composedExpansionProbe {
+	t.Helper()
+	compiled, reject := pathvirtualization.CompileProfiles([]pathvirtualization.ProfileInput{{
+		Names:       []string{mandatoryToolName},
+		ArgPointers: []string{mandatoryFixturePathPointer},
+	}})
+	if reject != pathvirtualization.SelectorRejectNone {
+		t.Fatalf("compile the fixture profile: reject %v", reject)
+	}
+	resolver, reject := pathvirtualization.NewResolver(compiled, nil, nil)
+	if reject != pathvirtualization.SelectorRejectNone {
+		t.Fatalf("new resolver: reject %v", reject)
+	}
+	fin, err := expansion.NewFinalizer(resolver, rewrite.ModeRewrite, expansion.Policy{})
+	if err != nil {
+		t.Fatalf("build the shipped expansion finalizer: %v", err)
+	}
+	if fin.Order() != expansion.FinalizerOrder {
+		t.Fatalf("shipped expansion order changed: got %d want %d", fin.Order(), expansion.FinalizerOrder)
+	}
+	if fin.Order() <= repair.DefaultFinalizerOrder {
+		t.Fatalf("requirements.md 8.4 - the shipped expansion order must sit strictly above repair: %d <= %d",
+			fin.Order(), repair.DefaultFinalizerOrder)
+	}
+	probe := &composedExpansionProbe{Finalizer: fin}
+	var declared toolcall.Finalizer = probe
+	if _, ok := declared.(toolcall.BufferingRequirement); !ok {
+		t.Fatal("the shipped expansion finalizer must publish a mandatory buffering requirement")
+	}
+	return probe
+}
+
+// compositionMeta builds the finalizer metadata the runtime hands every finalizer of
+// this turn, with the authoritative workspace view Task 6.2 populated.
+func compositionMeta() toolcall.Meta {
+	return toolcall.Meta{Workspace: workspace.WorkspaceView{ProjectRoot: compositionProjectRoot}}
+}
+
+// The fixture's argument member name and the JSON Pointer that names it. The shared
+// fixture builders spell the member inline, so these two constants are what let this
+// file build a profile and a plain-path document that agree with those fixtures.
+const (
+	mandatoryFixturePathMember  = "path"
+	mandatoryFixturePathPointer = "/" + mandatoryFixturePathMember
+)
+
+// streamMandatoryToolCallWithMeta drives one completed tool call through the assembler
+// with an explicit finalizer metadata value, and returns the argument deltas the client
+// would observe.
+//
+// It is the same shape as the shared streamMandatoryToolCall, which is deliberately
+// left untouched: that helper predates the authoritative finalizer metadata and hardcodes
+// the zero value, and changing it would alter Task 7.2's shipped evidence for every
+// other test in that file. Duplicating thirty lines here keeps that boundary honest and
+// lets this composition supply the one thing its subject needs - a project root for the
+// shipped expansion finalizer to derive a mapping from.
+func streamMandatoryToolCallWithMeta(
+	t *testing.T,
+	a *toolCallAssembler,
+	id, argsJSON string,
+	meta toolcall.Meta,
+) (string, error) {
+	t.Helper()
+	ctx := context.Background()
+	var released strings.Builder
+
+	if held, ingErr := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallStarted, ToolCallID: id, ToolName: mandatoryToolName,
+	}, meta); ingErr != nil || !held {
+		t.Fatalf("started: held=%v err=%v", held, ingErr)
+	}
+	for _, fragment := range splitMandatoryArgsFragments(argsJSON) {
+		held, ingErr := a.ingest(ctx, lipapi.Event{
+			Kind: lipapi.EventToolCallArgsDelta, ToolCallID: id,
+			ToolName: mandatoryToolName, Delta: fragment,
+		}, meta)
+		if ingErr != nil {
+			t.Fatalf("args delta: %v", ingErr)
+		}
+		if !held {
+			released.WriteString(fragment)
+		}
+	}
+	_, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallFinished, ToolCallID: id, ToolName: mandatoryToolName,
+	}, meta)
+	for {
+		ev, ok := a.popDrain()
+		if !ok {
+			return released.String(), err
+		}
+		if ev.Kind == lipapi.EventToolCallArgsDelta {
+			released.WriteString(ev.Delta)
+		}
+	}
 }
 
 // TestToolCallRepairRunsBeforeMandatoryExpansionByOrderAlone is the hand-off
@@ -354,7 +504,29 @@ func TestToolCallRepairSizePolicyCannotSkipMandatoryExpansion(t *testing.T) {
 
 	t.Run("repair_declines_past_its_own_budget_and_expansion_still_runs", func(t *testing.T) {
 		t.Parallel()
-		a, repairFin, expansion := newComposition(t)
+		// The REAL shipped expansion finalizer, not the stand-in. Task 7.3 could not
+		// use it; Task 8.1 shipped it, and this subtest's subject is now decided by
+		// production code.
+		expansionFin := newComposedExpansionProbe(t)
+		repairFin := newComposedRepairProbe(t, repair.DefaultFinalizerOrder)
+		a := newToolCallAssembler([]toolcall.Finalizer{expansionFin, repairFin}, 0, catalog)
+		if a == nil {
+			t.Fatal("assembler must be constructed for a non-empty finalizer list and catalog")
+		}
+		// The shipped declaration raises the effective assembly bound only; the
+		// shared legacy bound keeps its pre-existing value and no finalizer's own
+		// size policy is read or widened here.
+		if a.maxArgsBytes != defaultToolCallFinalizationMaxArgsBytes {
+			t.Fatalf("shared legacy bound changed: got %d want %d", a.maxArgsBytes, defaultToolCallFinalizationMaxArgsBytes)
+		}
+		if a.mandatory.assemblyMaxArgsBytes != toolcall.DefaultMandatoryMaxArgsBytes {
+			t.Fatalf("effective assembly bound: got %d want the declared %d",
+				a.mandatory.assemblyMaxArgsBytes, toolcall.DefaultMandatoryMaxArgsBytes)
+		}
+		if a.mandatory.assemblyMaxArgsBytes <= repair.DefaultMaxArgsBytes {
+			t.Fatalf("the effective assembly bound must stay above the repair budget: %d <= %d",
+				a.mandatory.assemblyMaxArgsBytes, repair.DefaultMaxArgsBytes)
+		}
 
 		// Malformed and past the shipped repair budget, so the shipped repair
 		// finalizer declines: this is the one shape where syntax repair does NOT
@@ -368,10 +540,7 @@ func TestToolCallRepairSizePolicyCannotSkipMandatoryExpansion(t *testing.T) {
 				len(args), a.mandatory.assemblyMaxArgsBytes)
 		}
 
-		released, err := streamMandatoryToolCall(t, a, "repair-declines", args)
-		if err != nil {
-			t.Fatalf("a repair size-policy decline must not fail the call: %v", err)
-		}
+		released, err := streamMandatoryToolCallWithMeta(t, a, "repair-declines", args, compositionMeta())
 
 		// The decline is observable and is a decline, not a silent pass-through
 		// of an uninspected document.
@@ -388,27 +557,102 @@ func TestToolCallRepairSizePolicyCannotSkipMandatoryExpansion(t *testing.T) {
 		// declaring finalizer ran exactly once on the COMPLETE document, which
 		// is only reachable because the assembler buffers past the repair
 		// budget up to the declared mandatory bound.
-		if expansion.calls != 1 {
+		if expansionFin.calls != 1 {
 			t.Fatalf("requirements.md 8.4 - repair's size policy bypassed mandatory expansion: invocations=%d",
-				expansion.calls)
+				expansionFin.calls)
 		}
-		if len(expansion.seen) != len(args) {
+		if len(expansionFin.seen) != len(args) {
 			t.Fatalf("requirements.md 8.4 - expansion must receive the complete document: saw %d bytes want %d",
-				len(expansion.seen), len(args))
+				len(expansionFin.seen), len(args))
 		}
-		if !bytes.Equal(expansion.seen, []byte(args)) {
+		if !bytes.Equal(expansionFin.seen, []byte(args)) {
 			t.Fatal("requirements.md 8.4 - expansion received a different document than the model emitted")
 		}
 
-		// The stand-in expansion finalizer declines to act on incomplete JSON,
-		// so the pre-existing replay applies and no assembler refusal is raised:
-		// the repair budget is neither the assembly bound nor a completeness
-		// requirement. Whether a malformed document still carrying a reserved
-		// alias may be released is the real feature finalizer's Task 8.1/8.2
-		// decision, not this composition's; no alias content is asserted here.
-		if released != args {
-			t.Fatalf("released %d bytes want the %d replayed originals", len(released), len(args))
+		// REQUIREMENT FIX, Task 8.1. This assertion previously read `released ==
+		// args`, which pinned the OPPOSITE of what requirements.md 4.4 and 8.3
+		// require, because the old stand-in passed on invalid JSON. design.md
+		// "Error Handling" is explicit: "Malformed model JSON: existing
+		// repair/finalizer policy may repair first; a recognized applicable alias
+		// must never bypass required expansion and reach the client." The shipped
+		// finalizer therefore REFUSES the call closed, and the change from
+		// `released == args` to "nothing released, bounded refusal" is a
+		// strengthening: it removes an assertion that permitted an alias to reach
+		// the client and replaces it with one that forbids it.
+		//
+		// Note that the repair budget is still proven unchanged by the decision the
+		// shipped repair finalizer recorded above. The refusal comes from the
+		// expansion finalizer, and the bounded reason below says so.
+		if released != "" {
+			t.Fatalf("requirements.md 4.4/8.3 - %d argument bytes were released on a refused call "+
+				"(alias_present=%t); the reserved alias must never bypass required expansion",
+				len(released), strings.Contains(released, mandatoryVirtualRoot))
 		}
+		var reject *toolcall.RejectError
+		if !errors.As(err, &reject) || reject == nil {
+			t.Fatalf("requirements.md 4.4/8.3 - want a bounded refusal, got %v", err)
+		}
+		if got, ok := expansion.ParseReason(reject.ReasonCode); !ok || got != expansion.ReasonArgsUnparseable {
+			t.Fatalf("refusal reason=%q want %q", reject.ReasonCode, expansion.ReasonArgsUnparseable)
+		}
+		if expansionFin.result.Action != toolcall.ActionReject {
+			t.Fatalf("the shipped expansion finalizer must reject, got action %d", int(expansionFin.result.Action))
+		}
+
+		// POSITIVE CONTROLS, so the refusal above cannot be vacuous. The same live
+		// finalizer, over the same assembler and the same metadata, reaches two
+		// other bounded verdicts on this exact fixture family. Each control has a
+		// DIFFERENT reason, so the three assertions together prove the production
+		// code is deciding rather than blanket-refusing.
+		t.Run("control_the_same_finalizer_expands_a_parseable_alias_bearing_document", func(t *testing.T) {
+			t.Parallel()
+			fin := newComposedExpansionProbe(t)
+			repairProbe := newComposedRepairProbe(t, repair.DefaultFinalizerOrder)
+			asm := newToolCallAssembler([]toolcall.Finalizer{fin, repairProbe}, 0, catalog)
+
+			// Repair is inside its budget for this document, so it hands the
+			// expansion finalizer a VALID alias-bearing one. The fixture's alias
+			// tag is not 20 characters of the frozen base32 alphabet, so the
+			// shipped pass refuses it as a MALFORMED reserved alias - a different
+			// bounded reason from the unparseable-document one above, reached
+			// through the parseable path this subtest's sibling already covers.
+			valid := mandatoryArgsJSON(4 * 1024)
+			got, gotErr := streamMandatoryToolCallWithMeta(t, asm, "control-parseable", valid, compositionMeta())
+			if got != "" {
+				t.Fatalf("a refused call must release nothing, got %d bytes", len(got))
+			}
+			if reason, ok := expansion.ParseReason(fin.result.ReasonCode); !ok ||
+				reason != expansion.ReasonMalformedReservedAlias {
+				t.Fatalf("control reason=%q want %q", fin.result.ReasonCode, expansion.ReasonMalformedReservedAlias)
+			}
+			if gotErr == nil {
+				t.Fatal("a refused call must raise an error the runtime can classify")
+			}
+		})
+
+		t.Run("control_a_document_with_no_reserved_namespace_is_released_unchanged", func(t *testing.T) {
+			t.Parallel()
+			fin := newComposedExpansionProbe(t)
+			repairProbe := newComposedRepairProbe(t, repair.DefaultFinalizerOrder)
+			asm := newToolCallAssembler([]toolcall.Finalizer{fin, repairProbe}, 0, catalog)
+
+			// requirement 4.7: a call carrying no virtual root keeps the
+			// pre-existing pass-through behavior, and this proves the refusal above
+			// is caused by the reserved namespace rather than by size, by repair, or
+			// by the assembler.
+			plain := `{"` + mandatoryFixturePathMember + `":"/home/dev/elsewhere/src/main.go","content":"kept"}`
+			got, gotErr := streamMandatoryToolCallWithMeta(t, asm, "control-plain", plain, compositionMeta())
+			if gotErr != nil {
+				t.Fatalf("requirements.md 4.7 - a call with no virtual root must not fail: %v", gotErr)
+			}
+			if got != plain {
+				t.Fatalf("requirements.md 4.7 - released %d bytes want the %d unchanged originals",
+					len(got), len(plain))
+			}
+			if reason, ok := expansion.ParseReason(fin.result.ReasonCode); !ok || reason != expansion.ReasonNoAlias {
+				t.Fatalf("control reason=%q want %q", fin.result.ReasonCode, expansion.ReasonNoAlias)
+			}
+		})
 	})
 
 	t.Run("the_effective_assembly_bound_is_not_the_repair_budget", func(t *testing.T) {

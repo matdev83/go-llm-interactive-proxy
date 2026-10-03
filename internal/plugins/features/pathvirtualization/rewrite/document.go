@@ -20,12 +20,9 @@ package rewrite
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -50,47 +47,23 @@ type stringSpan struct {
 // is a bounded reason recorded on acc, and the payload is left untouched in each of
 // them: a payload this step cannot prove path-bearing is never partially rewritten.
 //
+// The engine itself is [ApplySelectedValues], shared with the inbound expansion
+// pass so requirement 2.8's byte-for-byte property has exactly one implementation.
+// This method supplies the OUTBOUND half of that contract: the mapping decides what
+// a value means, the rewriter's own closed reason vocabulary records every refusal,
+// and the counters are folded into the walk's accounting.
+//
 // The only error it returns is a disagreement between two decoders over bytes that
 // already decoded as one valid JSON value, which untrusted input cannot produce. It
 // is reported so a caller can fail open with real paths instead of publishing a
 // half-rewritten payload.
 func (r *Rewriter) rewriteDocument(raw []byte, pointers pathvirtualization.SelectorSet, acc *account) ([]byte, bool, error) {
-	if len(pointers) == 0 {
-		return nil, false, nil
-	}
-	if isAbsentOrNullPayload(raw) {
-		// A missing payload and a null payload are the same answer: no location
-		// exists to select, and neither spelling is materialized.
-		acc.skip(SkipReasonPayloadAbsent)
-		return nil, false, nil
-	}
-	document, err := decodePayload(raw)
+	published, pass, err := ApplySelectedValues(raw, pointers, virtualizeDecider(r.mapping))
 	if err != nil {
-		acc.skip(SkipReasonPayloadInvalid)
-		return nil, false, nil
+		return nil, false, err
 	}
-	if _, object := document.(map[string]any); !object {
-		// A JSON Pointer can only name a member of an object, so an array or scalar
-		// root has no selected location regardless of which pointers were compiled.
-		acc.skip(SkipReasonPayloadNotObject)
-		return nil, false, nil
-	}
-
-	// The canonical selector layer decides which leaves are eligible and refuses
-	// every location it cannot prove, so this step never guesses a shape.
-	selection := pointers.Resolve(document)
-	for _, skipped := range selection.Skipped {
-		acc.skip(selectorSkipReason(skipped.Reason))
-	}
-	if len(selection.Leaves) == 0 {
-		return nil, false, nil
-	}
-
-	spans, err := findSelectedStringSpans(raw, selectedLeafKeys(selection.Leaves))
-	if err != nil {
-		return nil, false, fmt.Errorf("locate selected leaves: %w", err)
-	}
-	return r.splice(raw, spans, acc)
+	acc.record(pass)
+	return published, pass.Changed, nil
 }
 
 // decodePayload decodes one complete JSON value, preserving number literals.
@@ -334,55 +307,13 @@ func canonicalPointerText(name string) string {
 
 // splice replaces the literals the spans cover and returns the published payload.
 //
-// Spans are applied in ascending offset order, copying the untouched bytes between
-// them verbatim, so no replacement is written at an offset an earlier one moved and
-// no two replacements can overlap: they are distinct literals of one document. A span
-// the mapping does not accept is left in place, which is how a payload that merely
-// mentions the project root outside the project root keeps its bytes.
-func (r *Rewriter) splice(document []byte, spans []stringSpan, acc *account) ([]byte, bool, error) {
-	ordered := slices.Clone(spans)
-	slices.SortFunc(ordered, func(a, b stringSpan) int { return cmp.Compare(a.start, b.start) })
-
-	published := make([]byte, 0, len(document))
-	cursor := 0
-	changed := false
-	for _, span := range ordered {
-		if span.start < cursor || span.end > len(document) || span.start >= span.end {
-			// Overlapping or out-of-range spans cannot come from one decoded
-			// document, and writing them would corrupt the payload.
-			return nil, false, errors.New("selected leaves overlap in the payload")
-		}
-		virtualized, matched := r.mapping.VirtualizePath(span.value)
-		// A selected leaf the mapping does not accept keeps its own bytes, so a
-		// selected array can hold a mixture of aliased and untouched values without
-		// losing either.
-		replacement := document[span.start:span.end]
-		if matched {
-			// Eligibility is the mapping's answer, not this step's: a value is
-			// eligible only when it carried a real-root prefix ending on a segment
-			// boundary.
-			acc.eligible++
-			acc.bytesBefore += len(span.value)
-			acc.bytesAfter += len(virtualized)
-			literal, err := encodeSelectedValue(virtualized)
-			if err != nil {
-				return nil, false, fmt.Errorf("encode selected value: %w", err)
-			}
-			replacement = literal
-			if virtualized != span.value {
-				acc.rewritten++
-				changed = true
-			}
-		}
-		published = append(published, document[cursor:span.start]...)
-		published = append(published, replacement...)
-		cursor = span.end
-	}
-	if !changed {
-		return nil, false, nil
-	}
-	return append(published, document[cursor:]...), true, nil
-}
+// The engine moved to [ApplySelectedValues] when the inbound expansion pass needed
+// the identical splice, so the byte-level work - ascending offset order, verbatim
+// copy of everything between spans, refusal publication - is implemented once and
+// asserted for both directions by that primitive's tests. A span the decision does
+// not accept is left in place, which is how a payload that merely mentions the
+// project root outside the project root keeps its bytes, and how a selected array can
+// hold a mixture of aliased and untouched values without losing either.
 
 // encodeSelectedValue renders one selected value as a JSON string literal.
 //

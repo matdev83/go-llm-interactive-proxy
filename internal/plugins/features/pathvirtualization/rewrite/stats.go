@@ -218,6 +218,48 @@ func (a *account) skip(reason SkipReason) {
 	a.skips[reason]++
 }
 
+// record folds one shared payload pass into this walk's accounting.
+//
+// The pass reports its outcome, the canonical selector layer's own refusals, and its
+// counters; this is the single place those become the rewriter's closed vocabulary
+// and the walk's totals. Folding them here rather than at each call site is what keeps
+// the OUTBOUND statistics and the INBOUND statistics measured on one engine, so a
+// number reported by either direction describes the same pass (requirement 7.3).
+func (a *account) record(pass DocumentPass) {
+	switch pass.Outcome {
+	case PayloadOutcomeAbsent:
+		a.skip(SkipReasonPayloadAbsent)
+	case PayloadOutcomeInvalid:
+		a.skip(SkipReasonPayloadInvalid)
+	case PayloadOutcomeNotObject:
+		a.skip(SkipReasonPayloadNotObject)
+	case PayloadOutcomeReplaced, PayloadOutcomeNoSelectors, PayloadOutcomeNoLeaves:
+		// A pass that reached its leaves without replacing one is ordinary content
+		// for this step, and a pass with nothing to select is accounted for by the
+		// caller that knew it had no selectors. Neither is a surface skip.
+	}
+	for _, skipped := range pass.Selection.Skipped {
+		a.skip(selectorSkipReason(skipped.Reason))
+	}
+	a.eligible += pass.Eligible
+	a.rewritten += pass.Replaced
+	a.bytesBefore += pass.BytesBefore
+	a.bytesAfter += pass.BytesAfter
+}
+
+// Stats projects one payload pass onto the content-free statistics value this feature
+// reports.
+//
+// It exists for callers outside the package, so the two directions fold one pass into
+// one vocabulary: an external caller gets exactly the skip tallies and counters the
+// outbound walker would have recorded for the identical pass, rather than a parallel
+// set it maintains itself.
+func (p DocumentPass) Stats() Stats {
+	var acc account
+	acc.record(p)
+	return acc.stats()
+}
+
 // stats publishes the accumulated counters as the content-free rewrite outcome.
 func (a *account) stats() Stats {
 	stats := Stats{
