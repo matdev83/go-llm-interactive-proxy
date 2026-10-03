@@ -205,6 +205,15 @@ func TestAllowedStageConsumers_AllWhitelistedEntriesExercised(t *testing.T) {
 			funcName:  "TerminalDecisionProviderIdentity",
 		},
 		{
+			qualSym:   "internal/core/extensions.(*RequestRuntimeSnapshot).SessionClassifier",
+			relPath:   "internal/core/extensions/snapshot.go",
+			planeID:   "session_classifier",
+			planeExpr: "lipfeature.PlaneSessionClassifier",
+			wave:      Wave5c_Residual,
+			isMethod:  true,
+			funcName:  "SessionClassifier",
+		},
+		{
 			qualSym:   "internal/core/extensions.(*RequestRuntimeSnapshot).TrafficObserver",
 			relPath:   "internal/core/extensions/snapshot.go",
 			planeID:   "traffic_observers",

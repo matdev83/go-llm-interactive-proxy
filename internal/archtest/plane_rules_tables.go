@@ -196,6 +196,7 @@ var (
 		"internal/core/extensions.(*RequestRuntimeSnapshot).LocalTurnHandlersExecution":       true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TerminalDecisionProvider":         true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TerminalDecisionProviderIdentity": true,
+		"internal/core/extensions.(*RequestRuntimeSnapshot).SessionClassifier":                true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).TrafficObserver":                  true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).UsageObserver":                    true,
 		"internal/core/extensions.(*RequestRuntimeSnapshot).RawCapture":                       true,

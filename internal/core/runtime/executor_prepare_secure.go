@@ -537,6 +537,15 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			return nil, nil, outCtx, err
 		}
 	}
+	// Stage session_classification sits after secret_guard and before submit_request
+	// (design "Current extension ordering" / "Canonical Execution Integration"):
+	// the authoritative secure session, A-leg and workspace are already bound, and
+	// no classification evaluation may observe or precede secret-guard processing.
+	// A validated result is projected onto ibt.preSession here so every later
+	// same-turn view observes one immutable classification. The stage returns
+	// nothing: a missing plane is a no-op and a classifier/store/remote failure
+	// never rejects the request.
+	e.runSessionClassificationStage(outCtx, workingCall, ibt)
 	var meteringHolder *checkpoint.RequestHolder
 	// P2: use unaugmented customer view for FE-ingress checkpoint; the
 	// current workingCall may already contain the proxy-appended continuity
