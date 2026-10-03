@@ -271,6 +271,12 @@ func (s *betterLeaksScanner) findingCap() int {
 }
 
 func projectBetterLeaksFinding(finding report.Finding, location string, admittedRaw []byte) (betterLeaksFinding, error) {
+	if len(finding.RuleID) > maxBetterLeaksProjectedField || len(location) > maxBetterLeaksProjectedField {
+		return betterLeaksFinding{}, errBetterLeaksProjection
+	}
+	if finding.Confidence != "" && boundedBetterLeaksConfidence(finding.Confidence) == "" {
+		return betterLeaksFinding{}, errBetterLeaksProjection
+	}
 	projected := betterLeaksFinding{
 		RuleID:          boundedBetterLeaksField(finding.RuleID),
 		Confidence:      boundedBetterLeaksConfidence(finding.Confidence),
@@ -293,6 +299,9 @@ func projectBetterLeaksFinding(finding report.Finding, location string, admitted
 	seen := make(map[string]int)
 	for _, set := range finding.ComponentSets {
 		for _, component := range set.Components {
+			if len(component.RuleID) > maxBetterLeaksProjectedField {
+				return betterLeaksFinding{}, errBetterLeaksProjection
+			}
 			if len(projected.Components) >= maxBetterLeaksProjectedComponents || len(projected.occurrences) >= maxBetterLeaksOccurrences {
 				break
 			}

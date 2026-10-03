@@ -71,7 +71,7 @@
     - _Validation: cancellation/error/cap/concurrency tests_
 
 - [ ] 4. Project findings safely and merge hybrid detector results
-  - [ ] 4.1 Extend safe finding provenance without leaking BetterLeaks internals
+  - [x] 4.1 Extend safe finding provenance without leaking BetterLeaks internals
     - Add only bounded detector/rule/confidence metadata needed by audit and diagnostics.
     - Keep raw matches, captures, components, context, fingerprints, and fragments private.
     - Validate/bound projected strings and preserve compatibility for existing exact findings.

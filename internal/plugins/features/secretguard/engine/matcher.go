@@ -174,6 +174,7 @@ func (m *Matcher) findingsFromCounts(counts map[int]int) []sdk.Finding {
 			Aliases:         slices.Clone(e.aliases),
 			SourceCategory:  e.sourceCategory,
 			OccurrenceCount: counts[i],
+			DetectorID:      sdk.DetectorIDExact,
 		})
 	}
 	return out

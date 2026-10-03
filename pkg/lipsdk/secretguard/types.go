@@ -31,6 +31,22 @@ const (
 	SourceCategoryUnknown     SourceCategory = "unknown"
 )
 
+// Detector IDs are closed because they are emitted to operator-facing
+// diagnostics and audit sinks. Empty is retained for compatibility with
+// existing exact-match producers that predate detector provenance.
+const (
+	DetectorIDExact       = "exact"
+	DetectorIDBetterLeaks = "betterleaks"
+)
+
+// Confidence values are the only confidence bands that may cross the SDK
+// boundary. Empty means that the detector did not provide confidence metadata.
+const (
+	ConfidenceLow    = "low"
+	ConfidenceMedium = "medium"
+	ConfidenceHigh   = "high"
+)
+
 // Finding is safe match metadata. It must never carry a secret value or content excerpt.
 type Finding struct {
 	SecretRefName   string
@@ -38,6 +54,14 @@ type Finding struct {
 	SourceCategory  SourceCategory
 	Location        string
 	OccurrenceCount int
+	// DetectorID identifies the closed detector vocabulary that produced this
+	// finding. It may be empty for legacy exact findings.
+	DetectorID string
+	// RuleID is a bounded detector rule identifier. BetterLeaks findings must
+	// carry the identifier resolved from the pinned detector inventory.
+	RuleID string
+	// Confidence is low, medium, high, or empty when unavailable.
+	Confidence string
 }
 
 // Decision is the Evaluate result: outcome, safe findings, and scan metadata.
