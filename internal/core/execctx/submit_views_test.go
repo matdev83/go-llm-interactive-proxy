@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 )
 
 func TestViewsFromSubmit_sessionHintsAndAuthoritative(t *testing.T) {
@@ -133,5 +134,58 @@ func TestViewsFromSecureSubmit_authoritativeTurnAndPolicyLabels(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprintf("%+v", v), "raw-should-not-leak") {
 		t.Fatal("resume token leaked into view dump")
+	}
+}
+
+// TestViewsFromSecureSubmit_projectsSessionClassification proves the core
+// view-copy helper carries the bounded classification scalar into every later
+// same-turn view instead of leaving each consumer to re-derive it
+// (requirements 1.6, 4.2, 9.5).
+func TestViewsFromSecureSubmit_projectsSessionClassification(t *testing.T) {
+	t.Parallel()
+
+	aLeg := b2bua.ALegRecord{ALegID: "aleg-classified"}
+	positive := session.Classification{
+		Kind:       session.KindCodingAgent,
+		Source:     session.SourceLocalIdentity,
+		Confidence: session.ConfidenceHigh,
+		Evidence:   "view.client_identity",
+		Revision:   4,
+	}
+
+	got := execctx.ViewsFromSecureSubmit(execctx.SecureSubmitViewsInput{
+		TraceID:                "tr-classified",
+		ALeg:                   aLeg,
+		Call:                   lipapi.Call{Session: lipapi.SessionRef{ClientSessionID: "client-hint"}},
+		AuthoritativeSessionID: "proxy-owned-sid",
+		TurnID:                 "turn-classified",
+		ResumeEligible:         true,
+		PolicyLabels:           map[string]string{"effective_treatment": "strict"},
+		Classification:         positive,
+	})
+	if got.Session.Classification != positive {
+		t.Fatalf("projected classification = %+v, want %+v", got.Session.Classification, positive)
+	}
+	if !got.Session.Classification.IsCodingAgent() {
+		t.Fatal("projected classification cannot gate a first-turn positive consumer")
+	}
+
+	// An absent classification stays the conservative unknown zero value and
+	// never becomes a partially populated snapshot.
+	unknown := execctx.ViewsFromSecureSubmit(execctx.SecureSubmitViewsInput{ALeg: aLeg})
+	if unknown.Session.Classification != (session.Classification{}) {
+		t.Fatalf("classification = %+v, want unknown when none was decided", unknown.Session.Classification)
+	}
+}
+
+// TestViewsFromSubmit_leavesClassificationUndecided proves the pre-secure-session
+// projection cannot invent a classification: only the secure-submit projection
+// that carries the classified turn may set it.
+func TestViewsFromSubmit_leavesClassificationUndecided(t *testing.T) {
+	t.Parallel()
+
+	v := execctx.ViewsFromSubmit("trace-unclassified", b2bua.ALegRecord{ALegID: "aleg-1"}, lipapi.Call{}, nil)
+	if v.Session.Classification != (session.Classification{}) {
+		t.Fatalf("classification = %+v, want unknown before the secure-session bind", v.Session.Classification)
 	}
 }

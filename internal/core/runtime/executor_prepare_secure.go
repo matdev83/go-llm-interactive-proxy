@@ -756,6 +756,10 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		TurnID:                 string(br.TurnID),
 		ResumeEligible:         br.Record.ResumeEligible,
 		PolicyLabels:           policyLabels,
+		// The classification stage already decided this turn's classification;
+		// projecting it here keeps every later same-turn view on one immutable
+		// snapshot instead of letting a consumer re-derive it (requirements 4.2, 9.5).
+		Classification: ibt.preSession.Classification,
 	})
 	if ibt.hasPrincipal {
 		views.Principal = ibt.principal

@@ -49,6 +49,13 @@ type SecureSubmitViewsInput struct {
 	TurnID                 string
 	ResumeEligible         bool
 	PolicyLabels           map[string]string
+	// Classification is the bounded advisory classification the canonical
+	// classification stage already decided for this turn. It is projected as an
+	// immutable scalar so every later same-turn view observes one decision instead
+	// of re-reading a store or re-running the classifier; the zero value is the
+	// conservative unknown classification. The runtime supplies an already
+	// validated snapshot.
+	Classification session.Classification
 }
 
 // ViewsFromSecureSubmit builds views after [app.Manager.BeginTurn] and B2BUA A-leg fetch.
@@ -59,6 +66,7 @@ func ViewsFromSecureSubmit(in SecureSubmitViewsInput) Views {
 	v.Session.ClientSessionHint = strings.TrimSpace(in.Call.Session.ClientSessionID)
 	v.Session.ResumeEligible = in.ResumeEligible
 	v.Session.TurnID = strings.TrimSpace(in.TurnID)
+	v.Session.Classification = in.Classification
 	if len(in.PolicyLabels) > 0 {
 		if v.Session.Labels == nil {
 			v.Session.Labels = maps.Clone(in.PolicyLabels)
