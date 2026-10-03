@@ -51,7 +51,7 @@
     - _Validation: deterministic config hash/rule inventory goldens; required-only `aws-secret-access-key` disable rejection; component-plus-dependent `aws-secret-access-key` plus `aws-access-token` disable acceptance; shared component rejection while any required dependent remains; optional removal and isolation behavior; unchanged retained AWS multipart matching; failed candidate rejection retains the previously published generation_
 
 - [ ] 3. Add context-preserving logical-fragment discovery
-  - [ ] 3.1 Define and RED-test the logical fragment traversal
+  - [x] 3.1 Define and RED-test the logical fragment traversal
     - Characterize current canonical locations and JSON raw representations used by secret guard.
     - Produce one bounded fragment per logical text/JSON unit without concatenating the complete request or exposing fragments outside the feature.
     - Prove contextual JSON detection remains possible for generic key/value rules and tool schema/result content.
