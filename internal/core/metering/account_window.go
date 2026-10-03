@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -193,14 +194,16 @@ func accountWindowIdentityForSubjectWithTenant(subject lipsdkmetering.SubjectRef
 		subject.ProviderAccountKey,
 		subject.PoolID,
 		subject.WindowID,
-		fmt.Sprintf("%d", subject.ResetAt.UTC().UnixNano()),
+		strconv.FormatInt(subject.ResetAt.UTC().UnixNano(), 10),
 	)
 }
 
 func accountWindowLengthPrefixed(values ...string) string {
 	var builder strings.Builder
 	for _, value := range values {
-		fmt.Fprintf(&builder, "%d:", len(value))
+		// bolt: use strconv instead of reflection-based fmt.Fprintf for performance
+		builder.WriteString(strconv.Itoa(len(value)))
+		builder.WriteByte(':')
 		builder.WriteString(value)
 	}
 	return builder.String()
