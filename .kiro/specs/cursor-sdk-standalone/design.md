@@ -141,7 +141,7 @@ Retain `Service.Describe(context.Context) (PluginDescriptor, error)`, `Configure
 Configuration remains plugin-owned opaque YAML. Credentials continue through authenticated `ConfigureRequest.Secrets`; the host never bootstraps SDK credentials into a Node command. Preserve `bridge_executable` overrides for existing installations; explicit overrides retain existing direct-executable rules. The packaged default resolves a direct plugin-local bridge launcher relative to the installed outer executable, not the current working directory or a global npm bin. Do not change user-supplied workspace paths or reinterpret other configuration fields.
 
 ### Private runtime package
-Initial preferred archive layout:
+Shipped archive layout:
 
 ```text
 plugin.backendplugin.json
@@ -149,28 +149,38 @@ bin/lip-backend-cursorsdk[.exe]
 private/bridge/lip-cursor-sdk-bridge[.exe]
 private/bridge/bin/lip-cursor-sdk-bridge.js
 private/bridge/dist/
-private/bridge/node_modules/
 private/bridge/package.json
+private/bridge/package-lock.json
 private/node/node[.exe]
 compatibility.json
 checksums.sha256
 LICENSES/
 ```
 
-`private/bridge/bin/lip-cursor-sdk-bridge.js` is the bridge package's own CLI shim and therefore the launcher's entrypoint: `--version` and `doctor` exist only there, so executing `dist/main.js` would break the connector's tool contract. The shim resolves `dist/`, `node_modules/`, and `package.json` relative to `private/bridge/`, so the rest of the layout is unchanged.
+`private/bridge/bin/lip-cursor-sdk-bridge.js` is the bridge package's own CLI shim and therefore the launcher's entrypoint: `--version` and `doctor` exist only there, so executing `dist/main.js` would break the connector's tool contract. The shim resolves `dist/`, `node_modules/`, and `package.json` relative to `private/bridge/`.
+
+**The Cursor SDK is not redistributed.** `@cursor/sdk` is proprietary and its platform package bundles `rg`/`cursorsandbox` binaries whose license texts it does not redistribute, so shipping it — or its dependency closure — inside a public archive asserts a redistribution right nobody has verified. The archive therefore ships `package.json` and `package-lock.json` but **not** `private/bridge/node_modules/`. The operator provisions that tree once, out of band, with the **shipped private runtime's own bundled npm**:
+
+```text
+cd <plugin>/private/bridge && <plugin>/private/node/node[.exe] <path-to-its-npm-cli> ci --omit=dev
+```
+
+This keeps the runtime free of any global Node or npm requirement (the provisioning command uses the shipped runtime), keeps every download under the operator's own acceptance of Cursor's terms, and preserves reproducibility because the shipped lockfile pins the SDK and the `undici` override. Requiring npm — rather than any package manager — is deliberate: `overrides` semantics differ across package managers and the security baseline depends on that override being honored. Provisioning is an install-time operator step; the plugin itself never downloads, and a tree provisioned with a different package manager is unsupported and reported as such.
+
+Provenance is therefore split and must stay split in every artifact: the shipped runtime, bridge, and launcher are attributable to this project, while the provisioned tree is attributable to the operator's own npm resolution. `checksums.sha256` covers the shipped files only; `private/bridge/node_modules/` is operator-owned and outside the shipped record. The verifier's SDK check becomes a *requirement* rather than a digest check — the provisioned tree must resolve `@cursor/sdk` at the pinned version through the shipped lockfile — and the trust claim narrows accordingly: the plugin authenticates what it ships, and the operator authenticates what they provisioned.
 
 The direct bridge launcher is a small plugin-local executable built from `cmd/lip-cursor-sdk-bridge/` (new path). It locates a fixed private Node executable and bridge entrypoint, forwards protocol stdin/stdout and exit status, and neither invokes a shell/npm nor downloads dependencies. On POSIX, prefer replacing the launcher process with the private runtime; on Windows explicitly forward termination and wait/reap the runtime descendant under the existing process-tree policy. Launcher/runtime creation failures establish cleanup before escape and release partially acquired handles. This extra launcher must be tested as part of the existing descendant supervision contract, not treated as an unowned worker.
 
 **Adopted supervision model (task 3.1).** The launcher supervises on both platforms instead of exec-replacing on POSIX: the spec's own required evidence (deterministic descendant termination, late settlement, repeated close, and Linux race coverage) is unobservable in-process under exec-replace, while the runtime stays inside the launcher's own process group so the connector's existing tree kill still reaches launcher, runtime, and runtime descendants. Two residual costs are accepted and must stay documented rather than silently assumed: a POSIX launcher-only graceful close escalates against the direct child, not a full runtime-forked tree (Windows `taskkill /T /F` does reach them); and on the connector's narrow process-identity-mismatch path — a deliberate PID-reuse-safety downgrade to a handle-only kill — supervision can strand the private runtime, which is exactly the failure exec-replace would have avoided.
 
-Archive assembly builds production JS, includes only production npm dependencies and metadata needed for SDK version resolution, and carries runtime license/provenance notices. Protected plugin installation ownership prevents untrusted companion mutation; checksums cover private files as well as the manifest and outer executable. Validate plugin-private content during packaging and startup with plugin-local logic. The host's executable digest remains the authority for the outer process; no claim is made that it authenticates every companion file.
+Archive assembly builds production JS, ships the lockfile that pins the SDK, carries runtime license/provenance notices, and stages **no** third-party package code. Protected plugin installation ownership prevents untrusted companion mutation. Validate plugin-private content during packaging and startup with plugin-local logic. The host's executable digest remains the authority for the outer process; no claim is made that it authenticates every companion file or the operator-provisioned tree.
 
 Record SEA versus private-runtime evaluation in `docs/packaging.md`, including SDK loading, dynamic imports, metadata lookup, native assets, sandbox behavior, signatures, and platform limitations. A failed private-runtime validation may result in a clearly labelled tested external-Node artifact, as allowed by 3.5; this is a release decision, not a silent runtime fallback. Keep Node tools entirely in the plugin project.
 
 ### Plugin certification
-`compatibility.json` is plugin-release metadata, not a new host manifest field. It records plugin/build/source identity; exact root/ACP/SDK/runtime versions; protocol range and negotiated feature evidence; archive platform; tested host artifact hashes; package verification results; and whether external Node is required. Generate it from validated release inputs, without widening the closed host manifest.
+`compatibility.json` is plugin-release metadata, not a new host manifest field. It records plugin/build/source identity; exact root/ACP/runtime versions and the required (not bundled) SDK version; protocol range and negotiated feature evidence; archive platform; tested host artifact hashes; package verification results; whether external Node is required; and that the Cursor SDK is operator-provisioned with the exact provisioning command. Generate it from validated release inputs, without widening the closed host manifest.
 
-Preserve Linux/Windows production claims from the current manifest only when native archive and secure-IPC tests pass for the advertised architecture. Cross-compilation alone is insufficient. Retain macOS fake-bridge/lifecycle tests as development certification without advertising production Darwin support. An unverified platform blocks that platform's artifact and the planned cutover unless an explicit scope revision is approved.
+Preserve Linux/Windows production claims from the current manifest only when native archive and secure-IPC tests pass for the advertised architecture. Cross-compilation alone is insufficient. Retain macOS fake-bridge/lifecycle tests as development certification without advertising production Darwin support. An unverified platform blocks that platform's artifact and the planned cutover unless an explicit scope revision is approved. The manifest template must list only platforms the packaging pipeline can actually assemble, so that an unvalidated platform cannot be claimed by accident.
 
 ### Host independence guard
 Run root build, `make test-unit`, `make quality-checks`, `make test`, minimal packaging, CLI startup/help, and a non-Cursor hermetic runtime smoke in an image containing documented Go/build prerequisites but no Node/npm. Assert neither tool is available, and fail if a command invokes them. The entry script accepts an explicit repository root and verification command set and records command exit statuses; it does not dynamically download tools.

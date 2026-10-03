@@ -83,6 +83,13 @@
 - [Go module version numbering](https://go.dev/doc/modules/version-numbers)
 - [Node single executable applications](https://nodejs.org/api/single-executable-applications.html)
 
+### Decision: do not redistribute the SDK (maintainer decision, 2026-10-02)
+- **Context:** packaging surfaced the release blocker recorded above — `@cursor/sdk` is proprietary ("use is subject to Cursor's Terms of Service") and its platform package bundles `rg` and `cursorsandbox` binaries whose license texts it does not redistribute. No redistribution right could be verified.
+- **Alternatives considered:** (a) redistribute the SDK and its dependency closure in the archive; (b) ship a build-time opt-in "bundled" variant gated on license acceptance; (c) do not redistribute — ship the lockfile and let the operator provision.
+- **Selected:** (c). Option (a) asserts an unverified legal right to every operator. Option (b) adds a variant matrix to a trust surface that had already needed three review rounds to stabilize, which is the wrong place to grow.
+- **Rationale and consequences:** the runtime stays free of any global Node/npm requirement because provisioning uses the shipped private runtime's own bundled npm; reproducibility is preserved by the shipped lockfile; npm is required rather than any package manager because `overrides` semantics differ and the Undici security baseline depends on them. The provenance split is explicit — the plugin authenticates what it ships, the operator authenticates what they provisioned — and the shipped checksum record therefore covers shipped files only.
+- **Spec impact:** requirements 3.4, 3.5 (amended), new 3.6; requirement 2.4; Boundary Context gained a redistribution-posture line; design "Private runtime package" and "Plugin certification" components amended.
+
 ---
 
 # Gap Analysis: cursor-sdk-standalone (2026-10-01)

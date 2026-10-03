@@ -74,24 +74,54 @@
   - _Validation: GOWORK=off go test -race ./... for launcher and bridge lifecycle packages_
 
 - [x] 3.2 Assemble native archives with trustworthy private layout
-  - Build production JavaScript, stage only production npm dependencies and SDK-version metadata, include the private Node runtime and license/provenance notices, and emit per-platform archives with checksums.
+  - Build production JavaScript, stage the lockfile that pins the SDK, and ship NO third-party package code: the proprietary Cursor SDK is operator-provisioned, not redistributed.
   - Preserve manifest identity, `local_only`, `per_instance`, `agent_runtime`, static credentials, and existing supported Linux/Windows claims only where native tests pass.
-  - Validate checksum coverage for private files, protected install ownership, missing-companion failure, paths containing spaces, and no global Node requirement for the private-runtime variant.
-  - Observable completion is installable native archives whose verification script reports exact files, checksums, and runtime metadata.
-  - _Requirements: 2.3, 2.4, 3.4, 3.5_
+  - Validate checksum coverage for shipped private files, protected install ownership, missing-companion failure, missing-SDK failure with remediation, paths containing spaces, and no global Node requirement.
+  - Observable completion: installable native archives whose verification script reports exact files, checksums, runtime metadata, and SDK provisioning state.
+  - _Requirements: 2.3, 2.4, 3.4, 3.5, 3.6_
   - _Boundary: Private runtime package_
   - _Depends: 2.3, 3.1_
   - _Validation: scripts/package-plugin and scripts/verify-package on native OS/arch_
 
-- [ ] 3.3 Record packaging evaluation and release compatibility metadata
-  - Generate `compatibility.json` from validated release inputs with plugin/build/source identity, exact host/root/ACP/SDK/runtime versions, protocol range, platform evidence, tested host hashes, package verification results, and external-Node requirement flag.
-  - Document the SEA versus private-runtime evaluation, including SDK loading, imports, metadata lookup, native assets, sandbox behavior, signatures, and platform limits, without widening the closed host manifest.
-  - Publish tested per-OS installation instructions stating explicitly whether system Node is required.
-  - Observable completion is a release whose compatibility and packaging decision can be audited without inspecting build logs.
-  - _Requirements: 2.4, 3.5, 6.4_
+- [ ] 3.3 (P) Stop redistributing the SDK and require operator provisioning
+  - Stop staging `private/bridge/node_modules/`; ship `package.json` + `package-lock.json` only, and record in the archive that the SDK is operator-provided and not redistributed.
+  - Make a missing or version-mismatched provisioned SDK an explicit, actionable prerequisite failure naming the exact provisioning command; keep the existing no-shell/no-download posture.
+  - Narrow the shipped checksum record to shipped files and state the provenance split: the plugin authenticates what it ships, the operator authenticates what they provisioned.
+  - Add the installation/provisioning documentation for operators.
+  - Observable completion is an archive with no third-party package code, a verifier that fails closed on an unprovisioned tree, and documented provisioning steps.
+  - _Requirements: 2.4, 3.4, 3.5, 3.6_
+  - _Boundary: Private runtime package_
+  - _Depends: 3.2_
+  - _Validation: archive content audit, unprovisioned and provisioned verification on native OS/arch_
+
+- [ ] 3.4 (P) Narrow manifest template, relocate stranded host scripts, inspect required CI checks
+  - Narrow `manifest/template.backendplugin.json` to platforms the pipeline can natively assemble, so an unvalidated platform cannot be claimed.
+  - Relocate the remaining host-only `scripts/test-cursor-sdk-{comparison-report,live,platform}.{sh,ps1}` to the plugin repository, so the cutover batches can delete them with an owner in place.
+  - Inspect branch protection and required status contexts for the Cursor lane; replace the host-relevant invariant with the generic no-Node guard before any required check is retired.
+  - Observable completion is a manifest that cannot overclaim, no orphaned Cursor scripts, and a recorded required-check disposition.
+  - _Requirements: 2.4, 6.1_
   - _Boundary: Plugin certification_
   - _Depends: 3.2_
+  - _Validation: manifest/template platform audit, script inventory, gh required-check inspection_
+
+- [ ] 3.5 Record packaging evaluation and release compatibility metadata
+  - Generate `compatibility.json` from validated release inputs with plugin/build/source identity, exact host/root/ACP/runtime versions and the REQUIRED (not bundled) SDK version, protocol range, platform evidence, tested host hashes, package verification results, external-Node requirement flag, SDK provisioning command, and an explicit non-redistribution statement.
+  - Document the SEA versus private-runtime evaluation, including SDK loading, imports, metadata lookup, native assets, sandbox behavior, signatures, and platform limits, without widening the closed host manifest.
+  - Publish tested per-OS installation instructions stating explicitly whether system Node is required and exactly how to provision the SDK with the shipped runtime.
+  - Observable completion is a release whose compatibility and packaging decision can be audited without inspecting build logs.
+  - _Requirements: 2.4, 3.5, 3.6, 6.4_
+  - _Boundary: Plugin certification_
+  - _Depends: 3.2, 3.3, 3.4_
   - _Validation: compatibility metadata schema check and installation rehearsal_
+
+- [ ] 3.6 (P) Make verification tractable and probes bounded
+  - Replace the O(N²) recorded-digest resolution and per-file digest spawns in the shell verifier with a single indexed pass, and add bounded timeouts to the runtime and launcher probes so a replaced interactive binary fails instead of hanging.
+  - This is a performance and robustness change only: it must not alter any verdict, and every trust check must remain intact.
+  - Observable completion is a materially faster gate with probe timeouts proven to produce a finding rather than a hang.
+  - _Requirements: 2.4, 3.4_
+  - _Boundary: Private runtime package_
+  - _Depends: 3.2_
+  - _Validation: gate runtime before/after, unchanged verdicts across the existing adversarial cases_
 
 - [ ] 4. Plugin certification against public contracts
 - [ ] 4.1 Preserve SDK contract, stream, lifecycle, and diagnostics regressions
@@ -172,7 +202,7 @@
 - **Packaging performance debt (deliberately deferred):** `verify-package.sh` still resolves recorded digests by linear scan (O(N²)) and spawns `sha256sum` per file; one verification is ~31 s and the ubuntu gate needs `-timeout 25m` (11 min). Fix as its own reviewed PR — it is a performance change, not a trust change.
 - **Packaging known limitations (recorded in plugin README):** verifier probes have no timeout (a replaced interactive binary hangs rather than fails), path comparison is byte-wise with no Unicode normalization (fails closed), the PowerShell ownership FAIL branch is driven end-to-end only where permission bits are readable, and the `.sh` packager cannot be validated on a Windows host under git bash.
 - **Native platform evidence:** windows/amd64 + linux/amd64 are assembled and verified natively and CI-enforced via a `package` matrix on `windows-latest`/`ubuntu-latest`. windows/arm64 and linux/arm64 remain declared-not-assembled; darwin is not declared.
-- **RELEASE BLOCKER (task 3.3 must not paper over):** `@cursor/sdk` is proprietary and its platform package ships bundled `rg`/`cursorsandbox` whose license texts are not redistributed. Recorded as `ACTION REQUIRED before any publication` in README/PROVENANCE/`compatibility.json.licensing_status`/staged `THIRD-PARTY-NOTICES.md`. No tag or release exists.
+- **RELEASE BLOCKER resolved by decision (spec amended):** `@cursor/sdk` is proprietary and its platform package ships bundled `rg`/`cursorsandbox` whose license texts are not redistributed. The maintainer decided the plugin must NOT redistribute the SDK. The archive now ships `package.json` + `package-lock.json` and **no** `node_modules/`; the operator provisions the SDK once with the shipped private runtime's own bundled npm. Requirements 3.4/3.5/3.6 and the design's "Private runtime package" component were amended accordingly. Consequences to honor in implementation: the shipped checksum record covers shipped files only (the provisioned tree is operator-owned); the verifier's SDK check becomes a requirement (resolve at the pinned version via the shipped lockfile) rather than a digest check; provenance must state the runtime/bridge are project-attributable and the provisioned tree is operator-attributable.
 - **Launcher merged (task 3.1):** plugin PR #8 merged `9e71f266`. Design updated: supervision is adopted on BOTH platforms (not POSIX exec-replace) because the spec's own late-settlement/repeated-close/Linux-race evidence is unobservable under exec-replace; two accepted residuals are recorded in design.md and README: a POSIX graceful close escalates against the direct child only, and the connector's identity-mismatch handle-only kill can strand the runtime (measured by `TestLauncherProcess_AbruptLauncherDeathByHandleAloneStrandsPrivateRuntime`).
 - **Race on this host:** `go test -race` cannot initialize locally (ThreadSanitizer shadow-reservation error 87, reproduces on untouched packages). The plugin's `go -race (launcher and bridge lifecycle)` CI lane on ubuntu-latest is the race evidence — always confirm that lane before claiming concurrency evidence.
 - **Task 3.2 must stage `private/bridge/bin/`** (now a design layout row): the launcher executes `private/bridge/bin/lip-cursor-sdk-bridge.js`, not `dist/main.js`. The rel-path constant lives in `package main` and cannot be imported by the packager, so 3.2 owns moving/consuming it.
