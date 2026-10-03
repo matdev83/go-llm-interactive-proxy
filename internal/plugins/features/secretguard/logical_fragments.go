@@ -106,6 +106,32 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 		})
 		return false
 	}
+	appendJSONText := func(location string, value *string) bool {
+		if value == nil || len(*value) == 0 || !budget.admit(len(*value)) {
+			return budget.limitHit
+		}
+		fragments = append(fragments, LogicalFragment{
+			Location:  location,
+			Kind:      FragmentJSON,
+			Raw:       bytes.Clone([]byte(*value)),
+			privateID: fmt.Sprintf("fragment[%d]", len(fragments)),
+			replace:   func(raw []byte) { *value = string(raw) },
+		})
+		return false
+	}
+	appendContentPart := func(location string, part *lipapi.ContentPart) bool {
+		if part == nil {
+			return false
+		}
+		switch part.Kind {
+		case lipapi.ContentPartText, lipapi.ContentPartToolResult:
+			return appendText(location, &part.Text)
+		case lipapi.ContentPartJSON:
+			return appendJSONText(location, &part.Text)
+		default:
+			return false
+		}
+	}
 	appendMessage := func(messages []lipapi.Message, prefix string) bool {
 		for i := range messages {
 			for j := range messages[i].Parts {
@@ -133,7 +159,42 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 		return false
 	}
 
-	if appendMessage(call.Instructions, "instructions") || appendMessage(call.Messages, "messages") {
+	appendItems := func(items []lipapi.Item) bool {
+		for i := range items {
+			item := &items[i]
+			switch item.Kind {
+			case lipapi.ItemKindMessage:
+				for j := range item.Content {
+					if appendContentPart(fmt.Sprintf("items[%d].content[%d]", i, j), &item.Content[j]) {
+						return true
+					}
+				}
+			case lipapi.ItemKindToolCall:
+				if item.ToolCall != nil && appendJSON(fmt.Sprintf("items[%d].tool_call.arguments", i), &item.ToolCall.Arguments) {
+					return true
+				}
+			case lipapi.ItemKindToolResult:
+				if item.ToolResult == nil {
+					continue
+				}
+				if appendText(fmt.Sprintf("items[%d].tool_result.output", i), &item.ToolResult.Output) {
+					return true
+				}
+				for j := range item.ToolResult.Parts {
+					if appendContentPart(fmt.Sprintf("items[%d].tool_result.parts[%d]", i, j), &item.ToolResult.Parts[j]) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+
+	if call.HasItemAuthority() {
+		if appendItems(call.Items) {
+			return fragments
+		}
+	} else if appendMessage(call.Instructions, "instructions") || appendMessage(call.Messages, "messages") {
 		return fragments
 	}
 	for i := range call.Tools {

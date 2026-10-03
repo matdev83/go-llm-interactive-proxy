@@ -163,12 +163,14 @@
     - _Validation: canary absence assertions across all observability sinks_
 
 - [ ] 8. Certify protocol parity, concurrency, fuzz safety, and performance
-  - [ ] 8.1 Build the synthetic detector corpus and frontend parity matrix
+  - [x] 8.1 Build the synthetic detector corpus and frontend parity matrix
     - Cover OpenAI, Anthropic, GitHub, Slack, Stripe, AWS multipart, generic API key/password/credential URI, private key, public/non-secret negatives, JSON key context, tool schemas/results, repeated overlaps, allow markers, and decoded forms.
     - Run equivalent canonical payload cases through every bundled frontend flavor that can represent them.
+    - Consume authoritative `Call.Items` within the feature-private logical fragment walker, including message text/JSON, tool-call arguments, and tool-result output/parts. Preserve shared byte-budget accounting, stable locations, and clone-only replacement closures without projecting duplicate legacy messages or changing frontend/API contracts.
+    - Exercise real BetterLeaks under the unchanged resolved default policy for positive and negative frontend cases; assert detector/rule provenance, JSON/canonical validity after literal redaction, and hybrid repeat/overlap counts. Do not skip representable item-authoritative payloads.
     - Use synthetic credentials only and avoid printing fixture values in test failures.
     - _Requirements: 10.3, 10.4_
-    - _Boundary: testkit + frontend/secret-guard integration tests_
+    - _Boundary: testkit + frontend/secret-guard integration tests; feature-private authoritative-item traversal and replacement closures_
     - _Depends: 6.3_
     - _Validation: parity matrix_
 

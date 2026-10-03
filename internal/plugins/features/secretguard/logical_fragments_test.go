@@ -69,6 +69,67 @@ func TestWalkLogicalFragments_PreservesCanonicalContextAndLocations(t *testing.T
 	}
 }
 
+func TestWalkLogicalFragments_ItemAuthorityCoversMessagesAndToolPayloads(t *testing.T) {
+	t.Parallel()
+
+	call := &lipapi.Call{Items: []lipapi.Item{
+		{
+			Kind: lipapi.ItemKindMessage,
+			Role: lipapi.RoleUser,
+			Content: []lipapi.ContentPart{
+				{Kind: lipapi.ContentPartText, Text: "item message text"},
+				{Kind: lipapi.ContentPartJSON, Text: `{"credentials":{"token":"item-json"}}`},
+			},
+		},
+		{
+			Kind:     lipapi.ItemKindToolCall,
+			ToolCall: &lipapi.ToolCallItem{CallID: "call-1", Name: "lookup", Arguments: json.RawMessage(`{"token":"item-arguments"}`)},
+		},
+		{
+			Kind: lipapi.ItemKindToolResult,
+			ToolResult: &lipapi.ToolResultItem{
+				CallID: "call-1",
+				Output: `{"token":"item-output"}`,
+				Parts: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartText, Text: "item result text"},
+					{Kind: lipapi.ContentPartJSON, Text: `{"token":"item-result-json"}`},
+				},
+			},
+		},
+	}}
+	want := []struct {
+		location string
+		kind     FragmentKind
+		raw      string
+	}{
+		{location: "items[0].content[0]", kind: FragmentText, raw: "item message text"},
+		{location: "items[0].content[1]", kind: FragmentJSON, raw: `{"credentials":{"token":"item-json"}}`},
+		{location: "items[1].tool_call.arguments", kind: FragmentJSON, raw: `{"token":"item-arguments"}`},
+		{location: "items[2].tool_result.output", kind: FragmentText, raw: `{"token":"item-output"}`},
+		{location: "items[2].tool_result.parts[0]", kind: FragmentText, raw: "item result text"},
+		{location: "items[2].tool_result.parts[1]", kind: FragmentJSON, raw: `{"token":"item-result-json"}`},
+	}
+
+	fragments := walkLogicalFragments(call, newScanBudget(1024))
+	if len(fragments) != len(want) {
+		t.Fatalf("item fragment count: got %d want %d", len(fragments), len(want))
+	}
+	for i, fragment := range fragments {
+		if fragment.Location != want[i].location || fragment.Kind != want[i].kind || string(fragment.Raw) != want[i].raw {
+			t.Fatalf("item fragment %d mismatch: got location=%q kind=%v raw_len=%d", i, fragment.Location, fragment.Kind, len(fragment.Raw))
+		}
+	}
+
+	fragments[0].setRaw([]byte("item message replacement"))
+	fragments[1].setRaw([]byte(`{"credentials":{"token":"item-json-replacement"}}`))
+	if got := call.Items[0].Content[0].Text; got != "item message replacement" {
+		t.Fatalf("item message replacement was not committed: got %q", got)
+	}
+	if got := call.Items[0].Content[1].Text; got != `{"credentials":{"token":"item-json-replacement"}}` {
+		t.Fatalf("item JSON replacement was not committed: got %q", got)
+	}
+}
+
 func TestWalkLogicalFragments_AdmitsWholeFragmentsAgainstSharedBudget(t *testing.T) {
 	t.Parallel()
 
