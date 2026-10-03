@@ -149,9 +149,9 @@ The feature is brownfield. Existing stage ordering, `block`/`redact`/`log` actio
 
 7.4. **If** `betterleaks.workers` is configured outside `1..64`, candidate generation shall fail; accepted explicit values shall be used as the scanner-wide detection worker bound shared across concurrent scans of that generation.
 
-7.5. **Where** `betterleaks.disable_rules` is configured, AIProxer shall validate every rule ID against the resolved pinned BetterLeaks configuration, fail on unknown IDs, and remove only those reviewed rules from the active detector set.
+7.5. **Where** `betterleaks.disable_rules` is configured, AIProxer shall validate every rule ID against the resolved pinned BetterLeaks configuration, reject unknown IDs, and remove exactly the selected known IDs from the active detector set. Candidate generation shall fail before publication with a bounded configuration error if any retained rule has a required component reference to a selected ID. A selected component may be removed when every rule that requires it is also explicitly selected for removal. Optional references from retained rules to selected IDs shall be pruned, but AIProxer shall never cascade-remove dependent rules, weaken or remove a retained rule's required reference, or substitute `SkipReport` or another suppression for removal.
 
-7.6. **Where** `betterleaks.isolate_rules` is configured, AIProxer shall validate every rule ID, fail on unknown IDs, and activate only the selected rule closure including required component rules.
+7.6. **Where** `betterleaks.isolate_rules` is configured, AIProxer shall validate every rule ID and activate the selected roots together with their transitive required component closure, failing on unknown IDs. Optional references to components outside that closure shall be pruned while the retained required closure remains intact; an optional component rule selected explicitly shall remain in the configuration with its pinned matching and reporting behavior and shall bring along its own required closure.
 
 7.7. **If** both `disable_rules` and `isolate_rules` are non-empty, candidate generation shall fail rather than guess precedence.
 
@@ -159,7 +159,7 @@ The feature is brownfield. Existing stage ordering, `block`/`redact`/`log` actio
 
 7.9. **When** lists contain duplicate rule IDs or surrounding whitespace, AIProxer shall canonicalize them deterministically before scanner construction and configuration hashing.
 
-7.10. **When** `scan_max_bytes`, existing redaction options, local auto-discovery options, or BetterLeaks options are invalid, candidate generation shall fail before publication and the previously published generation shall remain serving according to existing reload semantics.
+7.10. **When** `scan_max_bytes`, existing redaction options, local auto-discovery options, or BetterLeaks options (including rule dependency validation) are invalid, candidate generation shall fail before publication with a bounded configuration error and the previously published generation shall remain serving according to existing reload semantics.
 
 ### Requirement 8: Scanner Lifecycle, Errors, and Bounded Resource Use
 

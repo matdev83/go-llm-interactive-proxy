@@ -2,9 +2,11 @@ package secretguard
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 
+	blconfig "github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/report"
 	blscan "github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -47,6 +49,43 @@ func scanBetterLeaksTestFragment(t *testing.T, detector *betterLeaksScanner, con
 		t.Fatalf("scan fragment: %v", err)
 	}
 	return findings
+}
+
+func defaultBetterLeaksConfig() (*blconfig.Config, error) {
+	return blconfig.Default()
+}
+
+func betterLeaksRule(cfg *blconfig.Config, ruleID string) blconfig.Rule {
+	rule, ok := cfg.Rule(ruleID)
+	if !ok {
+		panic("missing BetterLeaks rule " + ruleID)
+	}
+	return rule
+}
+
+func policyFinding(findings []report.Finding, ruleID string) (report.Finding, bool) {
+	for _, finding := range findings {
+		if finding.RuleID == ruleID {
+			return finding, true
+		}
+	}
+	return report.Finding{}, false
+}
+
+func componentFindingIDs(finding report.Finding) []string {
+	seen := make(map[string]struct{})
+	var ids []string
+	for _, set := range finding.ComponentSets {
+		for _, component := range set.Components {
+			if _, ok := seen[component.RuleID]; ok {
+				continue
+			}
+			seen[component.RuleID] = struct{}{}
+			ids = append(ids, component.RuleID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func TestNewBetterLeaksScanner_RejectsInvalidConstructionPolicy(t *testing.T) {

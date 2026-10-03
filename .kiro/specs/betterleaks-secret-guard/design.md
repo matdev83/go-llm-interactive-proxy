@@ -152,12 +152,16 @@ The resolved runtime configuration contains concrete booleans and immutable Bett
 
 ### BetterLeaks rule selectors
 
-- `disable_rules`: zero or more exact upstream rule IDs removed from the pinned default configuration.
-- `isolate_rules`: zero or more exact upstream rule IDs used as the selected root set; required component rules are retained automatically.
+- `disable_rules`: zero or more exact upstream rule IDs removed from the pinned default configuration. The resolver removes only those selected IDs, then inspects the remaining dependency graph: a retained rule with a required reference to a removed ID rejects the candidate with a bounded configuration error. Removing a component is valid when every rule that requires it is explicitly selected for removal. Optional references to removed IDs are pruned from retained rules. No dependent rule is cascade-removed, no retained required reference is weakened or removed, and no suppression such as `SkipReport` substitutes for removal.
+- `isolate_rules`: zero or more exact upstream rule IDs used as the selected root set. The resolver retains the roots and their transitive required component closure, prunes optional references to components outside that closure, and retains an explicitly selected optional component with its pinned matching and reporting behavior (including its required closure).
 - the two lists are mutually exclusive;
 - IDs are trimmed, deduplicated, sorted, and validated during candidate generation;
 - unknown IDs are errors;
 - custom TOML paths, target-local config, ignores, baselines, allow signatures, validation, and source options are intentionally absent.
+
+The selector algorithm is illustrated by the pinned AWS multipart rules. `disable_rules: [aws-secret-access-key]` is invalid because the retained `aws-access-token` rule requires that component. `disable_rules: [aws-access-token, aws-secret-access-key]` is valid because both the component and its dependent are explicitly removed. `isolate_rules: [aws-access-token]` is valid and retains both the selected AWS rule and its required `aws-secret-access-key` component. An isolated rule with an unselected optional component keeps the root and prunes that optional reference; selecting the optional component explicitly keeps it active.
+
+Selector dependency errors are bounded and do not echo raw selector values or scanner findings. The candidate is rejected before precompilation/publication, so no policy identity is published for the failed resolution. On success, the config hash, rule-inventory hash, active count, and sorted final rule inventory are computed from the resolved post-selector configuration and captured as immutable generation facts.
 
 ## System Flows
 
@@ -176,14 +180,21 @@ sequenceDiagram
     Compose->>Compose: Reject local discovery in multi user
     Compose->>BL: Build only when BetterLeaks enabled
     BL->>BL: Load pinned default config
-    BL->>BL: Apply validated rule selection
-    BL->>BL: Precompile with no allow signatures
-    BL->>BL: Compute hash and rule count
-    BL-->>Compose: Immutable scanner handle and diagnostics
-    Compose-->>Gen: Frozen secret guard execution plane
+    BL->>BL: Resolve selectors and required/optional dependencies
+    alt Invalid dependency selection
+        BL-->>Compose: Bounded configuration error
+        Compose-->>Reload: Reject candidate; retain published generation
+    else Valid dependency selection
+        BL->>BL: Precompile with no allow signatures
+        BL->>BL: Compute hash and rule count
+        BL-->>Compose: Immutable scanner handle and diagnostics
+        Compose-->>Gen: Frozen secret guard execution plane
+    end
 ```
 
 No environment call is needed to reject an invalid multi-user local-discovery configuration. The environment source is consulted only after the resolved policy says local discovery is allowed and enabled.
+
+Any selector dependency error rejects the candidate before it can replace the runtime generation; the previously published generation remains serving under the existing reload semantics (Requirement 7.10).
 
 ### Request detection and enforcement
 

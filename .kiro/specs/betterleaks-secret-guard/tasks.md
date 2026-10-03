@@ -20,7 +20,7 @@
     - _Depends: 1.1_
     - _Validation: config decode + candidate generation tests_
 
-- [ ] 2. Build the private BetterLeaks generation adapter
+- [x] 2. Build the private BetterLeaks generation adapter
   - [x] 2.1 Add the pinned v2 dependency and detection-only adapter boundary
     - Pin BetterLeaks v2 to the exact reviewed version and import only the minimum detection/config surface.
     - Construct one reusable generation scanner with stdlib regex, explicit AIProxer worker count, confidence threshold, decode depth, precompile, and zero allow signatures.
@@ -40,14 +40,15 @@
     - _Depends: 2.1 interface boundary_
     - _Validation: architecture test suite_
 
-  - [ ] 2.3 Configure rule selection and frozen policy identity
-    - Apply validated disable/isolate selectors to the pinned in-memory default configuration, preserving required component closure for isolated multipart rules.
+  - [x] 2.3 Configure rule selection and frozen policy identity
+    - Apply validated selectors to the pinned in-memory default configuration. `disable_rules` rejects unknown IDs and removes only explicitly selected known IDs; reject candidate publication with a bounded configuration error if any retained rule requires a selected ID. Permit component removal when every rule that requires it is explicitly selected for removal. Do not cascade-remove dependents, weaken or remove retained required references, or substitute suppression for removal.
+    - For `isolate_rules`, retain selected roots and their transitive required component closure, prune optional references to excluded components, and retain an explicitly selected optional component with its pinned matching/reporting behavior and required closure.
     - Capture BetterLeaks version, config hash, active rule count, confidence, decode depth, and worker count as safe generation facts.
     - Add a review ratchet so an upstream dependency/rule change cannot alter the default resolved policy unnoticed.
-    - _Requirements: 7.5, 7.6, 7.7, 7.9, 9.1, 9.2, 9.3_
+    - _Requirements: 7.5, 7.6, 7.7, 7.9, 7.10, 9.1, 9.2, 9.3_
     - _Boundary: BetterLeaks scanner builder / policy ratchet_
     - _Depends: 2.1_
-    - _Validation: deterministic config hash/rule inventory goldens_
+    - _Validation: deterministic config hash/rule inventory goldens; required-only `aws-secret-access-key` disable rejection; component-plus-dependent `aws-secret-access-key` plus `aws-access-token` disable acceptance; shared component rejection while any required dependent remains; optional removal and isolation behavior; unchanged retained AWS multipart matching; failed candidate rejection retains the previously published generation_
 
 - [ ] 3. Add context-preserving logical-fragment discovery
   - [ ] 3.1 Define and RED-test the logical fragment traversal
@@ -109,6 +110,7 @@
     - Compose exact and BetterLeaks detector capabilities without moving BetterLeaks imports into generic runtime or core.
     - Preserve disabled behavior, action/audit configuration, immutable generation semantics, and existing request stage ordering.
     - Expose bounded detector posture through the existing diagnostics inventory path.
+    - Verify selector dependency rejection through actual candidate composition retains the previously published generation and its request behavior (Requirement 7.10).
     - _Requirements: 1.1, 1.7, 1.8, 3.2, 9.1, 10.1, 10.8_
     - _Boundary: standard featurehost secret-guard composition / frozen plane_
     - _Depends: 2.3, 5.1, 5.2_
@@ -199,3 +201,7 @@
     - _Boundary: whole-feature certification_
     - _Depends: 7.1, 7.2, 8.3_
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
+
+## Implementation Notes
+
+- BetterLeaks validates optional component references too; isolated rules prune unselected optional references and retain explicitly selected optional components with their pinned behavior. `disable_rules` removes only explicitly selected IDs and rejects removal of a required component while any rule requiring it remains. Dependency updates also require tidying the external-billing and enterprise fixture modules.
