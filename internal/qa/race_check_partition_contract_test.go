@@ -48,6 +48,10 @@ type raceCheckScenario struct {
 	staged bool
 	// stagedFiles is the `git diff --cached --name-only` answer.
 	stagedFiles []string
+	// fixtureFiles are additional empty files created in the fixture root
+	// before running the script (for example, a nested module marker such as
+	// connectors/codex/go.mod that module discovery reads from disk).
+	fixtureFiles []string
 	// fullList is the `go list ./...` answer used by the full scan.
 	fullList []string
 	// failMatch makes the fake `go test` fail when it sees a package containing it.
@@ -109,6 +113,57 @@ func TestRaceCheckStagedScanPartitionsArchtestFromOrdinaryScopes(t *testing.T) {
 			want: []raceCheckExpectation{
 				{
 					packages:       []string{"./internal/archtest/..."},
+					requiredFlags:  stagedFlags,
+					forbiddenFlags: stagedForbidden,
+				},
+			},
+		},
+		{
+			// A staged tree containing only nested-module Go files must scan
+			// the nested module in its own module context instead of tripping
+			// the empty-set guard: PACKAGES and ARCH_PACKAGES are both empty
+			// here, so omitting NESTED_SCOPES from the guard exits before the
+			// nested scan is reached.
+			name:   "nested-module-only selection scans the nested module in its own context",
+			staged: true,
+			stagedFiles: []string{
+				"connectors/codex/internal/responsestream/mapper.go",
+			},
+			fixtureFiles: []string{
+				"connectors/codex/go.mod",
+			},
+			wantExit: 0,
+			want: []raceCheckExpectation{
+				{
+					packages:       []string{"./internal/responsestream/..."},
+					requiredFlags:  stagedFlags,
+					forbiddenFlags: stagedForbidden,
+				},
+			},
+		},
+		{
+			// Mixed root and nested selections scan both groups: the ordinary
+			// root-module scope first, then the nested module in its own
+			// context. The nested invocation records module-relative package
+			// paths.
+			name:   "mixed root and nested selection scans both groups",
+			staged: true,
+			stagedFiles: []string{
+				"internal/core/runtime/attempt_session.go",
+				"connectors/codex/internal/responsestream/mapper.go",
+			},
+			fixtureFiles: []string{
+				"connectors/codex/go.mod",
+			},
+			wantExit: 0,
+			want: []raceCheckExpectation{
+				{
+					packages:       []string{"./internal/core/runtime/..."},
+					requiredFlags:  stagedFlags,
+					forbiddenFlags: stagedForbidden,
+				},
+				{
+					packages:       []string{"./internal/responsestream/..."},
 					requiredFlags:  stagedFlags,
 					forbiddenFlags: stagedForbidden,
 				},
@@ -289,6 +344,9 @@ func assertRaceCheckScenario(t *testing.T, scenario raceCheckScenario) {
 	writeRaceFixture(t, listPath, strings.Join(scenario.fullList, "\n")+"\n", 0o644)
 	if err := os.WriteFile(recordPath, nil, 0o644); err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range scenario.fixtureFiles {
+		writeRaceFixture(t, filepath.Join(root, name), "", 0o644)
 	}
 
 	args := []string{raceCheckScript, "--strict"}
