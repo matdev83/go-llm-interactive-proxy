@@ -244,7 +244,7 @@
     - _Depends: 9.2_
     - _Validation: failing billing-schema QA preflight before relocation; passing preflight and all relocated integration regressions afterward; scoped vet and diff checks_
 
-  - [ ] 9.4 Isolate billing-spool worker semantics from disk synchronization
+  - [x] 9.4 Isolate billing-spool worker semantics from disk synchronization
     - Use the existing injected database seam to give the two failing worker-delivery tests private in-memory SQLite fixtures, consistent with the testing steering. Preserve their one-second/five-second observation limits, assertions, repeated Start calls, claim configuration, and caller-owned database cleanup.
     - Keep file-backed durability/restart tests and production spool behavior unchanged. Diagnostic passes do not establish the cause of the original full-suite failures; final certification must establish the resulting suite status.
     - _Requirements: 10.1; upstream billing-spool worker/certification contract_
@@ -253,6 +253,8 @@
     - _Validation: equivalent pre-change fixture check; focused worker and complete spool tests; unchanged file-backed durability tests; scoped vet and Linux race; comprehensive certification in 9.1_
 
 ## Implementation Notes
+
+- Tasks 9.3 and 9.4 preserve the billing certification population and isolate two spool worker fixtures from disk synchronization. Independent package/durability checks and a fresh logged Linux worker race pass; observation limits and production billing remain unchanged. Original full-suite spool timeout attribution is unproven, and task 9.1 requires a new complete gate result.
 
 - Final integration review maps all 73 criteria across 10 requirement sections with no implementation gap and accepts the bounded performance assessment. Task 9.2 repairs the upstream billing measurement without changing production billing or its 65,536-byte depth-spread bound. Task 9.1 awaits fresh comprehensive certification; the earlier QA failure is not evidence of final success.
 
