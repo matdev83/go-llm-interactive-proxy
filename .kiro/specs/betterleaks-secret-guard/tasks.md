@@ -218,8 +218,8 @@
     - _Depends: 8.5_
     - _Validation: strict TDD; corpus/budget/redaction regressions; targeted race/fuzz; comparable benchmarks and profiles_
 
-- [ ] 9. Run final cross-boundary security certification
-  - [ ] 9.1 Verify all architecture, config, security, and regression gates together
+- [x] 9. Run final cross-boundary security certification
+  - [x] 9.1 Verify all architecture, config, security, and regression gates together
     - Re-run zero-env-read multi-user tests with BetterLeaks on/off, local-discovery invalid/absent, reload failures, and normal request traffic.
     - Re-run allow-marker, no-network, no-CLI, no-raw-finding, scan-failure, decoded-redact, quarantine/no-dispatch, deterministic merge, and default-policy-hash ratchets.
     - Run the repository's applicable quality, unit, race, parity, and QA gates for a wide security-sensitive feature change.
@@ -261,25 +261,25 @@
 
 ## Implementation Notes
 
-- Task 9.5 makes recorded poller job IDs atomic and preserves all three ID assertions and concurrent adoption coverage. Independent current Linux package race, focused repeated race, lint, and vet pass; a fresh parent race probe also passes. The final broad race lane must be rerun after this fixture-only repair; the other four lanes passed at 22d7b25b with unchanged source.
+- Task 9.5 makes recorded poller job IDs atomic and preserves all three ID assertions and concurrent adoption coverage. Independent current Linux package race, focused repeated race, lint, and vet pass. Final strict broad race passes at daa38a0b; the other four lanes passed at 22d7b25b with unchanged source and configuration.
 
-- Tasks 9.3 and 9.4 preserve the billing certification population and isolate two spool worker fixtures from disk synchronization. Independent package/durability checks and a fresh logged Linux worker race pass; observation limits and production billing remain unchanged. Original full-suite spool timeout attribution is unproven, and task 9.1 requires a new complete gate result.
+- Tasks 9.3 and 9.4 preserve the billing certification population and isolate two spool worker fixtures from disk synchronization. Independent package/durability checks, a fresh logged Linux worker race, and final unit/QA gates pass; observation limits and production billing remain unchanged. Original full-suite spool timeout attribution remains unproven.
 
-- Final integration review maps all 73 criteria across 10 requirement sections with no implementation gap and accepts the bounded performance assessment. Task 9.2 repairs the upstream billing measurement without changing production billing or its 65,536-byte depth-spread bound. Task 9.1 awaits fresh comprehensive certification; the earlier QA failure is not evidence of final success.
+- Final independent integration review returns GO for implementation-branch certification at daa38a0b: all 73 criteria across 10 requirement sections are covered, no new boundary violation exists, and the bounded performance assessment is accepted. Current unit, configured quality, parity, QA, broad race, build, and CLI smoke pass. Complete applicable race coverage includes the four unchanged lanes at 22d7b25b. Delivery, GitHub CI, merge, and archive verification remain separate.
 
-- Task 9.2 measures a fresh retained Rate goroutine in an isolated process for each depth, disables both automatic GC triggers after fixture setup, and rejects collections or incomplete child evidence. Independent actual-Rate recursion mutations exceed the unchanged spread bound. Windows focused integration and Linux focused integration, runtime controls, targeted race, and vet pass; maximum-depth race and QA remain part of task 9.1.
+- Task 9.2 measures a fresh retained Rate goroutine in an isolated process for each depth, disables both automatic GC triggers after fixture setup, and rejects collections or incomplete child evidence. Independent actual-Rate recursion mutations exceed the unchanged 65,536-byte spread bound. Focused integration, runtime controls, targeted race, vet, full maximum-depth billing race, and final QA pass.
 
-- Task 8.6 removes avoidable no-hit text copies: independently measured 2 MiB scans allocate 1,221 B exact-only, 11,048 B BetterLeaks-only, and 17,816 B hybrid. Positive/JSON costs require the final performance assessment; setup allocations are not steady-request costs.
+- Task 8.6 removes avoidable no-hit text copies: independently measured 2 MiB scans allocate 1,221 B exact-only, 11,048 B BetterLeaks-only, and 17,816 B hybrid. The final performance assessment accepts remaining positive/JSON costs for the bounded opt-in profile; setup allocations are not steady-request costs.
 
 - Task 8.5 removes 54 measured production lines through reviewed feature-owned deduplication; the unchanged architecture convergence ratchet now passes at -800 with accepted-credential and diagnostic-isolation regressions green.
 
-- Debug verification establishes the shrinkage failure as branch-local: current main passes at -801 and this feature adds 55 measured lines. Final Linux gates should use an isolated native clone through the existing UbuntuOld/ciuser runner, avoiding root execution and Windows worktree metadata.
+- The original shrinkage failure was branch-local and was repaired in task 8.5 without changing its budget. Final Linux gates use an isolated native clone through UbuntuOld/ciuser, avoiding root execution and Windows worktree metadata.
 
-- Benchmark measurements are complete; roughly 4.2 MB exact-only / 6.3 MB hybrid allocations per 2 MiB no-secret text scan and large positive-hit latency require profile-backed performance assessment before feature GO. Measurement approval does not accept that resource impact.
+- Initial request-sized no-hit copies were removed in task 8.6. Benchmark and profile artifacts retain remaining positive-match latency and JSON allocation costs; the accepted performance assessment does not establish a deployment latency SLO.
 
-- Targeted secretguard race certification passes in WSL Ubuntu with GCC and verified Go 1.26.6 at `$HOME/.local/share/lip-betterleaks-race-toolchain/go/bin/go`; full runtime race separately reported a billing durable-restart deadline failure requiring final certification assessment.
+- Linux race certification uses GCC and Go 1.26.6. Final durable-runtime race passes; historical deadline failures do not replace the final recorded gate evidence.
 
-- Enabled BetterLeaks zero decode depth and zero active rules must remain present in diagnostics; full architecture certification currently reports TestShrinkage_NetReductionMeetsRequirement115 convergence delta -746 versus required -800.
+- Enabled BetterLeaks zero decode depth and zero active rules remain present in diagnostics. Final architecture certification passes the unchanged -800 convergence requirement.
 
 - Hybrid occurrence mapping must follow the canonical UseNumber decoder, first-value consumption, duplicate-key handling, and depth rejection; raw JSON escape syntax is not an additional semantic occurrence.
 
