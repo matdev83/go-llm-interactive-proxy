@@ -337,6 +337,13 @@ func (p *responsePipeline) markContinuationLifecyclePending() {
 	}
 	p.eventsMu.Lock()
 	p.continuationLifecyclePending = true
+	// Snapshot the attempt boundary now: the newly published attempt has
+	// released nothing yet, so the current cumulative text is exactly the prior
+	// attempts' share. Every continuation re-snapshots, so the boundary always
+	// names the start of the current attempt. A nil customer is a no-op; the
+	// boundary stays unset and the projection falls back to the cumulative
+	// text.
+	p.customer.markAttemptBoundary()
 	p.eventsMu.Unlock()
 }
 
@@ -388,6 +395,27 @@ func (p *responsePipeline) releasedOutputText() string {
 	if p.customer != nil {
 		text, _, _, _ := p.customer.Snapshot()
 		return text
+	}
+	return p.visibleText.String()
+}
+
+// attemptLocalOutputText reports the assistant text released since the latest
+// continuation boundary, for progress detection only. Delivery, accounting,
+// and history keep reading the cumulative accumulators.
+//
+// The customer buffer is append-only between a boundary snapshot and the next
+// reset, so the boundary is always a prefix of the current text. A boundary
+// that is not a prefix can only mean the buffer was replaced without a reset,
+// in which case the cumulative text is returned unchanged.
+func (p *responsePipeline) attemptLocalOutputText() string {
+	if p == nil {
+		return ""
+	}
+	p.eventsMu.Lock()
+	defer p.eventsMu.Unlock()
+	p.ensure()
+	if p.customer != nil {
+		return p.customer.attemptText()
 	}
 	return p.visibleText.String()
 }

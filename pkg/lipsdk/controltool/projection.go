@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -23,6 +24,12 @@ const (
 	ReasonAllowedToolsConstrained = "allowed_tools_constrained"
 	ReasonToolNameCollision       = "tool_name_collision"
 	ReasonInstructionCollision    = "instruction_collision"
+	// ReasonOutputFormatUnsupported marks a requested response format the
+	// control protocol cannot publish without breaking the client's output
+	// contract. The proxy synthesizes the published text from a tool argument,
+	// so only plain-text contracts are eligible until format-aware publication
+	// exists.
+	ReasonOutputFormatUnsupported = "output_format_unsupported"
 )
 
 // Reassertion failures are candidate-fatal, not per-request best effort.
@@ -184,6 +191,9 @@ func eligibilityReason(call lipapi.Call, spec Spec, caps lipapi.BackendCaps) str
 	if _, ok := caps[lipapi.CapabilityTools]; !ok {
 		return ReasonBackendToolsUnsupported
 	}
+	if !plainTextOutputContract(call.Options.ResponseMIMEType) {
+		return ReasonOutputFormatUnsupported
+	}
 	choice := call.ToolChoice
 	switch choice.Mode {
 	case lipapi.ToolChoiceNone:
@@ -213,6 +223,28 @@ func eligibilityReason(call lipapi.Call, spec Spec, caps lipapi.BackendCaps) str
 		return ReasonInstructionCollision
 	}
 	return ReasonActive
+}
+
+// plainTextOutputContract reports whether the requested response MIME type is
+// a plain-text contract the control protocol may publish into. An unset type
+// is the ordinary prose contract. Any other type (for example,
+// application/json) is unsupported: the published text is synthesized by the
+// proxy from a tool argument rather than formatted by the model, so publishing
+// it would silently break the client's expected payload.
+func plainTextOutputContract(mime string) bool {
+	mime = strings.TrimSpace(mime)
+	if mime == "" {
+		return true
+	}
+	if cut, _, _ := strings.Cut(mime, ";"); cut != mime {
+		mime = strings.TrimSpace(cut)
+	}
+	switch strings.ToLower(mime) {
+	case "text/plain":
+		return true
+	default:
+		return false
+	}
 }
 
 // declaresControlInstruction reports whether the client trajectory already

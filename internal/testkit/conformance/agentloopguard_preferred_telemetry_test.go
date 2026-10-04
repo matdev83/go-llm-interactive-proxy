@@ -364,6 +364,7 @@ func algActivationVocabulary() map[string]bool {
 		controltool.ReasonAllowedToolsConstrained: true,
 		controltool.ReasonToolNameCollision:       true,
 		controltool.ReasonInstructionCollision:    true,
+		controltool.ReasonOutputFormatUnsupported: true,
 	}
 }
 
