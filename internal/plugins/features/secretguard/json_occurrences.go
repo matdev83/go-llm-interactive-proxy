@@ -71,6 +71,7 @@ func collectExactJSONRedactOccurrences(m exactOccurrenceMatcher, raw []byte, fie
 
 func exactOccurrencesFromJSONTokens(m exactOccurrenceMatcher, tokens []jsonStringMapping, raw []byte, fieldID string) []betterLeaksOccurrence {
 	var out []betterLeaksOccurrence
+	locationIndex := newBetterLeaksLocationIndex(raw)
 	for _, token := range tokens {
 		for _, occurrence := range m.ScanOccurrences(token.decoded) {
 			if occurrence.Start < 0 || occurrence.End <= occurrence.Start || occurrence.End > len(token.decoded) {
@@ -80,13 +81,16 @@ func exactOccurrencesFromJSONTokens(m exactOccurrenceMatcher, tokens []jsonStrin
 			if !ok {
 				continue
 			}
-			span, err := spanForByteRange(raw, rawStart, rawEnd)
+			span, err := spanForByteRangeWithLocationIndex(raw, locationIndex, rawStart, rawEnd)
 			if err != nil {
 				continue
 			}
 			out = append(out, betterLeaksOccurrence{
 				value:          bytes.Clone(token.decoded[occurrence.Start:occurrence.End]),
 				span:           span,
+				start:          rawStart,
+				end:            rawEnd,
+				offsetsValid:   true,
 				fieldID:        fieldID,
 				ruleID:         occurrence.SecretRefName,
 				role:           betterLeaksOccurrencePrimary,

@@ -1,7 +1,6 @@
 package secretguard
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -81,9 +80,103 @@ type betterLeaksSpan struct {
 	EndColumn   int
 }
 
+// betterLeaksLocationIndex is built once for an admitted logical fragment.
+// Its line starts are a compact representation of the newline mapping; private
+// occurrences retain the resulting absolute offsets so later rewrite and
+// deduplication passes do not rescan the fragment.
+type betterLeaksLocationIndex struct {
+	lineStarts []int
+	rawLength  int
+}
+
+func newBetterLeaksLocationIndex(raw []byte) *betterLeaksLocationIndex {
+	if raw == nil {
+		return nil
+	}
+	lineCount := 1
+	for _, value := range raw {
+		if value == '\n' {
+			lineCount++
+		}
+	}
+	lineStarts := make([]int, 1, lineCount)
+	lineStarts[0] = 0
+	for index, value := range raw {
+		if value == '\n' {
+			lineStarts = append(lineStarts, index+1)
+		}
+	}
+	return &betterLeaksLocationIndex{lineStarts: lineStarts, rawLength: len(raw)}
+}
+
+func (m *betterLeaksLocationIndex) lineBounds(line int) (int, int, bool) {
+	if m == nil || line < 1 || line > len(m.lineStarts) {
+		return 0, 0, false
+	}
+	start := m.lineStarts[line-1]
+	end := m.rawLength
+	if line < len(m.lineStarts) {
+		end = m.lineStarts[line] - 1
+	}
+	return start, end, true
+}
+
+func (m *betterLeaksLocationIndex) spanForLocation(location report.Location) (betterLeaksSpan, int, int, error) {
+	span := betterLeaksSpan{
+		StartLine:   location.StartLine,
+		EndLine:     location.EndLine,
+		StartColumn: location.StartColumn,
+		EndColumn:   location.EndColumn,
+	}
+	if m == nil || location.StartLine < 1 || location.EndLine < location.StartLine || location.StartColumn < 1 || location.EndColumn < 1 {
+		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
+	}
+	startLineStart, startLineEnd, ok := m.lineBounds(location.StartLine)
+	if !ok {
+		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
+	}
+	endLineStart, endLineEnd, ok := m.lineBounds(location.EndLine)
+	if !ok {
+		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
+	}
+	if location.StartColumn > startLineEnd-startLineStart || location.EndColumn > endLineEnd-endLineStart {
+		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
+	}
+	start := startLineStart + location.StartColumn - 1
+	end := endLineStart + location.EndColumn
+	if location.StartLine == location.EndLine && location.EndColumn < location.StartColumn {
+		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
+	}
+	if start < 0 || end <= start || end > m.rawLength {
+		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
+	}
+	return span, start, end, nil
+}
+
+func (m *betterLeaksLocationIndex) spanForByteRange(start, end int) (betterLeaksSpan, error) {
+	if m == nil || start < 0 || end <= start || end > m.rawLength {
+		return betterLeaksSpan{}, errPrivateOccurrenceSpan
+	}
+	startLine := sort.Search(len(m.lineStarts), func(index int) bool { return m.lineStarts[index] > start }) - 1
+	endOffset := end - 1
+	endLine := sort.Search(len(m.lineStarts), func(index int) bool { return m.lineStarts[index] > endOffset }) - 1
+	if startLine < 0 || endLine < startLine {
+		return betterLeaksSpan{}, errPrivateOccurrenceSpan
+	}
+	return betterLeaksSpan{
+		StartLine:   startLine + 1,
+		EndLine:     endLine + 1,
+		StartColumn: start - m.lineStarts[startLine] + 1,
+		EndColumn:   endOffset - m.lineStarts[endLine] + 1,
+	}, nil
+}
+
 type betterLeaksOccurrence struct {
 	value          []byte
 	span           betterLeaksSpan
+	start          int
+	end            int
+	offsetsValid   bool
 	fieldID        string
 	ruleID         string
 	role           betterLeaksOccurrenceRole
@@ -316,6 +409,7 @@ func (s *betterLeaksScanner) scanSourceWithFieldID(ctx context.Context, source s
 		return newBetterLeaksScanError(err)
 	}
 	var admittedRaw []byte
+	var locationIndex *betterLeaksLocationIndex
 	getAdmittedRaw := func() []byte {
 		if admittedRaw != nil {
 			return admittedRaw
@@ -325,6 +419,17 @@ func (s *betterLeaksScanner) scanSourceWithFieldID(ctx context.Context, source s
 		}
 		return admittedRaw
 	}
+	getLocationIndex := func() *betterLeaksLocationIndex {
+		if locationIndex != nil {
+			return locationIndex
+		}
+		raw := getAdmittedRaw()
+		if raw == nil {
+			return nil
+		}
+		locationIndex = newBetterLeaksLocationIndex(raw)
+		return locationIndex
+	}
 	_, err := s.scanner.Scan(ctx, source, func(finding report.Finding) error {
 		if len(result.Findings) >= s.findingCap() {
 			return errBetterLeaksFindingCap
@@ -333,7 +438,11 @@ func (s *betterLeaksScanner) scanSourceWithFieldID(ctx context.Context, source s
 		if betterLeaksFindingNeedsRaw(finding) {
 			admitted = getAdmittedRaw()
 		}
-		projected, err := projectBetterLeaksFindingWithFieldID(finding, location, fieldID, admitted)
+		var index *betterLeaksLocationIndex
+		if admitted != nil {
+			index = getLocationIndex()
+		}
+		projected, err := projectBetterLeaksFindingWithFieldIDAndLocationIndex(finding, location, fieldID, admitted, index)
 		if err != nil {
 			return err
 		}
@@ -361,6 +470,14 @@ func projectBetterLeaksFinding(finding report.Finding, location string, admitted
 }
 
 func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fieldID string, admittedRaw []byte) (betterLeaksFinding, error) {
+	var locationIndex *betterLeaksLocationIndex
+	if admittedRaw != nil {
+		locationIndex = newBetterLeaksLocationIndex(admittedRaw)
+	}
+	return projectBetterLeaksFindingWithFieldIDAndLocationIndex(finding, location, fieldID, admittedRaw, locationIndex)
+}
+
+func projectBetterLeaksFindingWithFieldIDAndLocationIndex(finding report.Finding, location, fieldID string, admittedRaw []byte, locationIndex *betterLeaksLocationIndex) (betterLeaksFinding, error) {
 	if len(finding.RuleID) > maxBetterLeaksProjectedField || len(location) > maxBetterLeaksProjectedField {
 		return betterLeaksFinding{}, errBetterLeaksProjection
 	}
@@ -373,7 +490,7 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 		Location:        boundedBetterLeaksField(location),
 		OccurrenceCount: 1,
 	}
-	if occurrence, ok, err := newBetterLeaksOccurrence(
+	if occurrence, ok, err := newBetterLeaksOccurrenceWithLocationIndex(
 		betterLeaksOccurrencePrimary,
 		projected.RuleID,
 		finding.Match.Value,
@@ -381,8 +498,9 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 		finding.DecodeDepth,
 		finding.Encodings,
 		admittedRaw,
+		locationIndex,
 	); ok {
-		normalizeBetterLeaksLiteralOccurrence(admittedRaw, &occurrence)
+		normalizeBetterLeaksLiteralOccurrenceWithLocationIndex(admittedRaw, &occurrence, locationIndex)
 		projected.occurrences = append(projected.occurrences, occurrence)
 	} else if err != nil {
 		return betterLeaksFinding{}, err
@@ -404,7 +522,7 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 				if !component.Optional {
 					projected.Components[index].Optional = false
 				}
-				if occurrence, ok, err := newBetterLeaksOccurrence(
+				if occurrence, ok, err := newBetterLeaksOccurrenceWithLocationIndex(
 					betterLeaksOccurrenceComponent,
 					ruleID,
 					component.Match.Value,
@@ -412,8 +530,9 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 					component.DecodeDepth,
 					component.Encodings,
 					admittedRaw,
+					locationIndex,
 				); ok {
-					normalizeBetterLeaksLiteralOccurrence(admittedRaw, &occurrence)
+					normalizeBetterLeaksLiteralOccurrenceWithLocationIndex(admittedRaw, &occurrence, locationIndex)
 					projected.Components[index].occurrences = append(projected.Components[index].occurrences, occurrence)
 					projected.occurrences = append(projected.occurrences, occurrence)
 				} else if err != nil {
@@ -423,7 +542,7 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 			}
 			seen[ruleID] = len(projected.Components)
 			projected.Components = append(projected.Components, betterLeaksComponent{RuleID: ruleID, Optional: component.Optional})
-			if occurrence, ok, err := newBetterLeaksOccurrence(
+			if occurrence, ok, err := newBetterLeaksOccurrenceWithLocationIndex(
 				betterLeaksOccurrenceComponent,
 				ruleID,
 				component.Match.Value,
@@ -431,8 +550,9 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 				component.DecodeDepth,
 				component.Encodings,
 				admittedRaw,
+				locationIndex,
 			); ok {
-				normalizeBetterLeaksLiteralOccurrence(admittedRaw, &occurrence)
+				normalizeBetterLeaksLiteralOccurrenceWithLocationIndex(admittedRaw, &occurrence, locationIndex)
 				projected.Components[len(projected.Components)-1].occurrences = append(projected.Components[len(projected.Components)-1].occurrences, occurrence)
 				projected.occurrences = append(projected.occurrences, occurrence)
 			} else if err != nil {
@@ -458,13 +578,21 @@ func projectBetterLeaksFindingWithFieldID(finding report.Finding, location, fiel
 }
 
 func newBetterLeaksOccurrence(role betterLeaksOccurrenceRole, ruleID, value string, location report.Location, decodeDepth int, encodings []string, admittedRaw []byte) (betterLeaksOccurrence, bool, error) {
+	var locationIndex *betterLeaksLocationIndex
+	if admittedRaw != nil {
+		locationIndex = newBetterLeaksLocationIndex(admittedRaw)
+	}
+	return newBetterLeaksOccurrenceWithLocationIndex(role, ruleID, value, location, decodeDepth, encodings, admittedRaw, locationIndex)
+}
+
+func newBetterLeaksOccurrenceWithLocationIndex(role betterLeaksOccurrenceRole, ruleID, value string, location report.Location, decodeDepth int, encodings []string, admittedRaw []byte, locationIndex *betterLeaksLocationIndex) (betterLeaksOccurrence, bool, error) {
 	if value == "" {
 		return betterLeaksOccurrence{}, false, nil
 	}
 	if len(value) > maxBetterLeaksOccurrenceBytes {
 		return betterLeaksOccurrence{}, false, errBetterLeaksProjection
 	}
-	span, err := spanForBetterLeaksLocation(location, admittedRaw)
+	span, start, end, err := spanForBetterLeaksLocationWithLocationIndex(location, admittedRaw, locationIndex)
 	if err != nil {
 		return betterLeaksOccurrence{}, false, err
 	}
@@ -475,6 +603,9 @@ func newBetterLeaksOccurrence(role betterLeaksOccurrenceRole, ruleID, value stri
 	return betterLeaksOccurrence{
 		value:          []byte(value),
 		span:           span,
+		start:          start,
+		end:            end,
+		offsetsValid:   admittedRaw != nil,
 		ruleID:         ruleID,
 		role:           role,
 		representation: representation,
@@ -482,6 +613,15 @@ func newBetterLeaksOccurrence(role betterLeaksOccurrenceRole, ruleID, value stri
 }
 
 func spanForBetterLeaksLocation(location report.Location, admittedRaw []byte) (betterLeaksSpan, error) {
+	var locationIndex *betterLeaksLocationIndex
+	if admittedRaw != nil {
+		locationIndex = newBetterLeaksLocationIndex(admittedRaw)
+	}
+	span, _, _, err := spanForBetterLeaksLocationWithLocationIndex(location, admittedRaw, locationIndex)
+	return span, err
+}
+
+func spanForBetterLeaksLocationWithLocationIndex(location report.Location, admittedRaw []byte, locationIndex *betterLeaksLocationIndex) (betterLeaksSpan, int, int, error) {
 	span := betterLeaksSpan{
 		StartLine:   location.StartLine,
 		EndLine:     location.EndLine,
@@ -489,27 +629,18 @@ func spanForBetterLeaksLocation(location report.Location, admittedRaw []byte) (b
 		EndColumn:   location.EndColumn,
 	}
 	if location.StartLine < 0 || location.EndLine < 0 || location.StartColumn < 0 || location.EndColumn < 0 {
-		return betterLeaksSpan{}, errBetterLeaksProjection
+		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
 	}
 	if admittedRaw == nil {
-		return span, nil
+		return span, 0, 0, nil
 	}
 	if allBetterLeaksCoordinatesZero(location) {
-		return betterLeaksSpan{}, errBetterLeaksProjection
+		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
 	}
-	lines := bytes.Split(admittedRaw, []byte{'\n'})
-	if location.StartLine < 1 || location.EndLine < location.StartLine || location.StartLine > len(lines) || location.EndLine > len(lines) {
-		return betterLeaksSpan{}, errBetterLeaksProjection
+	if locationIndex == nil {
+		locationIndex = newBetterLeaksLocationIndex(admittedRaw)
 	}
-	startLineLength := len(lines[location.StartLine-1])
-	endLineLength := len(lines[location.EndLine-1])
-	if location.StartColumn < 1 || location.StartColumn > startLineLength || location.EndColumn > endLineLength {
-		return betterLeaksSpan{}, errBetterLeaksProjection
-	}
-	if location.StartLine == location.EndLine && location.EndColumn < location.StartColumn {
-		return betterLeaksSpan{}, errBetterLeaksProjection
-	}
-	return span, nil
+	return locationIndex.spanForLocation(location)
 }
 
 func allBetterLeaksCoordinatesZero(location report.Location) bool {

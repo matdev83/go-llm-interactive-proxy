@@ -1,3 +1,4 @@
+> Current disposition: NO-GO. The PR review at 845d4376 identified newline-dense location-projection amplification, ineffective multi-user/BetterLeaks redaction policy, and missing positional request-credential deduplication. Tasks 10.1–10.4 track the repairs and stronger post-redaction coverage invariant. The assessment below is historical evidence and is superseded pending fresh verification.
 # BetterLeaks Secret Guard Integration Validation
 
 ## Validation Report

@@ -499,3 +499,12 @@ No hard latency SLO is invented here because current secret-guard baseline measu
 - BetterLeaks v2 RC API may change; the adapter must absorb that churn.
 - Multipart findings and decoded findings may require careful literal candidate mapping; fail closed rather than broadening mutation heuristics.
 - Double traversal of request bytes can add CPU. The shared byte budget bounds size but performance benchmarks still determine whether additional optimization is needed.
+
+## PR Review Repair Commitments
+
+These commitments clarify the existing Requirements 4.4, 5.3, 6.3–6.7, 7.10, and 8.7; they do not change detector defaults or operator policy.
+
+- Location projection is fragment-owned. Construct compact byte-location mapping at most once for an admitted logical fragment and retain validated absolute byte ranges in private occurrences. Literal verification, rewrite planning, and overlap identity reuse those ranges instead of repeatedly splitting or rescanning the whole fragment for every report. Regression evidence includes one 2 MiB newline-dense fragment with near-cap findings, and separates upstream scan cost from private projection/rewrite cost.
+- Resolved redaction settings are immutable generation policy. The composition boundary supplies the effective mask and prefix-preservation setting; request matcher shape cannot override an explicitly configured false setting or custom mask. Single-user and multi-user exact/discovery/hybrid paths consume the same policy without process-environment reads in multi-user mode.
+- Built-in request-credential attribution supplies neutral value-free positional identity for private overlap deduplication. An optional SDK capability may expose start/end offsets plus safe finding attribution, but never secret bytes, hashes, upstream detector objects, or feature engine types. The feature owns conversion to private occurrences and literal validation. Auth stays independent of the concrete feature engine.
+- Redaction success requires complete BetterLeaks occurrence coverage. Each occurrence must be accounted for by an actual successful rewrite or exact overlap. A missed mapping, unsupported token/key, or partial rewrite causes the existing bounded unrewritable_detected_secret block regardless of global mutation count. The original call stays unchanged on failure.

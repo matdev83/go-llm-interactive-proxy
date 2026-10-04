@@ -259,6 +259,37 @@
     - _Depends: 9.4_
     - _Validation: reproduce the concurrent Poll race before repair; focused concurrent adoption and complete package Linux race after repair; scoped lint/vet and diff checks_
 
+## 10. PR review remediation
+
+- [x] 10.1 Bound location projection for newline-dense fragments
+  - Map upstream locations once per logical fragment and retain validated absolute byte offsets; eliminate per-finding whole-fragment splitting and repeated offset translation.
+  - Add a single 2 MiB newline-dense fragment with near-cap findings to regression tests and benchmarks. Preserve byte-location semantics, literal verification, cancellation, and the 256-finding cap.
+  - _Requirements: 4.4, 5.1, 6.3, 8.6, 8.7, 8.8_
+  - _Boundary: private BetterLeaks adapter, location helpers, and directly related feature tests/benchmarks_
+  - _Validation: strict TDD; bounded allocation regression; targeted benchmarks; full secretguard tests and vet_
+
+- [ ] 10.2 Apply immutable generation redaction policy in every access mode
+  - Make resolved mask and prefix policy authoritative for exact, BetterLeaks, and hybrid redaction in single-user and multi-user modes; preserve explicit false and custom masks.
+  - _Requirements: 6.3, 6.4, 7.10, 8.1, 10.2_
+  - _Boundary: generation services, host composition, rewrite policy plumbing, request-credential redaction, and directly related tests_
+  - _Depends: 10.1_
+  - _Validation: strict TDD; single/multi-user detector-policy cross-product; affected composition/auth/feature consumers; vet_
+
+- [ ] 10.3 Deduplicate positional request-credential overlap
+  - Add a neutral value-free positional capability for safe exact attribution, implement it for authenticated request credentials, and consume it privately for hybrid overlap deduplication. Do not import feature engine into auth or expose secret bytes/hashes.
+  - _Requirements: 4.5, 5.2, 5.3, 5.5, 10.2_
+  - _Boundary: SDK secretguard positional contract, auth credential matcher, private feature occurrence bridge, and related tests_
+  - _Depends: 10.2_
+  - _Validation: strict TDD; multi-user exact/BetterLeaks overlap and repeated occurrence tests; auth/SDK/feature regressions; architecture checks_
+
+- [ ] 10.4 Enforce complete post-redaction occurrence coverage
+  - Require each BetterLeaks occurrence to be covered by actual rewrite or exact overlap; any missed occurrence blocks with unrewritable_detected_secret even if another mutation succeeds.
+  - Update design and certification artifacts with current evidence for all four review areas; historical green checks do not certify these repairs.
+  - _Requirements: 6.3, 6.4, 6.5, 6.6, 6.7, 10.1_
+  - _Boundary: feature rewrite/evaluation and targeted tests; parent-owned spec artifacts_
+  - _Depends: 10.3_
+  - _Validation: strict TDD; partial/zero rewrite and JSON mapping negative controls; feature/integration/race checks; current remote CI; independent focused review_
+
 ## Implementation Notes
 
 - Task 9.5 makes recorded poller job IDs atomic and preserves all three ID assertions and concurrent adoption coverage. Independent current Linux package race, focused repeated race, lint, and vet pass. Final strict broad race passes at daa38a0b; the other four lanes passed at 22d7b25b with unchanged source and configuration.

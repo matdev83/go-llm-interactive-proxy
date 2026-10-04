@@ -104,17 +104,21 @@ func exactPrivateFindingsAt(fragment LogicalFragment, findings []sdk.Finding, pr
 func collectExactRawOccurrences(m exactOccurrenceMatcher, raw []byte, fieldID string) []betterLeaksOccurrence {
 	occurrences := m.ScanOccurrences(raw)
 	private := make([]betterLeaksOccurrence, 0, len(occurrences))
+	locationIndex := newBetterLeaksLocationIndex(raw)
 	for _, occurrence := range occurrences {
 		if occurrence.Start < 0 || occurrence.End <= occurrence.Start || occurrence.End > len(raw) {
 			continue
 		}
-		span, err := spanForByteRange(raw, occurrence.Start, occurrence.End)
+		span, err := spanForByteRangeWithLocationIndex(raw, locationIndex, occurrence.Start, occurrence.End)
 		if err != nil {
 			continue
 		}
 		private = append(private, betterLeaksOccurrence{
 			value:          bytes.Clone(raw[occurrence.Start:occurrence.End]),
 			span:           span,
+			start:          occurrence.Start,
+			end:            occurrence.End,
+			offsetsValid:   true,
 			fieldID:        fieldID,
 			ruleID:         occurrence.SecretRefName,
 			role:           betterLeaksOccurrencePrimary,
@@ -225,6 +229,17 @@ func betterLeaksOccurrenceRewriteEligible(fragments []LogicalFragment, location 
 	if occurrence.representation != betterLeaksOccurrenceLiteral || len(occurrence.value) == 0 {
 		return false
 	}
+	if occurrence.offsetsValid {
+		for _, fragment := range fragments {
+			if fragment.Location != location || (occurrence.fieldID != "" && occurrence.fieldID != fragment.privateID) {
+				continue
+			}
+			raw := fragment.rawBytes()
+			if occurrence.start >= 0 && occurrence.end > occurrence.start && occurrence.end <= len(raw) && bytes.Equal(raw[occurrence.start:occurrence.end], occurrence.value) {
+				return true
+			}
+		}
+	}
 	for _, fragment := range fragments {
 		if fragment.Location != location {
 			continue
@@ -232,7 +247,8 @@ func betterLeaksOccurrenceRewriteEligible(fragments []LogicalFragment, location 
 		if occurrence.fieldID != "" && occurrence.fieldID != fragment.privateID {
 			continue
 		}
-		if _, _, ok := literalBetterLeaksByteRange(fragment.rawBytes(), occurrence); ok {
+		raw := fragment.rawBytes()
+		if _, _, ok := literalBetterLeaksByteRange(raw, occurrence); ok {
 			return true
 		}
 	}

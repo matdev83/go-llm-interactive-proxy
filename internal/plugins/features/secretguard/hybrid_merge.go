@@ -30,27 +30,17 @@ type privateHybridFinding struct {
 }
 
 func spanForByteRange(raw []byte, start, end int) (betterLeaksSpan, error) {
+	return spanForByteRangeWithLocationIndex(raw, newBetterLeaksLocationIndex(raw), start, end)
+}
+
+func spanForByteRangeWithLocationIndex(raw []byte, locationIndex *betterLeaksLocationIndex, start, end int) (betterLeaksSpan, error) {
 	if start < 0 || end <= start || end > len(raw) {
 		return betterLeaksSpan{}, errPrivateOccurrenceSpan
 	}
-	line, column := 1, 1
-	for i := 0; i < start; i++ {
-		if raw[i] == '\n' {
-			line, column = line+1, 1
-		} else {
-			column++
-		}
+	if locationIndex == nil {
+		return betterLeaksSpan{}, errPrivateOccurrenceSpan
 	}
-	span := betterLeaksSpan{StartLine: line, StartColumn: column}
-	for i := start; i < end; i++ {
-		span.EndLine, span.EndColumn = line, column
-		if raw[i] == '\n' {
-			line, column = line+1, 1
-		} else {
-			column++
-		}
-	}
-	return span, nil
+	return locationIndex.spanForByteRange(start, end)
 }
 
 // mergeHybridFindings performs the complete private merge and safe projection.

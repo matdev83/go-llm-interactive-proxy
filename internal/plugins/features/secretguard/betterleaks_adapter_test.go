@@ -1,6 +1,7 @@
 package secretguard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,231 @@ import (
 	blscan "github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
+
+func TestBetterLeaksLocationProjection_ProjectionOnlyUsesBoundedMapping(t *testing.T) {
+	raw := bytes.Repeat([]byte("x\n"), (2*1024*1024)/2)
+	index := newBetterLeaksLocationIndex(raw)
+	findings := newlineDenseBetterLeaksFindings()
+
+	allocs := testing.AllocsPerRun(1, func() {
+		for _, finding := range findings {
+			projected, err := projectBetterLeaksFindingWithFieldIDAndLocationIndex(finding, "messages[0].parts[0]", "fragment[0]", raw, index)
+			if err != nil {
+				t.Fatalf("project newline-dense finding: %v", err)
+			}
+			wantStart := (finding.Location.StartLine - 1) * 2
+			if len(projected.occurrences) != 1 || !projected.occurrences[0].offsetsValid || projected.occurrences[0].start != wantStart || projected.occurrences[0].end != wantStart+1 {
+				t.Fatalf("projected occurrence did not retain absolute offsets: %+v", projected.occurrences)
+			}
+		}
+	})
+	if allocs > 2048 {
+		t.Fatalf("newline-dense projection allocations = %.0f; want one compact index reused across 256 findings", allocs)
+	}
+}
+
+func TestBetterLeaksLiteralProjection_MismatchUsesReportedRangeAndSharedIndex(t *testing.T) {
+	raw, location, wantStart := newlineDenseTailLocationFixture()
+	index := newBetterLeaksLocationIndex(raw)
+	original := betterLeaksOccurrence{
+		value:          []byte("tail-secret"),
+		span:           betterLeaksSpan{StartLine: location.StartLine, EndLine: location.EndLine, StartColumn: location.StartColumn, EndColumn: location.EndColumn},
+		representation: betterLeaksOccurrenceLiteral,
+	}
+	allocs := testing.AllocsPerRun(1, func() {
+		occurrence := original
+		normalizeBetterLeaksLiteralOccurrenceWithLocationIndex(raw, &occurrence, index)
+		if !occurrence.offsetsValid || occurrence.start != wantStart || occurrence.end != wantStart+len(occurrence.value) {
+			t.Fatalf("normalized value-group range = %+v; want %d..%d", occurrence, wantStart, wantStart+len(occurrence.value))
+		}
+		if occurrence.span.StartLine != location.StartLine || occurrence.span.StartColumn != len("prefix=")+1 || occurrence.span.EndColumn != occurrence.span.StartColumn+len(occurrence.value)-1 {
+			t.Fatalf("normalized value-group span = %+v; want tail literal coordinates", occurrence.span)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("mismatched literal normalization allocations = %.0f; want shared-index lookup without per-occurrence index rebuild", allocs)
+	}
+}
+
+func TestBetterLeaksLocationProjection_ProductionPathAllocationBound(t *testing.T) {
+	raw, findings := newlineDenseValueGroupFixture()
+	if len(raw) != 2*1024*1024 || len(findings) != maxBetterLeaksOccurrences || findings[0].Location.StartLine < 1_000_000 {
+		t.Fatalf("value-group fixture shape = bytes:%d findings:%d first_line:%d; want 2 MiB, 256 findings near tail", len(raw), len(findings), findings[0].Location.StartLine)
+	}
+	allocs := testing.AllocsPerRun(1, func() {
+		index := newBetterLeaksLocationIndex(raw)
+		for _, finding := range findings {
+			projected, err := projectBetterLeaksFindingWithFieldIDAndLocationIndex(finding, "messages[0].parts[0]", "fragment[0]", raw, index)
+			if err != nil || len(projected.occurrences) != 1 || !projected.occurrences[0].offsetsValid {
+				t.Fatalf("production-path projection failed: err=%v occurrences=%d", err, len(projected.occurrences))
+			}
+		}
+	})
+	if allocs > 1024 {
+		t.Fatalf("production-path allocation count = %.0f; want one fragment index plus bounded finding projection", allocs)
+	}
+}
+
+func TestBetterLeaksLocationProjection_ValueGroupsRetainOffsetsThroughRewriteBridge(t *testing.T) {
+	raw, reports := newlineDenseValueGroupFixture()
+	index := newBetterLeaksLocationIndex(raw)
+	findings := make([]betterLeaksFinding, 0, len(reports))
+	for _, reportFinding := range reports {
+		projected, err := projectBetterLeaksFindingWithFieldIDAndLocationIndex(reportFinding, "messages[0].parts[0]", "fragment[0]", raw, index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings = append(findings, projected)
+	}
+	fragment := LogicalFragment{Location: "messages[0].parts[0]", Raw: raw, privateID: "fragment[0]"}
+	candidates := betterLeaksLiteralCandidates(fragment, findings)
+	if len(candidates) != len(reports) {
+		t.Fatalf("value-group candidate count = %d; want %d", len(candidates), len(reports))
+	}
+	matcher, err := newBetterLeaksRewriteMatcher(nil, fragment, candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewriteMatcher, ok := matcher.(*betterLeaksRewriteMatcher)
+	if !ok {
+		t.Fatalf("rewrite matcher type = %T; want *betterLeaksRewriteMatcher", matcher)
+	}
+	ranges := rewriteMatcher.rangesForRawInput(raw)
+	if len(ranges) != len(reports) || ranges[0].start <= len(raw)/2 || ranges[len(ranges)-1].end > len(raw) {
+		t.Fatalf("value-group rewrite ranges = %d first=%+v last=%+v; want all near-tail offsets", len(ranges), ranges[0], ranges[len(ranges)-1])
+	}
+}
+
+func TestBetterLeaksEligibility_AmbiguousStoredRangesFailClosedWithoutPerOccurrenceIndexBuild(t *testing.T) {
+	raw, location, start, end := newlineDenseAmbiguousLocationFixture()
+	index := newBetterLeaksLocationIndex(raw)
+	projected, err := projectBetterLeaksFindingWithFieldIDAndLocationIndex(report.Finding{
+		RuleID:   "ambiguous-value-group",
+		Location: location,
+		Match:    report.Match{Value: "ambiguous"},
+	}, locationStringForTest, "fragment[0]", raw, index)
+	if err != nil || len(projected.occurrences) != 1 || !projected.occurrences[0].offsetsValid || projected.occurrences[0].start != start || projected.occurrences[0].end != end {
+		t.Fatalf("ambiguous projection = err:%v occurrences:%+v; want retained broad offsets after normalization refusal", err, projected.occurrences)
+	}
+	findings := make([]betterLeaksFinding, 0, maxBetterLeaksOccurrences)
+	for index := 0; index < maxBetterLeaksOccurrences; index++ {
+		findings = append(findings, projected)
+	}
+	fragments := []LogicalFragment{{Location: locationStringForTest, Raw: raw, privateID: "fragment[0]"}}
+	allocs := testing.AllocsPerRun(1, func() {
+		if err := validateBetterLeaksRedactionEligibility(fragments, findings); !errors.Is(err, errBetterLeaksUnrewritable) {
+			t.Fatalf("ambiguous eligibility error = %v; want fail-closed unrewritable result", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("ambiguous eligibility allocations = %.0f; want stored-offset validation without per-occurrence index allocation", allocs)
+	}
+}
+
+func BenchmarkBetterLeaksLocationProjection_NewlineDenseFragmentProjectionOnly(b *testing.B) {
+	raw := bytes.Repeat([]byte("x\n"), (2*1024*1024)/2)
+	index := newBetterLeaksLocationIndex(raw)
+	findings := newlineDenseBetterLeaksFindings()
+	b.ReportAllocs()
+	b.SetBytes(int64(len(raw)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, finding := range findings {
+			if _, err := projectBetterLeaksFindingWithFieldIDAndLocationIndex(finding, "messages[0].parts[0]", "fragment[0]", raw, index); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func BenchmarkBetterLeaksLocationProjection_NewlineDenseFragmentProductionPath(b *testing.B) {
+	raw, findings := newlineDenseValueGroupFixture()
+	b.ReportAllocs()
+	b.SetBytes(int64(len(raw)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		index := newBetterLeaksLocationIndex(raw)
+		for _, finding := range findings {
+			if _, err := projectBetterLeaksFindingWithFieldIDAndLocationIndex(finding, "messages[0].parts[0]", "fragment[0]", raw, index); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func newlineDenseTailLocationFixture() ([]byte, report.Location, int) {
+	const targetBytes = 2 * 1024 * 1024
+	tail := []byte("prefix=tail-secret;suffix\n")
+	prefix := bytes.Repeat([]byte("x\n"), (targetBytes-len(tail))/2)
+	raw := append(prefix, tail...)
+	line := len(prefix)/2 + 1
+	return raw, report.Location{
+		StartLine:   line,
+		EndLine:     line,
+		StartColumn: 1,
+		EndColumn:   len(tail) - 1,
+	}, len(prefix) + len("prefix=")
+}
+
+func newlineDenseValueGroupFixture() ([]byte, []report.Finding) {
+	const targetBytes = 2 * 1024 * 1024
+	var tail strings.Builder
+	findings := make([]report.Finding, 0, maxBetterLeaksOccurrences)
+	for index := 0; index < maxBetterLeaksOccurrences; index++ {
+		value := fmt.Sprintf("tail-secret-%03d", index)
+		line := "prefix=" + value + ";suffix\n"
+		startLine := index + 1
+		findings = append(findings, report.Finding{
+			RuleID: "newline-dense-value-group",
+			Location: report.Location{
+				StartLine:   startLine,
+				EndLine:     startLine,
+				StartColumn: 1,
+				EndColumn:   len(line) - 1,
+			},
+			Match: report.Match{Value: value},
+		})
+		tail.WriteString(line)
+	}
+	tailBytes := []byte(tail.String())
+	prefix := bytes.Repeat([]byte("x\n"), (targetBytes-len(tailBytes))/2)
+	raw := append(prefix, tailBytes...)
+	lineOffset := len(prefix) / 2
+	for index := range findings {
+		findings[index].Location.StartLine += lineOffset
+		findings[index].Location.EndLine += lineOffset
+	}
+	return raw, findings
+}
+
+const locationStringForTest = "messages[0].parts[0]"
+
+func newlineDenseAmbiguousLocationFixture() ([]byte, report.Location, int, int) {
+	const targetBytes = 2 * 1024 * 1024
+	tail := []byte("prefix=ambiguous;ambiguous;suffix\n")
+	prefix := bytes.Repeat([]byte("x\n"), (targetBytes-len(tail))/2)
+	raw := append(prefix, tail...)
+	line := len(prefix)/2 + 1
+	location := report.Location{StartLine: line, EndLine: line, StartColumn: 1, EndColumn: len(tail) - 1}
+	return raw, location, len(prefix), len(prefix) + len(tail) - 1
+}
+
+func newlineDenseBetterLeaksFindings() []report.Finding {
+	findings := make([]report.Finding, 0, maxBetterLeaksOccurrences)
+	for line := 1; line <= maxBetterLeaksOccurrences; line++ {
+		findings = append(findings, report.Finding{
+			RuleID: "newline-dense-rule",
+			Location: report.Location{
+				StartLine:   line,
+				EndLine:     line,
+				StartColumn: 1,
+				EndColumn:   1,
+			},
+			Match: report.Match{Value: "x"},
+		})
+	}
+	return findings
+}
 
 const adapterGitHubToken = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5"
 

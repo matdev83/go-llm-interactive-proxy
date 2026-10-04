@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 
+	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
@@ -18,6 +19,7 @@ func betterLeaksLiteralCandidates(fragment LogicalFragment, findings []betterLea
 	}
 	raw := fragment.rawBytes()
 	var out []betterLeaksOccurrence
+	var locationIndex *betterLeaksLocationIndex
 	for _, finding := range findings {
 		if finding.Location != fragment.Location {
 			continue
@@ -29,11 +31,23 @@ func betterLeaksLiteralCandidates(fragment LogicalFragment, findings []betterLea
 			if occurrence.representation != betterLeaksOccurrenceLiteral || len(occurrence.value) == 0 {
 				continue
 			}
-			start, end, ok := literalBetterLeaksByteRange(raw, occurrence)
+			if !occurrence.offsetsValid {
+				if locationIndex == nil {
+					locationIndex = newBetterLeaksLocationIndex(raw)
+				}
+			}
+			start, end, ok := literalBetterLeaksByteRangeWithLocationIndex(raw, occurrence, locationIndex)
 			if !ok {
 				continue
 			}
-			occurrence.span, _ = spanForByteRange(raw, start, end)
+			if !occurrence.offsetsValid || occurrence.start != start || occurrence.end != end {
+				occurrence.start, occurrence.end = start, end
+				occurrence.offsetsValid = true
+				if locationIndex == nil {
+					locationIndex = newBetterLeaksLocationIndex(raw)
+				}
+				occurrence.span, _ = spanForByteRangeWithLocationIndex(raw, locationIndex, start, end)
+			}
 			out = appendUniquePrivateOccurrences(out, occurrence)
 		}
 	}
@@ -41,42 +55,83 @@ func betterLeaksLiteralCandidates(fragment LogicalFragment, findings []betterLea
 }
 
 func normalizeBetterLeaksLiteralOccurrence(raw []byte, occurrence *betterLeaksOccurrence) {
+	normalizeBetterLeaksLiteralOccurrenceWithLocationIndex(raw, occurrence, nil)
+}
+
+func normalizeBetterLeaksLiteralOccurrenceWithLocationIndex(raw []byte, occurrence *betterLeaksOccurrence, locationIndex *betterLeaksLocationIndex) {
 	if occurrence == nil || occurrence.representation != betterLeaksOccurrenceLiteral || len(raw) == 0 || len(occurrence.value) == 0 {
 		return
 	}
-	if start, end, ok := literalBetterLeaksByteRange(raw, *occurrence); ok {
-		if span, err := spanForByteRange(raw, start, end); err == nil {
+	if occurrence.offsetsValid && occurrence.end > occurrence.start && occurrence.end <= len(raw) && bytes.Equal(raw[occurrence.start:occurrence.end], occurrence.value) {
+		return
+	}
+	if locationIndex == nil {
+		locationIndex = newBetterLeaksLocationIndex(raw)
+	}
+	if start, end, ok := literalBetterLeaksByteRangeWithLocationIndex(raw, *occurrence, locationIndex); ok {
+		occurrence.start, occurrence.end = start, end
+		occurrence.offsetsValid = true
+		if span, err := spanForByteRangeWithLocationIndex(raw, locationIndex, start, end); err == nil {
 			occurrence.span = span
 		}
 	}
 }
 
 func literalBetterLeaksByteRange(raw []byte, occurrence betterLeaksOccurrence) (int, int, bool) {
-	if start, end, ok := betterLeaksSpanByteRange(raw, occurrence.span); ok && bytes.Equal(raw[start:end], occurrence.value) {
+	return literalBetterLeaksByteRangeWithLocationIndex(raw, occurrence, nil)
+}
+
+func literalBetterLeaksByteRangeWithLocationIndex(raw []byte, occurrence betterLeaksOccurrence, locationIndex *betterLeaksLocationIndex) (int, int, bool) {
+	if start, end, ok := betterLeaksOccurrenceByteRange(raw, occurrence, locationIndex); ok && bytes.Equal(raw[start:end], occurrence.value) {
 		return start, end, true
 	}
-	reportedStart, reportedEnd, reportedOK := betterLeaksSpanByteRange(raw, occurrence.span)
+	reportedStart, reportedEnd, reportedOK := betterLeaksOccurrenceByteRange(raw, occurrence, locationIndex)
+	if !reportedOK {
+		// A few private compatibility callers provide only a literal value. Keep
+		// their historical unique-value behavior; upstream findings always carry
+		// a validated location and take the bounded branch below.
+		if occurrence.span != (betterLeaksSpan{}) {
+			return 0, 0, false
+		}
+		reportedStart, reportedEnd = 0, len(raw)
+	}
+	if len(occurrence.value) == 0 || reportedEnd-reportedStart < len(occurrence.value) {
+		return 0, 0, false
+	}
 	foundStart := -1
-	foundEnd := -1
-	for from := 0; from <= len(raw)-len(occurrence.value); {
-		relative := bytes.Index(raw[from:], occurrence.value)
+	for from := reportedStart; from <= reportedEnd-len(occurrence.value); {
+		relative := bytes.Index(raw[from:reportedEnd], occurrence.value)
 		if relative < 0 {
 			break
 		}
 		start := from + relative
-		end := start + len(occurrence.value)
-		if !reportedOK || (start >= reportedStart && end <= reportedEnd) {
-			if foundStart >= 0 {
-				return 0, 0, false
-			}
-			foundStart, foundEnd = start, end
+		if foundStart >= 0 {
+			return 0, 0, false
 		}
+		foundStart = start
 		from = start + 1
 	}
 	if foundStart < 0 {
 		return 0, 0, false
 	}
-	return foundStart, foundEnd, true
+	return foundStart, foundStart + len(occurrence.value), true
+}
+
+func betterLeaksOccurrenceByteRange(raw []byte, occurrence betterLeaksOccurrence, locationIndex *betterLeaksLocationIndex) (int, int, bool) {
+	if occurrence.offsetsValid && occurrence.start >= 0 && occurrence.end > occurrence.start && occurrence.end <= len(raw) {
+		return occurrence.start, occurrence.end, true
+	}
+	if locationIndex != nil {
+		if _, start, end, err := locationIndex.spanForLocation(report.Location{
+			StartLine:   occurrence.span.StartLine,
+			EndLine:     occurrence.span.EndLine,
+			StartColumn: occurrence.span.StartColumn,
+			EndColumn:   occurrence.span.EndColumn,
+		}); err == nil {
+			return start, end, true
+		}
+	}
+	return betterLeaksSpanByteRange(raw, occurrence.span)
 }
 
 func betterLeaksSpanByteRange(raw []byte, span betterLeaksSpan) (int, int, bool) {
@@ -166,11 +221,26 @@ func newBetterLeaksRewriteMatcher(exact sdk.Matcher, fragment LogicalFragment, o
 		if occurrence.representation != betterLeaksOccurrenceLiteral || len(occurrence.value) == 0 {
 			continue
 		}
-		start, end, ok := literalBetterLeaksByteRange(raw, occurrence)
+		var locationIndex *betterLeaksLocationIndex
+		var start, end int
+		var ok bool
+		if occurrence.offsetsValid {
+			start, end, ok = literalBetterLeaksByteRangeWithLocationIndex(raw, occurrence, nil)
+		} else {
+			locationIndex = newBetterLeaksLocationIndex(raw)
+			start, end, ok = literalBetterLeaksByteRangeWithLocationIndex(raw, occurrence, locationIndex)
+		}
 		if !ok {
 			continue
 		}
-		occurrence.span, _ = spanForByteRange(raw, start, end)
+		if !occurrence.offsetsValid || occurrence.start != start || occurrence.end != end {
+			occurrence.start, occurrence.end = start, end
+			occurrence.offsetsValid = true
+			if locationIndex == nil {
+				locationIndex = newBetterLeaksLocationIndex(raw)
+			}
+			occurrence.span, _ = spanForByteRangeWithLocationIndex(raw, locationIndex, start, end)
+		}
 		verified = appendUniquePrivateOccurrences(verified, occurrence)
 	}
 	if len(verified) == 0 {
@@ -197,7 +267,7 @@ func newBetterLeaksRewriteMatcher(exact sdk.Matcher, fragment LogicalFragment, o
 }
 
 func betterLeaksJSONOccurrenceHasToken(raw []byte, occurrence betterLeaksOccurrence, tokens []betterLeaksJSONToken) bool {
-	start, end, ok := betterLeaksSpanByteRange(raw, occurrence.span)
+	start, end, ok := betterLeaksOccurrenceByteRange(raw, occurrence, nil)
 	if !ok {
 		return false
 	}
@@ -322,7 +392,7 @@ func (m *betterLeaksRewriteMatcher) rangesForRawInput(input []byte) []betterLeak
 	}
 	var out []betterLeaksRewriteRange
 	for _, occurrence := range m.occurrences {
-		start, end, ok := betterLeaksSpanByteRange(m.raw, occurrence.span)
+		start, end, ok := betterLeaksOccurrenceByteRange(m.raw, occurrence, nil)
 		if !ok || start < 0 || end > len(input) || !bytes.Equal(input[start:end], occurrence.value) {
 			continue
 		}
@@ -346,7 +416,7 @@ func (m *betterLeaksRewriteMatcher) rangesForInput(input []byte) []betterLeaksRe
 	}
 	var out []betterLeaksRewriteRange
 	for _, occurrence := range m.occurrences {
-		occurrenceStart, occurrenceEnd, spanOK := betterLeaksSpanByteRange(m.raw, occurrence.span)
+		occurrenceStart, occurrenceEnd, spanOK := betterLeaksOccurrenceByteRange(m.raw, occurrence, nil)
 		if !spanOK || occurrenceStart < rawStart || occurrenceEnd > rawEnd {
 			continue
 		}
