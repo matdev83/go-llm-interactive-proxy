@@ -1065,23 +1065,6 @@ var drPinnedOverlapFirstError = map[string]string{
 // pinned constant: pinning a wall-clock budget here would make the test a
 // performance gate, not a determinism test.
 
-// drStackGrowth reports the stack growth across one Rate, clamping a NEGATIVE
-// delta to zero. StackInuse is process-wide and the allocator may hand back a
-// span between the two reads, so a small negative reading is noise rather than
-// a claim, and treating it as growth would make the bound fail on nothing.
-//
-// The subtraction happens in uint64 at the call site, so an underflow has
-// already wrapped to a value far larger than the post-call reading; comparing
-// against that post-call reading is what distinguishes a wrapped delta from a
-// genuinely large growth. delta itself is therefore the answer, and the
-// post-call reading is only the witness.
-func drStackGrowth(delta, postCall uint64) int64 {
-	if postCall < delta {
-		return 0
-	}
-	return int64(delta)
-}
-
 // drChainFixture builds a linear containment chain of the requested DEPTH. The
 // chain alternates subset and complete-coverage edges, so both containment edge
 // classes are traversed, and the whole chain is declared across the maximum

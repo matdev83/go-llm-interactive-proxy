@@ -220,19 +220,28 @@
 
 - [ ] 9. Run final cross-boundary security certification
   - [ ] 9.1 Verify all architecture, config, security, and regression gates together
-    - _Blocked: two debug rounds exhausted; independent canonical QA reproduces unchanged billing stack-growth spread 131,072 B versus 65,536 B slack. Route the measurement harness to extensible-usage-economics-reconciliation / billing-uncertain-component-overlap ownership; preserve the gate and revalidate after the owning repair or adjudication._
     - Re-run zero-env-read multi-user tests with BetterLeaks on/off, local-discovery invalid/absent, reload failures, and normal request traffic.
     - Re-run allow-marker, no-network, no-CLI, no-raw-finding, scan-failure, decoded-redact, quarantine/no-dispatch, deterministic merge, and default-policy-hash ratchets.
     - Run the repository's applicable quality, unit, race, parity, and QA gates for a wide security-sensitive feature change.
     - Confirm no implementation task changed routing/failover/B2BUA/billing/protocol semantics outside the specified secret-guard boundary.
     - _Requirements: 3.3, 3.4, 3.6, 6.7, 9.3, 9.5, 10.1, 10.2, 10.7, 10.8_
     - _Boundary: whole-feature certification_
-    - _Depends: 7.1, 7.2, 8.3, 8.4, 8.5, 8.6_
+    - _Depends: 7.1, 7.2, 8.3, 8.4, 8.5, 8.6, 9.2_
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
+
+  - [x] 9.2 Repair upstream billing boundedness measurement
+    - Establish the cause of the intermittent process-wide stack-growth measurement and repair it at the billing test boundary. Preserve maximum chain depths, pinned fingerprints, solver coverage, and meaningful detection of depth-dependent recursion.
+    - Add independent controls proving that iterative traversal passes and depth-growing recursion fails, including unrelated runtime activity where applicable. Do not increase bounds, skip checks, or select passing samples.
+    - _Requirements: 10.1; upstream extensible-usage-economics-reconciliation non-recursion/certification contract_
+    - _Boundary: billing boundedness integration test and directly related test helpers; no downstream detector workaround_
+    - _Depends: 8.6_
+    - _Validation: strict TDD; independent negative controls; focused maximum-depth integration probe; scoped lint/vet and affected regression checks_
 
 ## Implementation Notes
 
-- Final integration review maps all 73 criteria across 10 requirement sections with no implementation gap and accepts the bounded performance assessment. Unit, parity, full Linux race, and CLI smoke pass; independent QA fails the unchanged billing stack measurement. Task 9.1 remains blocked and feature verdict is NO-GO.
+- Final integration review maps all 73 criteria across 10 requirement sections with no implementation gap and accepts the bounded performance assessment. Task 9.2 repairs the upstream billing measurement without changing production billing or its 65,536-byte depth-spread bound. Task 9.1 awaits fresh comprehensive certification; the earlier QA failure is not evidence of final success.
+
+- Task 9.2 measures a fresh retained Rate goroutine in an isolated process for each depth, disables both automatic GC triggers after fixture setup, and rejects collections or incomplete child evidence. Independent actual-Rate recursion mutations exceed the unchanged spread bound. Windows focused integration and Linux focused integration, runtime controls, targeted race, and vet pass; maximum-depth race and QA remain part of task 9.1.
 
 - Task 8.6 removes avoidable no-hit text copies: independently measured 2 MiB scans allocate 1,221 B exact-only, 11,048 B BetterLeaks-only, and 17,816 B hybrid. Positive/JSON costs require the final performance assessment; setup allocations are not steady-request costs.
 

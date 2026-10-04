@@ -4,8 +4,12 @@ package billing_test
 
 import (
 	"fmt"
+	"math"
 	"runtime"
+	"runtime/debug"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -309,126 +313,37 @@ func TestReplayDeepestPublishableChainTraversalIsBounded(t *testing.T) {
 	if testing.Short() {
 		t.Skip("deep-chain boundedness probe measures multi-second ratings at the maximum publishable depth")
 	}
-	// DELIBERATELY NOT t.Parallel(). A process-wide StackInuse delta is only
-	// meaningful in a quiet process, and Go guarantees exactly that here: a
-	// top-level test that does not call t.Parallel runs to completion during the
-	// serial phase, while every queued parallel test is still paused. That is
-	// what lets this test ASSERT the non-recursion bound rather than merely
-	// report it, and the mandatory certification job collects this bound on every
-	// relevant change. The cost is that this
-	// probe's multi-second ratings are no longer overlapped with the rest of the
-	// package; that is the price of a gate that actually gates.
-	maxDepth := metering.MaxComponentSchemas * metering.MaxComponentSchemaRelationships
-	t.Logf("REPLAY-BOUNDEDNESS deepest publishable chain depth=%d over MaxComponentSchemas=%d x MaxComponentSchemaRelationships=%d",
-		maxDepth, metering.MaxComponentSchemas, metering.MaxComponentSchemaRelationships)
-
-	depths := []int{200, 800, 3200, maxDepth}
+	if mode := drStackChildMode(); mode != "" {
+		drRunStackChild(t, mode)
+		return
+	}
+	depths := []int{200, 800, 3200, metering.MaxComponentSchemas * metering.MaxComponentSchemaRelationships}
 	type sample struct {
 		depth         int
-		nodes         int
-		duration      time.Duration
 		stackGrowth   int64
 		allocsPerNode float64
 		bytesPerNode  float64
 		fingerprint   string
-		completeness  economics.Completeness
 	}
 	samples := make([]sample, 0, len(depths))
 	for _, depth := range depths {
-		fixture := drChainFixture(t, depth)
-		resolved := drPublish(t, fixture, fixture.rules, fixture.schemas)
-		rater, err := billing.NewReferenceRater(resolved)
+		output, err := drRunStackChildProcess(t, fmt.Sprintf("%s%d", drStackDepthPrefix, depth), "^TestReplayDeepestPublishableChainTraversalIsBounded$")
 		if err != nil {
-			t.Fatalf("depth %d: NewReferenceRater: %v", depth, err)
+			t.Fatalf("deep-chain child depth %d failed: %v\n%s", depth, err, output)
 		}
-		input := b1OperatorInput(t, resolved, fixture.obs)
-
-		// The reported call is the second one: the warm-up asserts the fixture
-		// still exercises the solver and pays the first-touch costs that are not
-		// this traversal's own.
-		if _, warmErr := rater.Rate(t.Context(), input); warmErr == nil {
-			t.Fatalf("depth %d: the deep chain rated completely; the fixture no longer exercises the solver", depth)
+		result, err := drParseStackResult(output, depth)
+		if err != nil {
+			t.Fatalf("deep-chain child depth %d returned invalid bounded evidence: %v\n%s", depth, err, output)
 		}
-
-		var before, after runtime.MemStats
-		runtime.GC()
-		runtime.ReadMemStats(&before)
-		start := time.Now()
-		val, rateErr := rater.Rate(t.Context(), input)
-		elapsed := time.Since(start)
-		runtime.ReadMemStats(&after)
-		if rateErr == nil {
-			t.Fatalf("depth %d: deep chain rated without a diagnostic (lines=%+v)", depth, val.Lines)
+		if result.depth != depth {
+			t.Fatalf("deep-chain child reported depth %d, want %d", result.depth, depth)
 		}
-		// The section-18 non-recursion claim, enforced. The invariant is that the
-		// stack does not grow WITH DEPTH: every containment traversal in the
-		// solver and the compiled program is iterative, so a chain at the
-		// publication maximum must cost what a shallow chain costs. The ABSOLUTE
-		// reading is not the claim - it carries a fixed offset from wherever the
-		// allocator happened to be, measured flat at 327680 B here but a single
-		// quantum in a fresh process - so the assertion below compares depths
-		// against each other rather than against a constant.
-		stackGrowth := drStackGrowth(after.StackInuse-before.StackInuse, after.StackInuse)
-		// The canonical fingerprint of the deepest publishable chain is PINNED
-		// per depth, not merely reported: a drifted durable identity must fail
-		// here rather than appear in the log.
-		if pinned, ok := drDeepChainFingerprints[depth]; ok {
-			if val.Fingerprint() != pinned {
-				t.Errorf("depth %d: the deep-chain valuation fingerprint drifted.\n  pinned:   %s\n  observed: %s\n"+
-					"  this is the durable replay identity at this containment depth, so a change here is a behavior change, not noise",
-					depth, pinned, val.Fingerprint())
-			}
-		} else {
-			t.Errorf("depth %d: the deep-chain fingerprint is not pinned; a reproducible but unpinned fingerprint is not a pin", depth)
+		if pinned, ok := drDeepChainFingerprints[depth]; ok && result.fingerprint != pinned {
+			t.Fatalf("depth %d: fingerprint drifted: pinned=%s observed=%s", depth, pinned, result.fingerprint)
 		}
-		samples = append(samples, sample{
-			depth: depth, nodes: depth + 1, duration: elapsed, stackGrowth: stackGrowth,
-			allocsPerNode: float64(after.Mallocs-before.Mallocs) / float64(depth+1),
-			bytesPerNode:  float64(after.TotalAlloc-before.TotalAlloc) / float64(depth+1),
-			fingerprint:   val.Fingerprint(), completeness: val.Completeness,
-		})
+		samples = append(samples, sample{depth: depth, stackGrowth: result.stackGrowth, allocsPerNode: result.allocsPerNode, bytesPerNode: result.bytesPerNode, fingerprint: result.fingerprint})
+		t.Logf("REPLAY-BOUNDEDNESS depth=%d stack_growth=%dB allocs/node=%.1f bytes/node=%.0f fingerprint=%s", depth, result.stackGrowth, result.allocsPerNode, result.bytesPerNode, result.fingerprint)
 	}
-
-	for _, s := range samples {
-		t.Logf("REPLAY-BOUNDEDNESS depth=%d nodes=%d wall=%s stack_growth=%dB allocs/node=%.1f bytes/node=%.0f completeness=%s fingerprint=%s",
-			s.depth, s.nodes, s.duration.Round(time.Millisecond), s.stackGrowth,
-			s.allocsPerNode, s.bytesPerNode, s.completeness, s.fingerprint)
-	}
-	// Cost per node must not grow with depth. TotalAlloc and Mallocs are
-	// process-wide, so this reading is only trustworthy because the test is
-	// serial; the invariant it can carry is SUBLINEARITY, not an absolute
-	// budget. A traversal that swept the whole graph once per containment level
-	// would leave stack growth flat - it holds no frames - while multiplying
-	// allocations and bytes by the depth ratio, so a stack-only bound cannot
-	// see it. The depth ratio between the extreme rungs is 8193/201, about 40x;
-	// a linear-in-depth walk would drive per-node cost up by that same factor.
-	shallowest, deepest := samples[0], samples[len(samples)-1]
-	allocLinear := shallowest.allocsPerNode * (float64(deepest.depth) / float64(shallowest.depth))
-	bytesLinear := shallowest.bytesPerNode * (float64(deepest.depth) / float64(shallowest.depth))
-	if deepest.allocsPerNode > allocLinear {
-		t.Errorf("allocations per node grew with containment depth: %.1f at depth %d versus %.1f at depth %d.\n"+
-			"  The shallow chain's per-node cost extrapolated linearly over the %dx depth range is %.1f,\n"+
-			"  so cost per node is not sublinear and a whole-graph sweep per containment level has reappeared.\n"+
-			"  Every containment traversal is iterative, so depth must not multiply work",
-			deepest.allocsPerNode, deepest.depth, shallowest.allocsPerNode, shallowest.depth,
-			deepest.depth/shallowest.depth, allocLinear)
-	}
-	if deepest.bytesPerNode > bytesLinear {
-		t.Errorf("bytes per node grew with containment depth: %.0f at depth %d versus %.0f at depth %d.\n"+
-			"  The shallow chain's per-node cost extrapolated linearly over the %dx depth range is %.0f,\n"+
-			"  so cost per node is not sublinear and a whole-graph sweep per containment level has reappeared",
-			deepest.bytesPerNode, deepest.depth, shallowest.bytesPerNode, shallowest.depth,
-			deepest.depth/shallowest.depth, bytesLinear)
-	}
-	// Depth is the variable under test, so compare every depth against every
-	// other. A traversal that recursed would hold one frame per level, so the
-	// spread across the 200 to 8192 ladder would be thousands of live frames.
-	// Comparing the whole ladder rather than its two endpoints also closes the
-	// interior-depth hole: a regression confined to a middle rung is still a
-	// spread, while a two-endpoint comparison would only see it if the outermost
-	// depth happened to regress too. One stack quantum of slack absorbs
-	// allocator noise between two separate readings.
-	const stackQuantum = 64 << 10
 	minSample, maxSample := samples[0], samples[0]
 	for _, s := range samples[1:] {
 		if s.stackGrowth < minSample.stackGrowth {
@@ -438,10 +353,436 @@ func TestReplayDeepestPublishableChainTraversalIsBounded(t *testing.T) {
 			maxSample = s
 		}
 	}
-	if spread := maxSample.stackGrowth - minSample.stackGrowth; spread > stackQuantum {
-		t.Errorf("goroutine stack grew with containment depth: %d B spread, %d B at depth %d versus %d B at depth %d,\n"+
-			"  over the %d B slack. Every containment traversal in the solver and the compiled\n"+
-			"  program is iterative, so depth must not add stack frames",
-			spread, maxSample.stackGrowth, maxSample.depth, minSample.stackGrowth, minSample.depth, stackQuantum)
+	if spread := maxSample.stackGrowth - minSample.stackGrowth; spread > drStackSpreadLimit {
+		t.Fatalf("goroutine stack grew with containment depth: %dB spread, %dB at depth %d versus %dB at depth %d, over the %dB limit", spread, maxSample.stackGrowth, maxSample.depth, minSample.stackGrowth, minSample.depth, drStackSpreadLimit)
 	}
+	shallowest, deepest := samples[0], samples[len(samples)-1]
+	allocLinear := shallowest.allocsPerNode * (float64(deepest.depth) / float64(shallowest.depth))
+	bytesLinear := shallowest.bytesPerNode * (float64(deepest.depth) / float64(shallowest.depth))
+	if deepest.allocsPerNode > allocLinear {
+		t.Errorf("allocations per node grew with containment depth: %.1f at depth %d versus %.1f at depth %d (linear allowance %.1f)", deepest.allocsPerNode, deepest.depth, shallowest.allocsPerNode, shallowest.depth, allocLinear)
+	}
+	if deepest.bytesPerNode > bytesLinear {
+		t.Errorf("bytes per node grew with containment depth: %.0f at depth %d versus %.0f at depth %d (linear allowance %.0f)", deepest.bytesPerNode, deepest.depth, shallowest.bytesPerNode, shallowest.depth, bytesLinear)
+	}
+	for _, mode := range []string{drStackChildMutantSmall, drStackChildMutantLarge} {
+		output, err := drRunStackChildProcess(t, mode, "^TestReplayDeepestPublishableChainTraversalIsBounded$")
+		if err != nil {
+			t.Fatalf("depth-growth certificate failed to reject %s mutant: err=%v output=%s", mode, err, output)
+		}
+		mutantResult, err := drParseMutantStackResult(output, mode, metering.MaxComponentSchemas*metering.MaxComponentSchemaRelationships)
+		if err != nil || mutantResult.stackGrowth <= samples[0].stackGrowth+drStackSpreadLimit {
+			t.Fatalf("depth-growth certificate failed to reject %s mutant: err=%v growth=%d baseline=%d output=%s", mode, err, mutantResult.stackGrowth, samples[0].stackGrowth, output)
+		}
+		t.Logf("REPLAY-BOUNDEDNESS control=%s %s", mode, output)
+	}
+}
+
+type drStackResult struct {
+	depth         int
+	stackGrowth   int64
+	allocsPerNode float64
+	bytesPerNode  float64
+	wallMS        int64
+	fingerprint   string
+}
+
+func TestDRStackResultParserRejectsMalformedRecords(t *testing.T) {
+	t.Parallel()
+	const valid = "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"
+	tests := []struct {
+		name   string
+		output string
+		valid  bool
+	}{
+		{name: "valid", output: valid, valid: true},
+		{name: "missing depth", output: "DR_STACK_RESULT stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "missing stack growth", output: "DR_STACK_RESULT depth=8192 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "missing allocations", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "missing bytes", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "missing fingerprint", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 wall_ms=3"},
+		{name: "missing wall time", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef"},
+		{name: "negative integer", output: "DR_STACK_RESULT depth=8192 stack_growth=-1 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "negative allocation", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=-1 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "nan allocation", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=NaN bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "positive infinity bytes", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=+Inf fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "negative infinity bytes", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=-Inf fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "unknown field", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3 extra=1"},
+		{name: "duplicate field", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "duplicate record", output: valid + "\n" + valid},
+		{name: "truncated diagnostic", output: valid + "\nDR_STACK_DIAGNOSTIC output_truncated"},
+		{name: "unknown record", output: valid + "\nDR_STACK_OTHER depth=8192"},
+		{name: "negative wall time", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=-1"},
+		{name: "invalid wall time", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=NaN"},
+		{name: "mismatched depth", output: "DR_STACK_RESULT depth=800 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := drParseStackResult(tc.output, 8192)
+			if tc.valid {
+				if err != nil {
+					t.Fatalf("valid record rejected: %v", err)
+				}
+				if result.depth != 8192 {
+					t.Fatalf("valid record depth=%d, want 8192", result.depth)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("malformed record accepted: %+v", result)
+			}
+		})
+	}
+}
+
+func TestDRMutantResultParserRejectsMalformedRecords(t *testing.T) {
+	t.Parallel()
+	const valid = "DR_STACK_MUTANT frame=small depth=8192 stack_growth=524288"
+	tests := []struct {
+		name   string
+		output string
+		valid  bool
+	}{
+		{name: "valid", output: valid, valid: true},
+		{name: "missing frame", output: "DR_STACK_MUTANT depth=8192 stack_growth=524288"},
+		{name: "missing depth", output: "DR_STACK_MUTANT frame=small stack_growth=524288"},
+		{name: "missing stack growth", output: "DR_STACK_MUTANT frame=small depth=8192"},
+		{name: "negative growth", output: "DR_STACK_MUTANT frame=small depth=8192 stack_growth=-1"},
+		{name: "unknown field", output: "DR_STACK_MUTANT frame=small depth=8192 stack_growth=524288 extra=1"},
+		{name: "duplicate field", output: "DR_STACK_MUTANT frame=small depth=8192 depth=8192 stack_growth=524288"},
+		{name: "duplicate record", output: valid + "\n" + valid},
+		{name: "truncated diagnostic", output: valid + "\nDR_STACK_DIAGNOSTIC output_truncated"},
+		{name: "unknown record", output: valid + "\nDR_STACK_OTHER frame=small"},
+		{name: "mismatched frame", output: "DR_STACK_MUTANT frame=large depth=8192 stack_growth=524288"},
+		{name: "mismatched depth", output: "DR_STACK_MUTANT frame=small depth=3200 stack_growth=524288"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			growth, err := drParseMutantStackResult(tc.output, drStackChildMutantSmall, 8192)
+			growthValue := growth.stackGrowth
+			if tc.valid {
+				if err != nil {
+					t.Fatalf("valid record rejected: %v", err)
+				}
+				if growthValue != 524288 {
+					t.Fatalf("valid record growth=%d, want 524288", growthValue)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("malformed record accepted: growth=%d", growthValue)
+			}
+		})
+	}
+}
+
+func TestDRMeasurementControlsDisableAndRestoreMemoryLimit(t *testing.T) {
+	// This test deliberately leaves the process-wide limit in a constrained
+	// state while the helper sets up its measurement. The callback runs in the
+	// measured goroutine, so it proves the limit is disabled at the exact point
+	// where StackInuse and NumGC are sampled.
+	previousLimit := debug.SetMemoryLimit(64 << 10)
+	defer debug.SetMemoryLimit(previousLimit)
+	var observedLimit int64
+	drMeasureRateWithRuntimeControls(t, func() (economics.Valuation, error) {
+		return economics.Valuation{}, nil
+	}, func() {
+		observedLimit = debug.SetMemoryLimit(-1)
+	})
+	if observedLimit != math.MaxInt64 {
+		t.Fatalf("measurement memory limit=%d, want disabled limit %d", observedLimit, int64(math.MaxInt64))
+	}
+	if restored := debug.SetMemoryLimit(-1); restored != 64<<10 {
+		t.Fatalf("memory limit after measurement=%d, want prior limit %d", restored, int64(64<<10))
+	}
+}
+
+func TestDRMeasurementRejectsExplicitGC(t *testing.T) {
+	if mode := drStackChildMode(); mode != "" {
+		drRunStackChild(t, mode)
+		return
+	}
+	output, err := drRunStackChildProcess(t, drStackChildExplicitGC, "^TestDRMeasurementRejectsExplicitGC$")
+	if err == nil {
+		t.Fatalf("explicit-GC measurement child unexpectedly passed: %s", output)
+	}
+	if !strings.Contains(output, "DR_STACK_DIAGNOSTIC gc_during_measurement") {
+		t.Fatalf("explicit-GC measurement child failed without the bounded diagnostic: %s", output)
+	}
+}
+
+func drRunExplicitGCMeasurement(t *testing.T) {
+	drMeasureRateWithRuntimeControls(t, func() (economics.Valuation, error) {
+		runtime.GC()
+		return economics.Valuation{}, nil
+	}, nil)
+	t.Fatal("explicit GC callback unexpectedly passed measurement controls")
+}
+
+func drParseProtocolRecord(output, prefix string, fields map[string]struct{}) (map[string]string, error) {
+	var record map[string]string
+	for _, rawLine := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, prefix+" ") {
+			return nil, fmt.Errorf("unexpected child output record")
+		}
+		if record != nil {
+			return nil, fmt.Errorf("duplicate child output record")
+		}
+		record = make(map[string]string, len(fields))
+		for _, field := range strings.Fields(strings.TrimPrefix(line, prefix+" ")) {
+			key, value, ok := strings.Cut(field, "=")
+			if !ok || key == "" || value == "" {
+				return nil, fmt.Errorf("malformed child output field")
+			}
+			if _, ok := fields[key]; !ok {
+				return nil, fmt.Errorf("unknown child output field")
+			}
+			if _, ok := record[key]; ok {
+				return nil, fmt.Errorf("duplicate child output field")
+			}
+			record[key] = value
+		}
+	}
+	if len(record) != len(fields) {
+		return nil, fmt.Errorf("incomplete child output record")
+	}
+	return record, nil
+}
+
+func drParseStackResult(output string, expectedDepth int) (drStackResult, error) {
+	fields, err := drParseProtocolRecord(output, "DR_STACK_RESULT", map[string]struct{}{
+		"depth": {}, "stack_growth": {}, "allocs_per_node": {}, "bytes_per_node": {}, "fingerprint": {}, "wall_ms": {},
+	})
+	if err != nil {
+		return drStackResult{}, err
+	}
+	if expectedDepth <= 0 {
+		return drStackResult{}, fmt.Errorf("invalid expected depth")
+	}
+	depth, err := strconv.Atoi(fields["depth"])
+	if err != nil || depth != expectedDepth {
+		return drStackResult{}, fmt.Errorf("unexpected depth")
+	}
+	stackGrowth, err := strconv.ParseInt(fields["stack_growth"], 10, 64)
+	if err != nil || stackGrowth < 0 {
+		return drStackResult{}, fmt.Errorf("invalid stack growth")
+	}
+	allocsPerNode, err := strconv.ParseFloat(fields["allocs_per_node"], 64)
+	if err != nil || allocsPerNode < 0 || math.IsNaN(allocsPerNode) || math.IsInf(allocsPerNode, 0) {
+		return drStackResult{}, fmt.Errorf("invalid allocations per node")
+	}
+	bytesPerNode, err := strconv.ParseFloat(fields["bytes_per_node"], 64)
+	if err != nil || bytesPerNode < 0 || math.IsNaN(bytesPerNode) || math.IsInf(bytesPerNode, 0) {
+		return drStackResult{}, fmt.Errorf("invalid bytes per node")
+	}
+	wallMS, err := strconv.ParseInt(fields["wall_ms"], 10, 64)
+	if err != nil || wallMS < 0 {
+		return drStackResult{}, fmt.Errorf("invalid wall time")
+	}
+	return drStackResult{
+		depth: depth, stackGrowth: stackGrowth, allocsPerNode: allocsPerNode,
+		bytesPerNode: bytesPerNode, wallMS: wallMS, fingerprint: fields["fingerprint"],
+	}, nil
+}
+
+type drMutantStackResult struct {
+	frame       string
+	depth       int
+	stackGrowth int64
+}
+
+func drParseMutantStackResult(output, requestedMode string, expectedDepth int) (drMutantStackResult, error) {
+	expectedFrame, ok := map[string]string{
+		drStackChildMutantSmall: "small",
+		drStackChildMutantLarge: "large",
+	}[requestedMode]
+	if !ok || expectedDepth <= 0 {
+		return drMutantStackResult{}, fmt.Errorf("invalid requested mutant")
+	}
+	fields, err := drParseProtocolRecord(output, "DR_STACK_MUTANT", map[string]struct{}{
+		"frame": {}, "depth": {}, "stack_growth": {},
+	})
+	if err != nil {
+		return drMutantStackResult{}, err
+	}
+	depth, err := strconv.Atoi(fields["depth"])
+	if err != nil || depth != expectedDepth {
+		return drMutantStackResult{}, fmt.Errorf("unexpected mutant depth")
+	}
+	if fields["frame"] != expectedFrame {
+		return drMutantStackResult{}, fmt.Errorf("unexpected mutant frame")
+	}
+	stackGrowth, err := strconv.ParseInt(fields["stack_growth"], 10, 64)
+	if err != nil || stackGrowth < 0 {
+		return drMutantStackResult{}, fmt.Errorf("invalid mutant stack growth")
+	}
+	return drMutantStackResult{frame: fields["frame"], depth: depth, stackGrowth: stackGrowth}, nil
+}
+
+type drRateSample struct {
+	value    economics.Valuation
+	err      error
+	before   runtime.MemStats
+	after    runtime.MemStats
+	duration time.Duration
+}
+
+func drMeasureRateWithRuntimeControls(t *testing.T, invoke func() (economics.Valuation, error), beforeInvoke func()) drRateSample {
+	t.Helper()
+	// Fixture construction and the warm-up happen before this boundary. Settle
+	// the process first, then disable both automatic-GC triggers for the exact
+	// measurement window. SetGCPercent(-1) alone is insufficient because a low
+	// soft memory limit can still force a collection.
+	runtime.GC()
+	previousLimit := debug.SetMemoryLimit(math.MaxInt64)
+	previousGC := debug.SetGCPercent(-1)
+	defer debug.SetMemoryLimit(previousLimit)
+	defer debug.SetGCPercent(previousGC)
+	return drMeasureRate(t, invoke, beforeInvoke)
+}
+
+func drMeasureRate(t *testing.T, invoke func() (economics.Valuation, error), beforeInvoke func()) drRateSample {
+	t.Helper()
+	// Pre-grow an unrelated goroutine before the baseline. Its retained stack
+	// is deliberately present in both MemStats readings, demonstrating that a
+	// background stack cannot create a depth-dependent delta in this isolated
+	// child. The measured Rate goroutine is fresh and is held after return.
+	noiseReady := make(chan struct{})
+	noiseRelease := make(chan struct{})
+	noiseDone := make(chan struct{})
+	go func() {
+		defer close(noiseDone)
+		drRecursiveStackProbe(1024, func() {
+			close(noiseReady)
+			<-noiseRelease
+		})
+	}()
+	<-noiseReady
+	targetRelease := make(chan struct{})
+	targetDone := make(chan struct{})
+	result := make(chan drRateSample, 1)
+	go func() {
+		var sample drRateSample
+		runtime.ReadMemStats(&sample.before)
+		if beforeInvoke != nil {
+			beforeInvoke()
+		}
+		started := time.Now()
+		sample.value, sample.err = invoke()
+		sample.duration = time.Since(started)
+		runtime.ReadMemStats(&sample.after)
+		result <- sample
+		<-targetRelease
+		close(targetDone)
+	}()
+	sample := <-result
+	close(targetRelease)
+	close(noiseRelease)
+	<-targetDone
+	<-noiseDone
+	if sample.after.NumGC != sample.before.NumGC {
+		fmt.Println("DR_STACK_DIAGNOSTIC gc_during_measurement")
+		t.Fatalf("runtime GC occurred during measurement: before=%d after=%d", sample.before.NumGC, sample.after.NumGC)
+	}
+	return sample
+}
+
+func drRunDeepChainBoundedness(t *testing.T, depth int) {
+	fixture := drChainFixture(t, depth)
+	resolved := drPublish(t, fixture, fixture.rules, fixture.schemas)
+	rater, err := billing.NewReferenceRater(resolved)
+	if err != nil {
+		t.Fatalf("depth %d: NewReferenceRater: %v", depth, err)
+	}
+	input := b1OperatorInput(t, resolved, fixture.obs)
+	if _, warmErr := rater.Rate(t.Context(), input); warmErr == nil {
+		t.Fatalf("depth %d: the deep chain rated completely; the fixture no longer exercises the solver", depth)
+	}
+	// GC is allowed during fixture construction and warm-up. Once both runtime
+	// limits are disabled, the fresh Rate goroutine's retained stack is measured
+	// while it remains alive, so no later shrink or unrelated process-wide GC can
+	// erase its peak.
+	sample := drMeasureRateWithRuntimeControls(t, func() (economics.Valuation, error) {
+		return rater.Rate(t.Context(), input)
+	}, nil)
+	if sample.err == nil {
+		t.Fatalf("depth %d: deep chain rated without a diagnostic", depth)
+	}
+	fingerprint := sample.value.Fingerprint()
+	if pinned, ok := drDeepChainFingerprints[depth]; !ok || fingerprint != pinned {
+		t.Fatalf("depth %d: deep-chain fingerprint drifted: pinned=%s observed=%s", depth, drDeepChainFingerprints[depth], fingerprint)
+	}
+	stackGrowth := int64(0)
+	if sample.after.StackInuse > sample.before.StackInuse {
+		stackGrowth = int64(sample.after.StackInuse - sample.before.StackInuse)
+	}
+	nodes := float64(depth + 1)
+	fmt.Printf("DR_STACK_RESULT depth=%d stack_growth=%d allocs_per_node=%.6f bytes_per_node=%.6f fingerprint=%s wall_ms=%d\n",
+		depth, stackGrowth, float64(sample.after.Mallocs-sample.before.Mallocs)/nodes,
+		float64(sample.after.TotalAlloc-sample.before.TotalAlloc)/nodes, fingerprint, sample.duration.Milliseconds())
+}
+
+func drRunRateStackMutant(t *testing.T, large bool) {
+	depth := metering.MaxComponentSchemas * metering.MaxComponentSchemaRelationships
+	fixture := drChainFixture(t, depth)
+	resolved := drPublish(t, fixture, fixture.rules, fixture.schemas)
+	rater, err := billing.NewReferenceRater(resolved)
+	if err != nil {
+		t.Fatalf("mutant depth %d: NewReferenceRater: %v", depth, err)
+	}
+	input := b1OperatorInput(t, resolved, fixture.obs)
+	if _, warmErr := rater.Rate(t.Context(), input); warmErr == nil {
+		t.Fatalf("mutant depth %d: the deep chain rated completely", depth)
+	}
+	invoke := func() (economics.Valuation, error) {
+		if large {
+			var value economics.Valuation
+			var rateErr error
+			drRateStackMutantLarge(depth, func() { value, rateErr = rater.Rate(t.Context(), input) })
+			return value, rateErr
+		}
+		var value economics.Valuation
+		var rateErr error
+		drRateStackMutantSmall(depth, func() { value, rateErr = rater.Rate(t.Context(), input) })
+		return value, rateErr
+	}
+	sample := drMeasureRateWithRuntimeControls(t, invoke, nil)
+	if sample.err == nil {
+		t.Fatalf("mutant depth %d: deep chain rated completely", depth)
+	}
+	stackGrowth := int64(0)
+	if sample.after.StackInuse > sample.before.StackInuse {
+		stackGrowth = int64(sample.after.StackInuse - sample.before.StackInuse)
+	}
+	fmt.Printf("DR_STACK_MUTANT frame=%s depth=%d stack_growth=%d\n", map[bool]string{true: "large", false: "small"}[large], depth, stackGrowth)
+}
+
+//go:noinline
+func drRateStackMutantSmall(depth int, invoke func()) {
+	var frame [64]byte
+	frame[0] = byte(depth)
+	if depth == 0 {
+		invoke()
+	} else {
+		drRateStackMutantSmall(depth-1, invoke)
+	}
+	runtime.KeepAlive(frame)
+}
+
+//go:noinline
+func drRateStackMutantLarge(depth int, invoke func()) {
+	var frame [512]byte
+	frame[0] = byte(depth)
+	if depth == 0 {
+		invoke()
+	} else {
+		drRateStackMutantLarge(depth-1, invoke)
+	}
+	runtime.KeepAlive(frame)
 }
