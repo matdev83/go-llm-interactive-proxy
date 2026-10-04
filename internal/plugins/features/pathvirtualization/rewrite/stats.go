@@ -125,6 +125,19 @@ func (r SkipReason) String() string {
 	}
 }
 
+// MarshalText implements [encoding.TextMarshaler] so a skip reason reaches any
+// exporter as the bounded label rather than as its ordinal.
+//
+// It exists because requirements.md 7.7 constrains OBSERVABLE output, and the most
+// likely exporter of a report is a JSON or log encoder rather than this package's own
+// String method. An integer-coded enum encodes as a bare number, which is unbounded in
+// the sense that matters: a value outside the closed vocabulary - a future member, or
+// an ordinal a caller supplied - leaves the process as whatever number it is, with no
+// label a reader can act on and nothing that degrades safely. The default branch of
+// String already answers that case, so marshalling delegates to it rather than
+// restating the vocabulary a second time.
+func (r SkipReason) MarshalText() ([]byte, error) { return []byte(r.String()), nil }
+
 // selectorSkipReason projects one canonical selector refusal into this step's
 // vocabulary.
 //

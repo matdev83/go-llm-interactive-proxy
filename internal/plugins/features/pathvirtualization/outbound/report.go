@@ -103,6 +103,19 @@ func (o Outcome) String() string {
 	}
 }
 
+// MarshalText implements [encoding.TextMarshaler] so an outcome reaches any exporter
+// as the bounded label rather than as its ordinal.
+//
+// It exists because requirements.md 7.7 constrains OBSERVABLE output, and the most
+// likely exporter of a report is a JSON or log encoder rather than this package's own
+// String method. An integer-coded enum encodes as a bare number, which is unbounded in
+// the sense that matters here: a value outside the closed vocabulary leaves the process
+// as whatever number it is, carrying no label a reader can act on, while Report's
+// sibling RootReason already renders as text and made the difference visible. The
+// default branch of String answers that case, so marshalling delegates to it rather
+// than restating the vocabulary a second time.
+func (o Outcome) MarshalText() ([]byte, error) { return []byte(o.String()), nil }
+
 // Report is the content-free record of one outbound pass.
 //
 // Every field is a closed code, a count, or a byte total, so the whole value is safe

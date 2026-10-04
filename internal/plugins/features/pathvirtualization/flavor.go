@@ -75,6 +75,44 @@ const (
 	SkipReasonReservedNamespaceCollision SkipReason = "reserved_namespace_collision"
 )
 
+// String returns the fixed, low-cardinality label of a refusal code, or "unknown" for a
+// value outside the closed vocabulary.
+//
+// It is total on purpose. This type is an exported named string, so any caller can
+// construct a value that names a real root, an alias, or a path suffix and hand it to
+// something that formats it; the total mapping is what keeps such a value from
+// reaching a log line or a metric label verbatim.
+func (r SkipReason) String() string {
+	switch r {
+	case SkipReasonNone:
+		return ""
+	case SkipReasonEmptyRoot:
+		return "empty_root"
+	case SkipReasonRelativeRoot:
+		return "relative_root"
+	case SkipReasonMalformedVolumeRoot:
+		return "malformed_volume_root"
+	case SkipReasonDeviceNamespace:
+		return "device_namespace"
+	case SkipReasonReservedNamespaceCollision:
+		return "reserved_namespace_collision"
+	default:
+		return "unknown"
+	}
+}
+
+// MarshalText implements [encoding.TextMarshaler] so a refusal code reaches any exporter
+// as the closed-vocabulary label rather than as the caller's own bytes.
+//
+// The risk this closes is specific to a string-typed enum: every other enum in this
+// feature is an integer, so json.Marshal already renders it as a number no caller
+// controls, while THIS one renders verbatim by default. A value assembled from a real
+// project root would therefore export as that root, which is exactly the content
+// requirements.md 7.7 forbids from reaching a metric label, a log field, or a
+// diagnostics inventory. Marshalling delegates to [SkipReason.String] rather than
+// restating the vocabulary a second time.
+func (r SkipReason) MarshalText() ([]byte, error) { return []byte(r.String()), nil }
+
 // ParsedPath is the canonical lexical result of classifying one absolute path.
 // Both fields preserve the exact input spelling, so Root+Rest reproduces the
 // input bytes.

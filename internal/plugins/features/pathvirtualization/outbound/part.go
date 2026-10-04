@@ -32,11 +32,16 @@ package outbound
 //   - no workspace authority. The workspace view is READ from the projection the
 //     runtime pinned for the turn rather than resolved here, so this pass holds no
 //     resolver at all and cannot mint a second, competing one;
-//   - no state. The mapping is re-derived from the authoritative view on every
-//     invocation rather than cached, which is what makes requirement 5.6's "same alias
-//     for every retry, race participant, and failover candidate of one logical A-leg
-//     turn" true with no synchronization, and what makes requirement 6.2's
-//     restart-equivalence true by construction;
+//   - no state, and specifically no CACHE. The mapping is re-derived from the pinned
+//     view on every invocation, and the direction of that argument matters: the
+//     authority is the PIN both passes read (requirement 5.6), and re-derivation is a
+//     pure function of it, so "same alias for every retry, race participant, and
+//     failover candidate of one logical A-leg turn" holds with no synchronization
+//     because there is one value rather than many re-resolutions. Requirement 6.2's
+//     restart-equivalence follows from the same purity. Stating it the other way round
+//     - "never cached, so nothing can go stale" - inverts the risk: a stored alias is
+//     precisely what CAN disagree with the turn's root, because it outlives the root
+//     that produced it; re-derivation cannot disagree with the pin it reads;
 //   - no routing decision and no candidate influence. The pass reads no route field, no
 //     candidate identity, and no backend identity, and requirements.md 5.5 puts all of
 //     those outside this feature's reach. It also cannot exclude a candidate: the

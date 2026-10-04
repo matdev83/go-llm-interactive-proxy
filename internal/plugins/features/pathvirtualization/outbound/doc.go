@@ -61,6 +61,15 @@
 //     only fires on a segment-boundary real-root prefix (requirements.md 2.9). That is
 //     what makes the second pass free on the common path, and what lets it be a genuine
 //     late pass rather than a second opinion;
-//   - the mapping is re-derived on every use and never cached, so there is no stored
-//     alias that could disagree with the authoritative view (requirements.md 5.6, 6.2).
+//   - the AUTHORITY IS THE PIN, and re-derivation is a pure function of it. Both passes
+//     read one per-turn snapshot the runtime published - the early one out of its attempt
+//     metadata, the late one out of the public SDK context projection - and neither
+//     resolves a root of its own, so there is no second fact for them to disagree about
+//     (requirements.md 5.6). It is worth being precise about which half of that is the
+//     safety property, because the inverse framing is a real mistake: "re-derived on every
+//     use, so nothing can go stale" has the reasoning backwards. A CACHE is the thing that
+//     can disagree with a turn's root, because a stored alias outlives the root that
+//     produced it. Re-derivation is safe here because it reads the pin rather than an
+//     answer of its own, and requirement 6.2's restart-equivalence follows from that
+//     purity rather than from the absence of stored state.
 package outbound

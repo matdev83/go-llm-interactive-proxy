@@ -184,6 +184,13 @@ func (t *AttemptTransform) HandleAttempt(
 	// race participants, failover candidates, and process restarts
 	// (requirements.md 5.6, 6.2), and it is why no identity field can influence the
 	// result (requirement 5.7).
+	//
+	// The derivation is a PURE FUNCTION of that one pinned root, and saying so is the
+	// point rather than a detail. What makes requirement 5.6 hold is the existence of a
+	// single authority, NOT the absence of recomputation: a cached alias is what could
+	// disagree with the turn's root, because a cache can outlive the value it was built
+	// from. Re-deriving cannot disagree with the pin it reads, and every participant of
+	// one logical turn reads the same pinned view.
 	mapping, rootReason := pathvirtualization.DeriveMapping(meta.Workspace.ProjectRoot)
 	if rootReason != pathvirtualization.SkipReasonNone {
 		t.record(Report{Outcome: OutcomeProjectRootUnusable, RootReason: rootReason})

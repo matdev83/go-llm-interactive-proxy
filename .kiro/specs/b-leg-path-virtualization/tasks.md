@@ -264,7 +264,7 @@
   - _Depends: 5.3, 8.1, 9.1_
   - _Validation: feature bundle + standard registry + architecture tests_
 
-- [ ] 9.3 Add content-free metrics/inventory projection
+- [x] 9.3 Add content-free metrics/inventory projection
   - Expose enablement/mode and bounded profile counts.
   - Add rewrite/skip/reject/savings observations without paths, suffixes, IDs, or hashes.
   - Reuse existing metrics composition patterns and bounded cardinality.

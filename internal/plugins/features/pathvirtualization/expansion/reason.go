@@ -77,6 +77,18 @@ func (o Outcome) String() string {
 	}
 }
 
+// MarshalText implements [encoding.TextMarshaler] so an outcome reaches any exporter as
+// the bounded label rather than as its ordinal.
+//
+// The argument is the one [outbound.Outcome] gives, and the reason it applies here
+// unchanged is that requirements.md 7.7 constrains OBSERVABLE output: the most likely
+// exporter of a report is a JSON or log encoder rather than this package's own String
+// method, and an integer-coded enum encodes as a bare number. A value outside the
+// closed vocabulary then leaves the process as whatever ordinal it is, with no label a
+// reader can act on. The default branch of String already answers that case, so
+// marshalling delegates to it rather than restating the vocabulary a second time.
+func (o Outcome) MarshalText() ([]byte, error) { return []byte(o.String()), nil }
+
 // Reason is the bounded, content-free reason one completed tool call decided the way
 // it did.
 //
@@ -190,6 +202,16 @@ func (r Reason) String() string {
 	}
 }
 
+// MarshalText implements [encoding.TextMarshaler] so a reason reaches any exporter as
+// the bounded label rather than as its ordinal.
+//
+// This reason already doubles as the string published as a toolcall.Result.ReasonCode,
+// so the label IS this feature's wire form on one path; rendering the VALUE the same
+// way on every other path is what keeps a report and a client-facing refusal from
+// describing the same condition with two different renderings. See
+// [Outcome.MarshalText] for why the ordinal form is the risk.
+func (r Reason) MarshalText() ([]byte, error) { return []byte(r.String()), nil }
+
 // rejects reports whether a reason failed the tool call closed.
 //
 // The mapping is total over the closed vocabulary and it is the only place a reason
@@ -250,4 +272,28 @@ type Report struct {
 	// the selected leaves, and identical between audit and rewrite mode for the same
 	// input (requirement 7.3).
 	Stats rewrite.Stats
+	// ArgsOverDeclaredBound reports that this completed call's assembled arguments
+	// exceeded the mandatory bound THIS PASS declared, so the completeness requirement
+	// the pass published did not hold for it.
+	//
+	// It is an OBSERVATION and never a decision: the report records it, and the call is
+	// decided exactly as it would be without a reporter. Requirement 4.5's refusal is
+	// not restated here because it is not this pass's to make - the tool-call assembler
+	// owns the effective assembly bound, and past it the assembler refuses the call
+	// WITHOUT invoking any finalizer, so a finalizer never observes that case at all.
+	//
+	// What this field does observe is the neighbouring and genuinely reachable case. The
+	// assembler's effective bound is the MAXIMUM over every declaring finalizer, never
+	// the minimum, so a deployment where another pass declares a larger bound hands this
+	// pass completed calls that may exceed this pass's own declaration. Those calls
+	// assemble, arrive here, and are decided normally while the declared completeness
+	// silently does not hold - which is exactly the fact requirements.md 7.6's
+	// mandatory-buffer counter needs and exactly what an operator who lowered
+	// `mandatory_max_args_bytes` cannot otherwise discover.
+	//
+	// It is a BOOLEAN rather than a length on purpose. A length is a number derived from
+	// a payload, which is one step away from the content requirements.md 7.7 forbids, and
+	// it would be a second unbounded series on the hot path; "this call was past the
+	// bound I declared" is the whole fact, and the count of such calls is the counter.
+	ArgsOverDeclaredBound bool
 }

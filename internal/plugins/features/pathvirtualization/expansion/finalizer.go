@@ -247,7 +247,8 @@ func (f *Finalizer) Finalize(
 		// canonical and this feature has nothing to say about it.
 		return passResult(ReasonNoSelectors), nil
 	}
-	decision := f.decide(call, tool, meta)
+	decision := f.decide(call, tool, meta).
+		withOverDeclaredBound(len(call.ArgsJSON) > f.spec.MaxArgsBytes)
 	f.record(decision)
 	if decision.reason.rejects() {
 		// A refusal publishes nothing: no arguments, no tool name, no document. The
@@ -278,7 +279,8 @@ func (f *Finalizer) Finalize(
 }
 
 // decision is one call's complete verdict: the bounded reason, the document to
-// publish when there is one, and the engine's content-free statistics.
+// publish when there is one, the engine's content-free statistics, and the
+// mandatory-buffer observation.
 //
 // It is a value so a decision can be re-labelled once - which is what the
 // invalid-rewrite branch does - without recomputing anything.
@@ -287,6 +289,22 @@ type decision struct {
 	rootReason pathvirtualization.SkipReason
 	published  []byte
 	stats      rewrite.Stats
+	// overDeclaredBound is the [Report.ArgsOverDeclaredBound] observation. It is
+	// carried on the decision rather than computed in record so the comparison happens
+	// exactly once per call, next to the pass's other per-call observations.
+	overDeclaredBound bool
+}
+
+// withOverDeclaredBound returns the decision carrying the mandatory-buffer observation.
+//
+// The comparison is against this pass's OWN declared bound, not against a constant: the
+// bound is a validated constructor argument (requirement 7.5), so a generation that
+// configured one compares against the number its operator chose. An absent ArgsJSON is
+// not an overflow - a call with no arguments is smaller than every bound in the
+// configurable range, and treating it as one would report an overflow that cannot exist.
+func (d decision) withOverDeclaredBound(over bool) decision {
+	d.overDeclaredBound = over
+	return d
 }
 
 // withReason returns the same decision carrying a different bounded reason.
@@ -552,10 +570,11 @@ func (f *Finalizer) record(d decision) {
 		return
 	}
 	f.report(Report{
-		Outcome:    d.outcome(),
-		Reason:     d.reason,
-		RootReason: d.rootReason,
-		Stats:      d.stats,
+		Outcome:               d.outcome(),
+		Reason:                d.reason,
+		RootReason:            d.rootReason,
+		Stats:                 d.stats,
+		ArgsOverDeclaredBound: d.overDeclaredBound,
 	})
 }
 
