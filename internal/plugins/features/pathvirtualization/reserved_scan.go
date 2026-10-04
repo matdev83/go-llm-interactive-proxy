@@ -175,6 +175,46 @@ func decodeHexQuad(digits []byte) (rune, bool) {
 	return value, true
 }
 
+// scannableTagSegment returns the tag candidate that follows the reserved marker at
+// raw[after:], copied only as far as a valid tag could possibly reach.
+//
+// [isScannableWorkspaceTag] accepts a segment of exactly
+// len(tagPrefix)+workspaceTagChars bytes and nothing else, so this never reads or
+// copies more than that plus one byte, no matter how much payload follows the marker.
+// Reading the whole remaining payload instead would copy it once per marker
+// occurrence, which is quadratic on a document carrying many markers and reaches
+// hundreds of megabytes on a payload still inside the bound the assembler enforces.
+//
+// The ANSWER is unchanged, and that needs the segment's real end rather than a fixed
+// window. A window alone cannot tell a too-short segment from an exactly-valid one,
+// because the bytes that follow a short segment can pad it up to the valid length,
+// and it cannot tell an exactly-valid segment from a too-long one, because a long
+// segment truncated to the window looks exactly valid. So this locates the segment
+// end first, and reads one byte past the window only to recognise the too-long case,
+// which it reports as a window one byte too wide so the exact-length check refuses it.
+func scannableTagSegment(raw []byte, after int) string {
+	start := after
+	for start < len(raw) && isSeparator(raw[start]) {
+		start++
+	}
+	window := len(tagPrefix) + workspaceTagChars
+	limit := start + window
+	if limit > len(raw) {
+		limit = len(raw)
+	}
+	end := limit
+	for i := start; i < limit; i++ {
+		if isSeparator(raw[i]) {
+			return string(raw[start:i])
+		}
+	}
+	if end < len(raw) && !isSeparator(raw[end]) {
+		// The segment continues past the window, so it cannot be the frozen width.
+		return string(raw[start : start+window+1])
+	}
+	return string(raw[start:end])
+}
+
 // scanReservedAliasSpelling is the literal-byte recognizer [ScanReservedAlias] runs
 // first and then again over the unescaped projection.
 func scanReservedAliasSpelling(raw []byte) ReservedAliasPresence {
@@ -197,7 +237,7 @@ func scanReservedAliasSpelling(raw []byte) ReservedAliasPresence {
 			offset = start + 1
 			continue
 		}
-		tagSegment, _ := takeSegment(trimLeadingSeparators(string(raw[after:])))
+		tagSegment := scannableTagSegment(raw, after)
 		if !isScannableWorkspaceTag(tagSegment) {
 			// The namespace is recognized from the marker on, so a tag that is not
 			// the frozen one leaves a MALFORMED reserved alias rather than an
