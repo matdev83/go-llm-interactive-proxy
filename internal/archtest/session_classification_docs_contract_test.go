@@ -45,6 +45,14 @@ var sessionClassificationDocSections = []string{
 	"## Reload behavior",
 	"## Large-body (wire) compatibility",
 	"## Privacy and data minimization",
+	// Task 11.2 (requirements 9.1-9.6, 11.3-11.7) added the observability,
+	// evidence, anti-pattern, consumer, disabled, and future-consumer sections.
+	"## Observability: bounded metrics and diagnostics",
+	"## Evidence-code semantics",
+	"## What must never be logged",
+	"## Consuming classification in a feature",
+	"## Disabled posture",
+	"## Future explanation surfaces",
 }
 
 // sessionClassificationDocConfigKeys are the canonical feature-owned

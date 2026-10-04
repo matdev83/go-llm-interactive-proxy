@@ -389,6 +389,142 @@ written — together with a canceled caller context. Even then the conservative
 `unknown` (or preserved positive) projection is returned with the error, and the
 generic stage runner discards it without failing the request.
 
+## Observability: bounded metrics and diagnostics
+
+The feature exports six bounded metric families through the process-owned
+collector that standard featurehost registers with the generic metrics registry.
+Registration lifetime belongs to the metrics infrastructure; the collector belongs
+to this feature because the feature owns the closed vocabulary.
+
+Two properties keep the surface safe to scrape at any cardinality:
+
+- only observed label combinations are exported, so a deployment that never
+  classifies publishes no classification series at all;
+- every observation is validated against the closed vocabularies before it is
+  counted, and a rejected observation is dropped rather than exported. Rejected
+  observations are counted in-process only, and the rejected value itself is never
+  retained, so it cannot be published later.
+
+| Metric | Type | Labels | Emitted by |
+|---|---|---|---|
+| `lip_session_classification_store_ready` | gauge | — no labels | `setStoreReady`: 1 while the process-owned classification store is initialized, 0 once it is released. |
+| `lip_session_classification_evaluations_total` | counter | `mode`, `outcome` | `ObserveEvaluation`: once per bounded evaluation of a turn. |
+| `lip_session_classification_transitions_total` | counter | `source`, `confidence`, `evidence` | `ObserveTransition`: once for the turn that established the first accepted positive. |
+| `lip_session_classification_remote_total` | counter | `outcome` | `ObserveRemote`: once per remote attempt, including one skipped at the lease, beside its latency sample. |
+| `lip_session_classification_remote_seconds` | histogram | `outcome` | `ObserveRemote`: the bounded latency of that same attempt, on fixed buckets from 5ms to 20.48s. |
+| `lip_session_classification_store_total` | counter | `operation`, `outcome` | `ObserveStore`: once per durable classification-state operation. |
+
+Every label value is a static identifier drawn from a closed enumeration. The
+following are never a label:
+
+- a session identifier such as `SessionID`, or an A-leg identifier such as
+  `ALegID`;
+- a raw `User-Agent`, whole or reduced;
+- a filename or a path, absolute or relative;
+- a prompt, a transcript excerpt, or any tool argument;
+- an arbitrary client metadata value the classifier merely observed;
+- an arbitrary vendor result string taken from a remote decision;
+- a classification revision, which is unbounded and would therefore create
+  unbounded cardinality.
+
+The shipped labels honour that list: `mode`, `outcome`, `source`, `confidence`,
+`evidence`, and `operation` are all members of closed vocabularies, and
+`lip_session_classification_store_ready` carries none at all.
+
+| Label | Metric | Closed values |
+|---|---|---|
+| `mode` | `lip_session_classification_evaluations_total` | `heuristic`, `hybrid`, `jev` |
+| `outcome` | `lip_session_classification_evaluations_total` | `excluded`, `no_authority`, `preserved`, `promoted`, `remote_error`, `remote_skipped`, `remote_timeout`, `restored`, `state_unavailable`, `unknown` |
+| `source` | `lip_session_classification_transitions_total` | `local_identity`, `local_tooling`, `remote_classifier` |
+| `confidence` | `lip_session_classification_transitions_total` | `high` |
+| `evidence` | `lip_session_classification_transitions_total` | `client_family.codex`, `client_family.droid`, `client_family.hermes`, `client_family.opencode`, `client_family.pi`, `client_family.roo`, `remote.above_threshold`, `tooling.distinct_coding_cluster`, `tooling.project_marker_cluster` |
+| `outcome` | `lip_session_classification_remote_total` | `below_threshold`, `budget_exhausted`, `lease_busy`, `malformed`, `network_error`, `positive`, `rate_limited`, `server_error`, `skipped`, `timeout` |
+| `outcome` | `lip_session_classification_remote_seconds` | `below_threshold`, `budget_exhausted`, `lease_busy`, `malformed`, `network_error`, `positive`, `rate_limited`, `server_error`, `skipped`, `timeout` |
+| `operation` | `lip_session_classification_store_total` | `load`, `promote`, `remote_claim`, `remote_complete` |
+| `outcome` | `lip_session_classification_store_total` | `applied`, `denied`, `error`, `hit`, `miss`, `unchanged` |
+
+Two measured values are deliberately not labels, because each would make the series
+count grow with traffic: a revision is unbounded, and one latency sample is
+bounded by a ceiling rather than by a fixed set. An out-of-range value of either
+kind is rejected or dropped, never published.
+
+| Bound | Value | Effect |
+|---|---|---|
+| `MaxObservedRevision` | 4294967296 | the largest revision one observation may describe; a larger one is rejected instead of exported |
+| `MaxRemoteObservationLatency` | 1m30s | the largest latency sample exported; an out-of-range sample is dropped, not truncated |
+
+Reading the surface:
+
+```promql
+sum by (mode, outcome) (rate(lip_session_classification_evaluations_total[5m]))
+```
+
+A rising `outcome="unknown"` beside a flat `lip_session_classification_transitions_total`
+means evidence is not arriving, not that sessions are being rejected: there is no
+negative classification to observe. A rising `outcome="excluded"` means an operator
+exclusion prefix is matching, which is a configuration fact rather than a client
+fact. A `lip_session_classification_store_ready` that stays at 0 while traffic flows
+means no enabled generation has initialized the shared store yet.
+
+## Evidence-code semantics
+
+The decisive evidence code is the one field of the positive snapshot that answers
+*which rule fired?*. It names the rule and never the input that triggered it: a
+code is bounded metadata, not content, and it is not authorization.
+
+| Origin | Source | Codes |
+|---|---|---|
+| Client identity (Rule A) | `local_identity` | `client_family.codex`, `client_family.droid`, `client_family.hermes`, `client_family.opencode`, `client_family.pi`, `client_family.roo` |
+| Distinctive tool cluster (Rule B) | `local_tooling` | `tooling.distinct_coding_cluster` |
+| Corroborated tool plus project marker (Rule C) | `local_tooling` | `tooling.project_marker_cluster` |
+| Configured remote decision | `remote_classifier` | `remote.above_threshold` |
+
+What a code therefore tells an operator is which rule promoted the session and from
+which source. Because `evidence` is also a transition label, the same code answers
+which rules are actually driving promotions in a deployment, at a fixed number of
+series however many sessions flow.
+
+What a code never contains: the matched client identity, the workspace marker base
+name, a tool name, a tool argument, the prompt, the transcript, or any part of a
+remote response body. A code is one of a closed set of static identifiers, bounded
+by the SDK contract:
+
+| Bound | Value |
+|---|---|
+| `MaxEvidenceCodeBytes` | 64 bytes per code |
+| Allowed characters | ASCII letters, digits, `.`, `_`, `-` |
+
+A syntactically valid but unrecognised code is still refused as a label, so neither
+a client-derived nor a vendor-derived string can become one. The same closed set is
+what the persisted state holds; see
+[Privacy and data minimization](#privacy-and-data-minimization).
+
+## What must never be logged
+
+The surface above is deliberately small, and widening it is how a deployment ends
+up with thousands of series. The following shapes are wrong even when the value is
+true and even when the caller "already knows" who the client is, so each is written
+as a shape rather than as a real value.
+
+| Never log | Instead log |
+|---|---|
+| `user_agent="<raw client User-Agent string>"` | the bounded evidence code, for example `evidence="client_family.codex"` |
+| `path="<absolute workspace path>"` | nothing: a recognized project marker contributes only its presence |
+| `filename="<source file name>"` | nothing: the classifier keeps the presence bit, never the name |
+| `prompt="<first user message>"` | nothing: classification never reads prompt content |
+| `a_leg="<proxy-owned A-leg identifier>"` | nothing: correlate through the existing tracing and exemplar mechanisms |
+| `session_id="<proxy-owned session identifier>"` | nothing, for the same reason |
+| an arbitrary vendor answer string | `outcome="below_threshold"`, or another closed remote outcome |
+| a raw remote request or response body | the bounded `outcome` beside the measured latency |
+| `revision="<monotonic revision>"` | nothing: a revision is unbounded, so it belongs in a bounded log field, never in a label |
+
+Two habits keep this honest. First, publish the closed value rather than the input:
+the question "why was this session classified?" is answered by
+`lip_session_classification_transitions_total{source="local_tooling",evidence="tooling.distinct_coding_cluster"}`,
+a fixed-size series whatever the traffic. Second, treat a request-scoped identifier
+as a correlation handle owned by the tracing stack, not as classification
+telemetry; a correlation that becomes a label stops being bounded.
+
 ## Durable and non-durable posture
 
 One process-wide holder owns exactly one authoritative store plus one process
@@ -532,3 +668,114 @@ classification fact an operator can rely on.
 proxy continues to route, stream, recover, account, and encode requests without
 requiring any classification infrastructure. Nothing in the request path depends
 on the feature existing.
+
+## Consuming classification in a feature
+
+The contract is one line: ask `IsCodingAgent()` of the `SessionView.Classification`
+projected onto the turn. The generic stage runs before submit, tool-catalog,
+request-shaping, pre-request, and route-hint consumers, so a decisive first turn is
+visible on that same turn.
+
+```go
+// Correct: read the projected fact and nothing else.
+func codingSpecificPath(view session.SessionView) string {
+	if view.Classification.IsCodingAgent() {
+		return "coding-agent-session"
+	}
+	return "generic-session"
+}
+```
+
+A consumer of the projection must not:
+
+- re-run the classifier, or construct one;
+- parse the client `User-Agent`, match prefixes, or keep a second client catalog;
+- rescan the transcript, the tool list, or any request content;
+- reach into feature-private state such as the classifier, the shared process
+  store, or the coordinator;
+- read a vendor-specific result to decide what a coding session is.
+
+```go
+// Incorrect: a second client detector, coupled to request content and to one
+// vendor's answer.
+func codingSpecificPath(call *lipapi.Call, jevAnswer string) bool {
+	if strings.HasPrefix(call.ClientUserAgent, clientfamily.CodexPrefix) {
+		return true
+	}
+	if lipapi.ClassifyToolName(call.Tools[0].Name).IsFileEdit() {
+		return true
+	}
+	return strings.EqualFold(jevAnswer, "yes")
+}
+```
+
+The incorrect form is wrong in three separate ways. It re-derives identity from a
+header the classifier already decided about, it makes a feature's behaviour depend
+on request content the classifier deliberately never reads, and it treats one
+vendor's answer as the definition of the session. It also drifts: a second detector
+keeps its own rules, so it will disagree with the classification a consumer is
+supposed to be reading.
+
+Reading the fact is not the same as trusting it. Classification is advisory derived
+metadata, and it is not authorization: a positive value authorizes no tool, grants
+no permission, establishes no identity, and alters no billing entitlement. Keep
+enforcing your own checks for each of those. Treat `unknown` as *not yet positively
+classified*, never as *known not to be a coding agent*, and expect the value to
+arrive on a later turn rather than on the first one — the first turn is only
+decisive when the evidence is already there.
+
+Enabling this feature switches nothing on: existing features
+do not become gated automatically, and a bundled feature becomes
+classification-aware only when its own implementation explicitly opts in. See
+[Scope: advisory metadata, not authorization](#scope-advisory-metadata-not-authorization).
+
+## Disabled posture
+
+With the feature absent or `enabled: false`, no classifier plane is composed, so
+nothing evaluates, nothing reaches the network, and nothing is stored. The
+classification-specific series are absent, not zero:
+
+| Family | While the feature is disabled |
+|---|---|
+| `lip_session_classification_evaluations_total` | absent — no series is exported |
+| `lip_session_classification_transitions_total` | absent — no series is exported |
+| `lip_session_classification_remote_total` | absent — no series is exported |
+| `lip_session_classification_remote_seconds` | absent — no histogram series is exported |
+| `lip_session_classification_store_total` | absent — no series is exported |
+| `lip_session_classification_store_ready` | the one static series that may remain: 0 until the first enabled generation initializes the shared store |
+
+"Absent" is literal. The collector exports only combinations it has actually
+observed, so a disabled deployment presents no classification time series rather
+than a wall of zeroes. The readiness gauge is the single exception the disabled
+posture allows, because it is static feature state rather than a hot-path
+observation.
+
+Counters are cumulative, so disabling the feature stops them growing rather than
+retroactively deleting series an earlier enabled generation already exported. That
+is deliberate: a flat counter is easier to interpret than a disappeared one, and a
+disappearing series would make a restart look like a change in client behaviour.
+
+Removing the feature entirely is no different from disabling it. The generic proxy
+will continue to route, stream, recover, account, and encode requests without
+requiring any classification infrastructure, and a deployment that never enables
+it acquires no classification schema and no network dependency.
+
+## Future explanation surfaces
+
+An operator-visible session/request explanation surface will consume this feature
+as a read-only projection. That surface is a future consumer, tracked as issue
+#456 and not a prerequisite for this feature: the classifier, its state, and this
+metric surface ship independently of it, and nothing in this guide waits for it.
+
+When issue #456 lands it reads `SessionView.Classification` — kind, source,
+confidence band, evidence code, and revision — and never reaches into
+feature-private classifier state, the shared store, or the coordinator. The same
+projection is available without a request at all: the bounded transition
+observation carries source, confidence band, evidence code, and revision, and
+projects them as the same snapshot.
+
+Because an explanation surface is a consumer, it inherits every constraint above.
+It shows a classification rather than deciding on one, `unknown` renders as *not
+yet classified*, a positive value is never presented as authorization, and the
+evidence code is presented as the name of the rule that fired, never as the content
+it matched.
