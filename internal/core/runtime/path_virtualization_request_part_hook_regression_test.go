@@ -643,10 +643,10 @@ func hookRegRun(t *testing.T, scenario hookRegScenario) hookRegObservation {
 	}
 
 	// The early pass reads the workspace projection the runtime already pinned onto its
-	// attempt metadata. The late pass has no such projection in sdkhooks.PartMeta and
-	// resolves the same authoritative view itself. Both are handed the SAME resolver
-	// instance here, which is what makes the run a proof that the two passes agree on
-	// one workspace rather than on two independently spelled roots.
+	// attempt metadata. The late pass reads that SAME PIN through the public SDK context
+	// projection, because sdkhooks.PartMeta carries no workspace view at all. Neither
+	// pass is handed a workspace authority here, which is the point: one pin, one alias,
+	// no second fact about the project root for the two passes to disagree about.
 	authority := twoPassWorkspaceResolver{root: twoPassRealRoot}
 
 	// The control keeps the marker wired so the request-part stage is reached and
@@ -659,7 +659,6 @@ func hookRegRun(t *testing.T, scenario hookRegScenario) hookRegObservation {
 		late = outbound.NewRequestPartHook(
 			rewrite.ModeRewrite,
 			resolver,
-			authority,
 			outbound.WithHookReporter(reports.onPart),
 		)
 	}
@@ -989,6 +988,95 @@ func TestOutboundAttempt_RequestPartHookPreservesVirtualizedHistoryThroughBacken
 				order, control.openScan.callBytes, got.openScan.callBytes)
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Task 9.2 remediation: requirements.md 5.4 with its enforcement named, over the
+// SHIPPED wiring rather than a hand-wired one.
+//
+// WHY THIS IS A SEPARATE TEST
+//
+// The run above could not tell where the late pass's project root came from: the harness
+// handed the pass a pkg/lipsdk/workspace.Resolver, so a regression in the SDK context
+// projection would have been invisible to it. Worse, that injection is what the shipped
+// composition did NOT do - the standard table's factory binds no authority at all - so the
+// late pass was inert in the only shipping deployment, and a real path restored by later
+// request shaping reached Backend.Open with nothing to stop it. Requirement 5.4 had no
+// enforcement at all.
+//
+// The fix is not a second injection: the late pass now READS the runtime's per-turn PIN
+// from the public SDK context projection, the same pin the early pass reads out of its
+// attempt metadata. This harness therefore hands BOTH passes no workspace authority
+// whatsoever - hookRegRun wires the runtime snapshot with one resolver and passes nothing
+// to either constructor - so every assertion below is attributable to the pin alone.
+//
+// WHAT IS ASSERTED
+//
+//   - requirements.md 5.4: the surface the late shaper restored is re-virtualized, so no
+//     real-root occurrence reaches Backend.Open, while the surface the early pass already
+//     virtualized is untouched;
+//   - the control, which is the same run with the late pass reached but inert, DOES reach
+//     Backend.Open carrying a real path - which is what makes the assertion above a real
+//     guard rather than a tautology;
+//   - requirements.md 5.6: both selected path values carry the SAME alias at
+//     Backend.Open. hookRegMeasure counts a document as virtual only when it contains the
+//     alias derived from the pinned root, so two virtual documents are two instances of
+//     one workspace tag and therefore one pin, not two resolutions that happened to agree;
+//   - and the late pass really ran: its bounded report says so, so the clean backend bound
+//     cannot be attributed to some other participant.
+// ---------------------------------------------------------------------------
+
+// TestOutboundAttempt_LatePassIsArmedByTheRuntimesPinnedWorkspaceAlone is the
+// requirement 5.4 guard whose subject is the SOURCE of the late pass's project root: the
+// runtime's per-turn pin, projected onto the public SDK context seam, and nothing else.
+func TestOutboundAttempt_LatePassIsArmedByTheRuntimesPinnedWorkspaceAlone(t *testing.T) {
+	t.Parallel()
+
+	got := hookRegRun(t, hookRegStandardScenario(t, true))
+	control := hookRegRun(t, hookRegStandardScenario(t, false))
+	order := hookRegOrderOf(got)
+
+	if !got.turnDone || !control.turnDone {
+		t.Fatalf("fixture: both runs must complete one turn: with_late_pass=%s control=%s", order, hookRegOrderOf(control))
+	}
+	if got.order.part == 0 || got.order.open == 0 {
+		t.Fatalf("fixture: the request-part stage and Backend.Open must both be reached: %s", order)
+	}
+
+	// requirements.md 5.4, and the report that shows the late pass ran rather than some
+	// other participant having produced the clean surface.
+	late := got.reports.onePart(t)
+	if late.Outcome != outbound.OutcomeRewriterRan {
+		t.Fatalf("requirements.md 5.4 - the late pass must have run off the pinned workspace view: outcome=%v root_reason=%q",
+			late.Outcome, late.RootReason)
+	}
+	if late.Stats.Rewritten != 1 {
+		t.Fatalf("requirements.md 5.4 - the late pass must virtualize exactly the one surface later shaping restored, rewritten=%d eligible=%d",
+			late.Stats.Rewritten, late.Stats.Eligible)
+	}
+	early := got.reports.oneAttempt(t)
+	if early.Stats.Rewritten != 1 {
+		t.Fatalf("fixture: the early pass must virtualize exactly the one historical surface, rewritten=%d", early.Stats.Rewritten)
+	}
+	if got.openScan.documents != 2 || got.openScan.virtual != 2 {
+		t.Fatalf("requirements.md 5.6 - both selected path values must carry the SAME alias derived from the one pinned view at Backend.Open: %s documents=%d virtual=%d real_root=%d",
+			order, got.openScan.documents, got.openScan.virtual, got.openScan.realRoot)
+	}
+	if got.openScan.realRoot != 0 {
+		t.Fatalf("requirements.md 5.4 - no real-root occurrence may reach Backend.Open: %s virtual=%d real_root=%d",
+			order, got.openScan.virtual, got.openScan.realRoot)
+	}
+
+	// The oracle. This is the shape a lost late rewrite reproduces, and it is reachable
+	// by changing nothing but the late pass's contribution.
+	if control.openScan.realRoot < 1 {
+		t.Fatalf("fixture: the run without the late pass must reach Backend.Open carrying the restored surface as a real path: %s virtual=%d real_root=%d",
+			hookRegOrderOf(control), control.openScan.virtual, control.openScan.realRoot)
+	}
+	if delta := control.openScan.callBytes - got.openScan.callBytes; delta <= 0 {
+		t.Fatalf("fixture: the backend-bound request must be strictly smaller once the late pass publishes its alias: %s control_body_bytes=%d backend_open_body_bytes=%d",
+			order, control.openScan.callBytes, got.openScan.callBytes)
+	}
 }
 
 // ---------------------------------------------------------------------------

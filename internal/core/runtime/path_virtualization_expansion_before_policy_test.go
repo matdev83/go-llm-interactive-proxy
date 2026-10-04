@@ -841,10 +841,11 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	}
 
 	// Both real outbound passes are handed the SAME compiled policy the shipped
-	// expansion finalizer uses, and both resolve the SAME authoritative workspace
-	// view. That is what makes one run a proof that the two request planes and the
-	// response plane agree on one workspace rather than on two independently spelled
-	// roots.
+	// expansion finalizer uses, and both read the SAME workspace view the runtime
+	// pins for the turn - the early pass from its attempt metadata, the late pass from
+	// the public SDK context projection. Neither is handed a workspace authority, which
+	// is what makes one run a proof that the two request planes and the response plane
+	// agree on one workspace rather than on two independently spelled roots.
 	authority := twoPassWorkspaceResolver{root: twoPassRealRoot}
 	resolver := hookRegResolver(t)
 	early := outbound.NewAttemptTransform(
@@ -855,7 +856,6 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	late := outbound.NewRequestPartHook(
 		rewrite.ModeRewrite,
 		resolver,
-		authority,
 		outbound.WithHookReporter(reports.onPart),
 	)
 

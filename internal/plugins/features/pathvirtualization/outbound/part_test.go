@@ -3,10 +3,8 @@ package outbound_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization"
@@ -30,51 +28,32 @@ import (
 // asserted - because both passes are fed byte-identical input, any difference between
 // what they publish is a difference between the passes and nothing else.
 
-// partProbeKey marks a context the test injected, so context propagation out of the
-// hook is observable without the stub storing a context of its own.
+// partProbeKey marks a context the test injected, so context propagation INTO the
+// hook is observable from the caller side without any stub holding a context.
 type partProbeKey struct{}
 
-// partResolverStub is the one authority the hook reads: a workspace resolver.
-//
-// It exists because sdkhooks.PartMeta carries no workspace projection and the
-// executor projects no workspace view onto any public SDK context seam, so an
-// injected lipworkspace.Resolver is the only sanctioned way for a request-part hook
-// to reach the authoritative ProjectRoot (design.md "Allowed Dependencies"). It also
-// counts resolutions, which is how the no-caching property is measured rather than
-// assumed.
-type partResolverStub struct {
-	mu       sync.Mutex
-	view     lipworkspace.WorkspaceView
-	err      error
-	calls    int
-	sawProbe bool
+// partPinnedWorkspace is the runtime's per-turn pin, projected onto the public SDK
+// context seam the request-part stage reads. sdkhooks.PartMeta carries no workspace
+// view, so this projection is the ONLY way the late pass reaches the authoritative
+// project root - and because it is a snapshot rather than a resolution instruction,
+// reading it cannot reach a host or observe a root other than the pinned one.
+func partPinnedWorkspace(root string) context.Context {
+	return lipworkspace.WithWorkspaceView(context.Background(),
+		lipworkspace.WorkspaceView{ID: "ws_fixture", ProjectRoot: root})
 }
 
-func (s *partResolverStub) Resolve(ctx context.Context) (lipworkspace.WorkspaceView, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.calls++
-	s.sawProbe = ctx.Value(partProbeKey{}) != nil
-	return s.view, s.err
+// partUnpinnedWorkspace is the state the runtime leaves a context in when it pins no
+// workspace view at all.
+func partUnpinnedWorkspace() context.Context {
+	return context.Background()
 }
 
-func (s *partResolverStub) resolveCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.calls
-}
-
-// probeContext returns a context carrying the marker this stub looks for.
-func probeContext() context.Context {
-	return context.WithValue(context.Background(), partProbeKey{}, "probe")
-}
-
-func partWorkspaceResolver(root string) *partResolverStub {
-	return &partResolverStub{view: lipworkspace.WorkspaceView{ID: "ws_fixture", ProjectRoot: root}}
-}
-
-func partFailingResolver() *partResolverStub {
-	return &partResolverStub{err: errors.New("workspace resolver unavailable")}
+// partProbedWorkspace pins a workspace view onto a context that also carries the
+// probe marker, so the pass's own context is observable at the point of use.
+func partProbedWorkspace(root string) context.Context {
+	return lipworkspace.WithWorkspaceView(
+		context.WithValue(context.Background(), partProbeKey{}, "probe"),
+		lipworkspace.WorkspaceView{ID: "ws_fixture", ProjectRoot: root})
 }
 
 // partHookRecorder collects the bounded reports the hook emits.
@@ -92,10 +71,10 @@ func (r *partHookRecorder) only(t *testing.T) outbound.Report {
 	return r.reports[0]
 }
 
-// partRewriteHook builds the hook under test in rewrite mode over the fixture root.
-func partRewriteHook(t *testing.T, src *partResolverStub, opts ...outbound.HookOption) *outbound.RequestPartHook {
+// partRewriteHook builds the hook under test in rewrite mode over the fixture policy.
+func partRewriteHook(t *testing.T, opts ...outbound.HookOption) *outbound.RequestPartHook {
 	t.Helper()
-	return outbound.NewRequestPartHook(rewrite.ModeRewrite, attemptResolver(t), src, opts...)
+	return outbound.NewRequestPartHook(rewrite.ModeRewrite, attemptResolver(t), opts...)
 }
 
 // partMeta is an empty request-part metadata value.
@@ -119,9 +98,8 @@ var partMeta = sdkhooks.PartMeta{}
 func TestRequestPartHookFastSkipsAnAlreadyVirtualizedCall(t *testing.T) {
 	t.Parallel()
 
-	src := partWorkspaceResolver(attemptRoot)
 	rec := &partHookRecorder{}
-	hook := partRewriteHook(t, src, outbound.WithHookReporter(rec.record))
+	hook := partRewriteHook(t, outbound.WithHookReporter(rec.record))
 
 	call := attemptItemCall(attemptPathArguments)
 	if err := call.Validate(); err != nil {
@@ -141,7 +119,7 @@ func TestRequestPartHookFastSkipsAnAlreadyVirtualizedCall(t *testing.T) {
 	}
 
 	before := attemptMarshal(t, *call)
-	if err := hook.HandleRequestParts(t.Context(), call, partMeta); err != nil {
+	if err := hook.HandleRequestParts(partPinnedWorkspace(attemptRoot), call, partMeta); err != nil {
 		t.Fatalf("requirements.md 8.2 - the late outbound pass must fail open rather than surface an error: %v", err)
 	}
 	after := attemptMarshal(t, *call)
@@ -200,8 +178,8 @@ func TestRequestPartHookCatchesARealPathIntroducedAfterTheFirstPass(t *testing.T
 	}
 
 	rec := &partHookRecorder{}
-	hook := partRewriteHook(t, partWorkspaceResolver(attemptRoot), outbound.WithHookReporter(rec.record))
-	if err := hook.HandleRequestParts(t.Context(), call, partMeta); err != nil {
+	hook := partRewriteHook(t, outbound.WithHookReporter(rec.record))
+	if err := hook.HandleRequestParts(partPinnedWorkspace(attemptRoot), call, partMeta); err != nil {
 		t.Fatalf("the late outbound pass must not surface an error: %v", err)
 	}
 
@@ -251,8 +229,8 @@ func TestBothOutboundPassesDeriveTheSameWorkspaceAlias(t *testing.T) {
 
 	lateCall := attemptItemCall(attemptPathArguments)
 	rec := &partHookRecorder{}
-	late := partRewriteHook(t, partWorkspaceResolver(attemptRoot), outbound.WithHookReporter(rec.record))
-	if err := late.HandleRequestParts(t.Context(), lateCall, partMeta); err != nil {
+	late := partRewriteHook(t, outbound.WithHookReporter(rec.record))
+	if err := late.HandleRequestParts(partPinnedWorkspace(attemptRoot), lateCall, partMeta); err != nil {
 		t.Fatalf("the late outbound pass must not surface an error: %v", err)
 	}
 
@@ -269,49 +247,77 @@ func TestBothOutboundPassesDeriveTheSameWorkspaceAlias(t *testing.T) {
 	}
 }
 
-// TestRequestPartHookDerivesTheMappingFromTheAuthoritativeWorkspaceResolver pins where
-// the late pass reads its project root from.
+// TestRequestPartHookDerivesTheMappingFromThePinnedWorkspaceView pins where the late
+// pass reads its project root from, and that it derives per invocation.
 //
-// The hook is handed an EMPTY PartMeta, so nothing but the injected resolver can
-// supply a root. The resolver is called with the hook's own context and once per
-// invocation, which is what keeps requirement 5.6's "same alias for every retry, race
-// participant, and failover candidate of one logical A-leg turn" true without any
-// stored mapping state, and requirement 6.2's restart-equivalence true by
+// The hook is handed an EMPTY PartMeta, so nothing but the runtime's pinned projection
+// can supply a root. The pass re-derives the mapping from that pin on every invocation
+// rather than caching one, which is what keeps requirement 5.6's "same alias for every
+// retry, race participant, and failover candidate of one logical A-leg turn" true
+// without any stored mapping state, and requirement 6.2's restart-equivalence true by
 // construction.
-func TestRequestPartHookDerivesTheMappingFromTheAuthoritativeWorkspaceResolver(t *testing.T) {
+//
+// The second half proves the derivation FOLLOWS THE PIN: driven with two different
+// pinned roots the pass publishes two different aliases, so nothing about the mapping is
+// remembered from a previous invocation. It cannot read any other root source, because
+// the pass holds no workspace authority at all - see
+// TestTheLatePassNeverHoldsOrCallsAWorkspaceResolver.
+func TestRequestPartHookDerivesTheMappingFromThePinnedWorkspaceView(t *testing.T) {
 	t.Parallel()
 
-	src := partWorkspaceResolver(attemptRoot)
-	hook := partRewriteHook(t, src)
+	hook := partRewriteHook(t)
 	for range 2 {
-		if err := hook.HandleRequestParts(t.Context(), attemptItemCall(attemptPathArguments), partMeta); err != nil {
+		if err := hook.HandleRequestParts(partPinnedWorkspace(attemptRoot),
+			attemptItemCall(attemptPathArguments), partMeta); err != nil {
 			t.Fatalf("the late outbound pass must not surface an error: %v", err)
 		}
 	}
-	if got := src.resolveCount(); got != 2 {
-		t.Fatalf("requirements.md 5.6 and 6.2 - the mapping must be re-derived from the authoritative view on every invocation, resolves=%d", got)
-	}
 
-	if err := hook.HandleRequestParts(probeContext(), attemptItemCall(attemptPathArguments), partMeta); err != nil {
+	// A DIFFERENT pin on the same shared instance must produce a different alias: one
+	// generation-scoped instance serves every request, so a remembered mapping would
+	// publish the previous request's alias here. The second root is long enough that
+	// its own alias is strictly shorter, so activation is not what is under test.
+	const otherRoot = "/srv/other/checkouts/go-llm-interactive-proxy"
+	otherCall := attemptItemCall(`{"file_path":"` + otherRoot + `/src/main.go"}`)
+	if err := hook.HandleRequestParts(partPinnedWorkspace(otherRoot), otherCall, partMeta); err != nil {
 		t.Fatalf("the late outbound pass must not surface an error: %v", err)
 	}
-	if !src.sawProbe {
-		t.Fatalf("the late outbound pass must resolve the workspace with the context it was handed")
+	otherPublished := attemptMarshal(t, *otherCall)
+	if !strings.Contains(otherPublished, ".__lip_v1__") {
+		t.Fatalf("fixture: the pass must virtualize the surface under the second pinned root; got %s", otherPublished)
+	}
+	if strings.Contains(otherPublished, otherRoot) {
+		t.Fatalf("requirements.md 5.6 - the second pinned root must be virtualized from its OWN tag, not a remembered one; got %s", otherPublished)
+	}
+	if strings.Contains(otherPublished, attemptAlias) {
+		t.Fatalf("requirements.md 5.6 - the second pinned root must not reuse the first pin's alias; got %s", otherPublished)
+	}
+
+	// The pass must read the context it was handed, including an unrelated value the
+	// caller placed on it, so a caller that derives per-request authority downstream of
+	// this stage keeps working.
+	probed := partProbedWorkspace(attemptRoot)
+	if err := hook.HandleRequestParts(probed, attemptItemCall(attemptPathArguments), partMeta); err != nil {
+		t.Fatalf("the late outbound pass must not surface an error: %v", err)
+	}
+	if probed.Value(partProbeKey{}) != "probe" {
+		t.Fatalf("fixture: the probed context must carry the caller value")
 	}
 }
 
-// TestRequestPartHookFailsOpenWhenWorkspaceResolutionFails is requirements.md 8.2 at
-// the one condition only this pass can meet: resolving the authoritative workspace
-// view is the early pass's job done for it, so a resolution failure is a condition the
-// late pass observes and the early pass never can.
+// TestRequestPartHookFailsOpenWithoutAPinnedWorkspaceView is requirements.md 8.2 at
+// the one condition only this pass can meet: the early pass is handed the pinned view
+// as attempt metadata, so an ABSENT view is a condition the late pass observes and the
+// early pass never can.
 //
-// The pass must preserve the real path, keep the request-part chain moving, and record
-// a bounded reason - never surface the resolver's error text, which could carry a path.
-func TestRequestPartHookFailsOpenWhenWorkspaceResolutionFails(t *testing.T) {
+// The pass must preserve the real path, keep the request-part chain moving, and record a
+// bounded reason. There is no resolver error to suppress any more, which is the point:
+// reading a projection cannot fail in a way that carries a path.
+func TestRequestPartHookFailsOpenWithoutAPinnedWorkspaceView(t *testing.T) {
 	t.Parallel()
 
 	rec := &partHookRecorder{}
-	hook := partRewriteHook(t, partFailingResolver(), outbound.WithHookReporter(rec.record))
+	hook := partRewriteHook(t, outbound.WithHookReporter(rec.record))
 
 	call := attemptItemCall(attemptPathArguments)
 	if err := call.Validate(); err != nil {
@@ -319,8 +325,8 @@ func TestRequestPartHookFailsOpenWhenWorkspaceResolutionFails(t *testing.T) {
 	}
 	before := attemptMarshal(t, *call)
 
-	if err := hook.HandleRequestParts(t.Context(), call, partMeta); err != nil {
-		t.Fatalf("requirements.md 8.2 - a workspace resolution failure must fail open rather than surface an error: %v", err)
+	if err := hook.HandleRequestParts(partUnpinnedWorkspace(), call, partMeta); err != nil {
+		t.Fatalf("requirements.md 8.2 - an absent pinned view must fail open rather than surface an error: %v", err)
 	}
 	if after := attemptMarshal(t, *call); after != before {
 		t.Fatalf("requirements.md 8.2 - an unresolved workspace must leave the request exactly as the runtime built it")
@@ -359,11 +365,11 @@ func TestRequestPartHookRecordsTheMapperRefusalForAnUnusableRoot(t *testing.T) {
 			t.Parallel()
 
 			rec := &partHookRecorder{}
-			hook := partRewriteHook(t, partWorkspaceResolver(tc.root), outbound.WithHookReporter(rec.record))
+			hook := partRewriteHook(t, outbound.WithHookReporter(rec.record))
 			call := attemptItemCall(`{"file_path":"` + attemptTarget + `"}`)
 			before := attemptMarshal(t, *call)
 
-			if err := hook.HandleRequestParts(t.Context(), call, partMeta); err != nil {
+			if err := hook.HandleRequestParts(partPinnedWorkspace(tc.root), call, partMeta); err != nil {
 				t.Fatalf("requirements.md 8.2 - an unusable root must fail open rather than surface an error: %v", err)
 			}
 			if after := attemptMarshal(t, *call); after != before {
@@ -390,11 +396,11 @@ func TestRequestPartHookIsInactiveWhenTheAliasIsNotShorter(t *testing.T) {
 
 	const shortRoot = "/w"
 	rec := &partHookRecorder{}
-	hook := partRewriteHook(t, partWorkspaceResolver(shortRoot), outbound.WithHookReporter(rec.record))
+	hook := partRewriteHook(t, outbound.WithHookReporter(rec.record))
 
 	call := attemptItemCall(`{"file_path":"` + shortRoot + `/src/main.go","limit":10}`)
 	before := attemptMarshal(t, *call)
-	if err := hook.HandleRequestParts(t.Context(), call, partMeta); err != nil {
+	if err := hook.HandleRequestParts(partPinnedWorkspace(shortRoot), call, partMeta); err != nil {
 		t.Fatalf("requirements.md 8.2 - an inactive mapping must fail open rather than surface an error: %v", err)
 	}
 	if after := attemptMarshal(t, *call); after != before {
@@ -435,11 +441,11 @@ func TestRequestPartHookAuditModeIsTheAuditToggleOfTheSameRewriter(t *testing.T)
 	auditRec := &partHookRecorder{}
 	audit := outbound.NewRequestPartHook(
 		rewrite.ModeAudit, attemptResolver(t),
-		partWorkspaceResolver(attemptRoot), outbound.WithHookReporter(auditRec.record),
+		outbound.WithHookReporter(auditRec.record),
 	)
 	auditCall := attemptItemCall(attemptPathArguments)
 	before := attemptMarshal(t, *auditCall)
-	if err := audit.HandleRequestParts(t.Context(), auditCall, partMeta); err != nil {
+	if err := audit.HandleRequestParts(partPinnedWorkspace(attemptRoot), auditCall, partMeta); err != nil {
 		t.Fatalf("the late outbound pass must not surface an error: %v", err)
 	}
 	if after := attemptMarshal(t, *auditCall); after != before {
@@ -467,7 +473,7 @@ func TestRequestPartHookAuditModeIsTheAuditToggleOfTheSameRewriter(t *testing.T)
 func TestRequestPartHookIdentityOrderAndFailureMode(t *testing.T) {
 	t.Parallel()
 
-	var hook sdkhooks.RequestPartHook = partRewriteHook(t, partWorkspaceResolver(attemptRoot))
+	var hook sdkhooks.RequestPartHook = partRewriteHook(t)
 	if got := hook.ID(); got != outbound.PartHookID {
 		t.Fatalf("ID() = %q, want %q: identity must stay low-cardinality and stable across builds", got, outbound.PartHookID)
 	}
@@ -506,49 +512,81 @@ func TestRequestPartHookIsNilSafe(t *testing.T) {
 	}
 	call := attemptItemCall(attemptPathArguments)
 	before := attemptMarshal(t, *call)
-	if err := iface.HandleRequestParts(t.Context(), call, partMeta); err != nil {
+	if err := iface.HandleRequestParts(partPinnedWorkspace(attemptRoot), call, partMeta); err != nil {
 		t.Fatalf("an absent pass must publish nothing and surface no error: %v", err)
 	}
 	if after := attemptMarshal(t, *call); after != before {
 		t.Fatalf("an absent pass must leave the call exactly as it arrived")
 	}
-	if err := iface.HandleRequestParts(t.Context(), nil, partMeta); err != nil {
+	if err := iface.HandleRequestParts(partPinnedWorkspace(attemptRoot), nil, partMeta); err != nil {
 		t.Fatalf("an absent call is not this pass's error to report: %v", err)
 	}
 }
 
-// TestRequestPartHookWithoutAWorkspaceResolverIsInert proves the required answer for a
-// generation that published no workspace authority at all: the pass publishes nothing
-// rather than deriving a mapping from something else.
+// TestTheLatePassDistinguishesAnEmptyPinnedViewFromAnAbsentOne pins the two verdicts a
+// consumer can now observe, and the deliberate detached-path consequence of the second.
 //
 // requirements.md 8.1 makes an unconfigured feature unobservable, and 5.7 forbids
-// substituting any other root source. The verdict is the unresolved-workspace one
-// rather than the unusable-root one, because the root is not what is missing here - the
-// authority that would have supplied it is - and a report that said otherwise would be
-// sending an operator to configure a root spelling that is not the problem.
-func TestRequestPartHookWithoutAWorkspaceResolverIsInert(t *testing.T) {
+// substituting any other root source. Both states publish nothing, but they are not the
+// same state:
+//
+//   - an ABSENT projection means no authority was published at all. That is the
+//     unresolved-workspace verdict, and deliberately NOT a root-shape refusal: the root
+//     is not what is missing here, the authority that would have supplied it is, and a
+//     report that said otherwise would send an operator to configure a root spelling
+//     that is not the problem.
+//   - an ATTACHED EMPTY view is a genuine view with no project root in it, which is
+//     exactly what the executor's DETACHED auxiliary path pins
+//     (internal/core/runtime/executor_prepare_detached.go). DeriveMapping is the
+//     authority that refuses an empty root, so this is the unusable-root verdict with
+//     the mapper's own bounded code - and because the projection always overwrites, a
+//     detached child cannot inherit its parent's project root through the context chain
+//     and virtualize against a workspace it does not belong to.
+func TestTheLatePassDistinguishesAnEmptyPinnedViewFromAnAbsentOne(t *testing.T) {
 	t.Parallel()
 
-	rec := &partHookRecorder{}
-	hook := outbound.NewRequestPartHook(
-		rewrite.ModeRewrite, attemptResolver(t), nil, outbound.WithHookReporter(rec.record),
-	)
-	call := attemptItemCall(attemptPathArguments)
-	before := attemptMarshal(t, *call)
-	if err := hook.HandleRequestParts(t.Context(), call, partMeta); err != nil {
-		t.Fatalf("requirements.md 8.2 - an absent workspace authority must fail open rather than surface an error: %v", err)
+	empty := lipworkspace.WithWorkspaceView(context.Background(), lipworkspace.WorkspaceView{})
+
+	emptyRec := &partHookRecorder{}
+	emptyHook := partRewriteHook(t, outbound.WithHookReporter(emptyRec.record))
+	emptyCall := attemptItemCall(attemptPathArguments)
+	emptyBefore := attemptMarshal(t, *emptyCall)
+	if err := emptyHook.HandleRequestParts(empty, emptyCall, partMeta); err != nil {
+		t.Fatalf("requirements.md 8.2 - an empty pinned view must fail open rather than surface an error: %v", err)
 	}
-	if after := attemptMarshal(t, *call); after != before {
+	if after := attemptMarshal(t, *emptyCall); after != emptyBefore {
+		t.Fatalf("requirements.md 8.1 and 5.7 - an empty pinned view must publish nothing")
+	}
+	emptyReport := emptyRec.only(t)
+	if emptyReport.Outcome != outbound.OutcomeProjectRootUnusable {
+		t.Fatalf("report outcome = %v, want %v", emptyReport.Outcome, outbound.OutcomeProjectRootUnusable)
+	}
+	if emptyReport.RootReason != pathvirtualization.SkipReasonEmptyRoot {
+		t.Fatalf("report root reason = %q, want %q", emptyReport.RootReason, pathvirtualization.SkipReasonEmptyRoot)
+	}
+	if !reflectStatsZero(emptyReport.Stats) {
+		t.Fatalf("a pass that never reached the rewriter must not report statistics it never earned: %+v", emptyReport.Stats)
+	}
+	assertNoContentLeak(t, emptyReport)
+
+	absentRec := &partHookRecorder{}
+	absentHook := partRewriteHook(t, outbound.WithHookReporter(absentRec.record))
+	absentCall := attemptItemCall(attemptPathArguments)
+	absentBefore := attemptMarshal(t, *absentCall)
+	if err := absentHook.HandleRequestParts(partUnpinnedWorkspace(), absentCall, partMeta); err != nil {
+		t.Fatalf("requirements.md 8.2 - an absent pinned view must fail open rather than surface an error: %v", err)
+	}
+	if after := attemptMarshal(t, *absentCall); after != absentBefore {
 		t.Fatalf("requirements.md 8.1 and 5.7 - without the authoritative workspace view the pass must publish nothing")
 	}
-	report := rec.only(t)
-	if report.Outcome != outbound.OutcomeWorkspaceUnresolved {
-		t.Fatalf("report outcome = %v, want %v", report.Outcome, outbound.OutcomeWorkspaceUnresolved)
+	absentReport := absentRec.only(t)
+	if absentReport.Outcome != outbound.OutcomeWorkspaceUnresolved {
+		t.Fatalf("report outcome = %v, want %v", absentReport.Outcome, outbound.OutcomeWorkspaceUnresolved)
 	}
-	if report.RootReason != pathvirtualization.SkipReasonNone {
-		t.Fatalf("an absent workspace authority is not a root-shape refusal, root_reason = %q", report.RootReason)
+	if absentReport.RootReason != pathvirtualization.SkipReasonNone {
+		t.Fatalf("an absent workspace authority is not a root-shape refusal, root_reason = %q", absentReport.RootReason)
 	}
-	assertNoContentLeak(t, report)
+	assertNoContentLeak(t, absentReport)
 }
 
 // TestRequestPartHookPreservesCanonicalValidation is requirements.md 8.5 for this
@@ -567,8 +605,8 @@ func TestRequestPartHookPreservesCanonicalValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			hook := partRewriteHook(t, partWorkspaceResolver(attemptRoot))
-			if err := hook.HandleRequestParts(t.Context(), tc.call, partMeta); err != nil {
+			hook := partRewriteHook(t)
+			if err := hook.HandleRequestParts(partPinnedWorkspace(attemptRoot), tc.call, partMeta); err != nil {
 				t.Fatalf("the late outbound pass must not surface an error: %v", err)
 			}
 			if err := tc.call.Validate(); err != nil {
@@ -591,8 +629,8 @@ func TestRequestPartHookOnAnAbsentCallPublishesNothing(t *testing.T) {
 	t.Parallel()
 
 	rec := &partHookRecorder{}
-	hook := partRewriteHook(t, partWorkspaceResolver(attemptRoot), outbound.WithHookReporter(rec.record))
-	if err := hook.HandleRequestParts(t.Context(), nil, partMeta); err != nil {
+	hook := partRewriteHook(t, outbound.WithHookReporter(rec.record))
+	if err := hook.HandleRequestParts(partPinnedWorkspace(attemptRoot), nil, partMeta); err != nil {
 		t.Fatalf("an absent call is not this pass's error to report: %v", err)
 	}
 	report := rec.only(t)
@@ -618,12 +656,12 @@ func TestRequestPartHookLeavesAnUnreadablePayloadUntouched(t *testing.T) {
 	t.Parallel()
 
 	rec := &partHookRecorder{}
-	hook := partRewriteHook(t, partWorkspaceResolver(attemptRoot), outbound.WithHookReporter(rec.record))
+	hook := partRewriteHook(t, outbound.WithHookReporter(rec.record))
 	truncated := json.RawMessage(`{"file_path":"` + attemptTarget + `",`)
 	call := attemptItemCall(attemptPathArguments)
 	call.Items[1].ToolCall.Arguments = truncated
 
-	if err := hook.HandleRequestParts(t.Context(), call, partMeta); err != nil {
+	if err := hook.HandleRequestParts(partPinnedWorkspace(attemptRoot), call, partMeta); err != nil {
 		t.Fatalf("requirements.md 8.2 - an unreadable payload must fail open rather than surface an error: %v", err)
 	}
 	if got := call.Items[1].ToolCall.Arguments; string(got) != string(truncated) {
@@ -654,11 +692,11 @@ func TestRequestPartHookLeavesAForeignReservedAliasUntouched(t *testing.T) {
 
 	const foreignAlias = "/.__lip_v1__/w_zzzzzzzzzzzzzzzzzzzz"
 	rec := &partHookRecorder{}
-	hook := partRewriteHook(t, partWorkspaceResolver(attemptRoot), outbound.WithHookReporter(rec.record))
+	hook := partRewriteHook(t, outbound.WithHookReporter(rec.record))
 	call := attemptItemCall(`{"file_path":"` + foreignAlias + `/pkg/lipapi/call.go","limit":10}`)
 	before := attemptMarshal(t, *call)
 
-	if err := hook.HandleRequestParts(t.Context(), call, partMeta); err != nil {
+	if err := hook.HandleRequestParts(partPinnedWorkspace(attemptRoot), call, partMeta); err != nil {
 		t.Fatalf("requirements.md 8.2 - a reserved alias must fail open rather than surface an error: %v", err)
 	}
 	if after := attemptMarshal(t, *call); after != before {
@@ -688,8 +726,8 @@ func TestRequestPartHookDoesNotMutateTheCallerOwnedInput(t *testing.T) {
 	held := lipapi.CloneCall(*call)
 	heldJSON := attemptMarshal(t, *call)
 
-	hook := partRewriteHook(t, partWorkspaceResolver(attemptRoot))
-	if err := hook.HandleRequestParts(t.Context(), call, partMeta); err != nil {
+	hook := partRewriteHook(t)
+	if err := hook.HandleRequestParts(partPinnedWorkspace(attemptRoot), call, partMeta); err != nil {
 		t.Fatalf("the late outbound pass must not surface an error: %v", err)
 	}
 
@@ -714,8 +752,8 @@ func TestRequestPartHookReportsAreContentFree(t *testing.T) {
 	t.Parallel()
 
 	rec := &partHookRecorder{}
-	hook := partRewriteHook(t, partWorkspaceResolver(attemptRoot), outbound.WithHookReporter(rec.record))
-	if err := hook.HandleRequestParts(t.Context(), attemptItemCall(attemptPathArguments), partMeta); err != nil {
+	hook := partRewriteHook(t, outbound.WithHookReporter(rec.record))
+	if err := hook.HandleRequestParts(partPinnedWorkspace(attemptRoot), attemptItemCall(attemptPathArguments), partMeta); err != nil {
 		t.Fatalf("the late outbound pass must not surface an error: %v", err)
 	}
 	assertNoContentLeak(t, rec.only(t))
@@ -742,7 +780,7 @@ func TestRequestPartHookSatisfiesItsDeclaredPorts(t *testing.T) {
 	// The assignment to the interface type is the assertion: it does not compile
 	// unless the concrete pass implements every method the bus chains on.
 	var hook sdkhooks.RequestPartHook = outbound.NewRequestPartHook(
-		rewrite.ModeRewrite, attemptResolver(t), partWorkspaceResolver(attemptRoot),
+		rewrite.ModeRewrite, attemptResolver(t),
 	)
 	if hook.ID() == "" {
 		t.Fatal("the constructor must return a pass with a usable identity")

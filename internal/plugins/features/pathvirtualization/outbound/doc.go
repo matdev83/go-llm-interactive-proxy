@@ -34,13 +34,13 @@
 // are forced rather than chosen:
 //
 //   - the attempt transform reads the workspace projection the runtime already pinned
-//     onto its attempt metadata, while the hook resolves the authoritative workspace
-//     view itself through an injected lipworkspace.Resolver. The hook has to resolve,
-//     because sdkhooks.PartMeta carries no workspace projection and the executor
-//     projects no workspace view onto any public SDK context seam a plugin may read.
-//     lipworkspace.Resolver is the SDK's own contract for that view, design.md "Allowed
-//     Dependencies" lists pkg/lipsdk/workspace for this purpose, and the composition
-//     root chains the same contributed resolvers into the runtime's request snapshot;
+//     onto its attempt metadata, while the hook reads that same PINNED view out of the
+//     public SDK context projection the runtime publishes alongside session, scope, and
+//     principal. The hook cannot read it from its own metadata - sdkhooks.PartMeta
+//     carries only trace, A-leg, B-leg, attempt ordinal, and backend identity - and it
+//     deliberately does not resolve the view a second time, which is what keeps
+//     requirement 5.6's one-alias-per-turn property true by construction: two passes
+//     reading one pin cannot disagree, whereas two passes reading two resolutions can;
 //   - the hook sorts last inside the request-part chain, because design.md places step 4
 //     after later request shaping and a pass that ran earlier could not observe a real
 //     path an earlier participant had just restored.

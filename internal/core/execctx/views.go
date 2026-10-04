@@ -47,6 +47,15 @@ func WithViews(ctx context.Context, v Views) context.Context {
 	}
 	ctx = scope.WithScope(ctx, v.Scope)
 	ctx = execview.WithPrincipal(ctx, v.Principal)
+	// Workspace is projected for the same reason, and with the same always-attach rule:
+	// a request-part hook's metadata (sdkhooks.PartMeta) carries no workspace view, so
+	// without this the late outbound stages of a feature plugin had no sanctioned way to
+	// read the project root core had already pinned for the turn. It is the PINNED
+	// snapshot, so a consumer that reads it derives from exactly the authority the early
+	// stages read out of the same frozen views, and two workspace tags cannot reach one
+	// request. An EMPTY view is attached too, so a child that pins no workspace - the
+	// detached auxiliary path - cannot inherit a parent's through the context chain.
+	ctx = workspace.WithWorkspaceView(ctx, v.Workspace)
 	return ctx
 }
 

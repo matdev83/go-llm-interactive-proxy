@@ -17,11 +17,11 @@ package outbound
 // prevent it.
 //
 // Its whole design is one sentence, and it is the same sentence the early pass is
-// built from: resolve the authoritative workspace view, derive the workspace-bound
-// mapping from it with the core's pure DeriveMapping, run the one pure rewriter in the
-// generation's rollout mode, publish what it published, and fail open to the real path
-// if it did not finish. Everything a reader might expect to find here and does not is a
-// deliberate absence:
+// built from: read the authoritative workspace view the runtime already pinned for the
+// turn, derive the workspace-bound mapping from it with the core's pure DeriveMapping,
+// run the one pure rewriter in the generation's rollout mode, publish what it
+// published, and fail open to the real path if it did not finish. Everything a reader
+// might expect to find here and does not is a deliberate absence:
 //
 //   - no second rewriter, and no second mapping rule. Both passes call the same
 //     rewrite.Rewriter with the same mapping, so a surface one pass claims is a surface
@@ -29,6 +29,9 @@ package outbound
 //     idempotent: the rewriter publishes a byte splice that only fires on a
 //     segment-boundary real-root prefix, so an already virtualized call produces no
 //     match and therefore no bytes;
+//   - no workspace authority. The workspace view is READ from the projection the
+//     runtime pinned for the turn rather than resolved here, so this pass holds no
+//     resolver at all and cannot mint a second, competing one;
 //   - no state. The mapping is re-derived from the authoritative view on every
 //     invocation rather than cached, which is what makes requirement 5.6's "same alias
 //     for every retry, race participant, and failover candidate of one logical A-leg
@@ -106,11 +109,6 @@ type RequestPartHook struct {
 	// published no policy at all. A nil resolver resolves no selector for any tool,
 	// which is the required answer for an unproved surface (requirements.md 3.5).
 	resolver *pathvirtualization.Resolver
-	// workspace resolves the authoritative workspace view this pass derives its
-	// mapping from. It is the composition root's injection of the same
-	// workspace.Resolver chain the runtime's request snapshot holds, and it may be nil,
-	// which means no authority was published and nothing is derived.
-	workspace workspace.Resolver
 	// report receives this pass's bounded, content-free outcome. It may be nil, in
 	// which case the pass records nothing and still performs the whole rewrite.
 	report Reporter
@@ -124,34 +122,34 @@ type RequestPartHook struct {
 // NewRequestPartHook builds the feature's late outbound pass.
 //
 // The rollout mode and the compiled policy are the same two values the early pass
-// takes, and the third argument is the authority the request-part stage lacks in its
-// own metadata. sdkhooks.PartMeta carries TraceID, ALegID, BLegID, AttemptSeq, and
-// BackendID and no workspace projection, and the executor projects session, scope, and
-// principal - but not workspace - onto the public SDK context seams a plugin may read.
-// A lipworkspace.Resolver is therefore the only sanctioned way for this stage to reach
-// the authoritative ProjectRoot, and it is the same contract the runtime's own request
-// snapshot is built from: design.md "Allowed Dependencies" lists pkg/lipsdk/workspace
-// for exactly this purpose, and the composition root chains the contributed
-// workspace.Resolver entries into one resolver for both.
+// takes, and there is deliberately no third authority argument. sdkhooks.PartMeta
+// carries TraceID, ALegID, BLegID, AttemptSeq, and BackendID and no workspace view, so
+// the workspace has to arrive by some other route; the runtime pins one per logical turn
+// and projects it onto the public SDK context seams alongside session, scope, and
+// principal (internal/core/execctx.WithViews), and this pass READS that projection
+// through [workspace.WorkspaceViewFromContext].
 //
-// That resolver is invoked per invocation rather than read once and cached. The cost is
-// one lexical resolution per attempt, and the return is that no stored mapping can exist
-// to disagree with the authoritative view: requirement 5.6's per-turn alias identity
-// and requirement 6.2's restart-equivalence both follow from deriving, not remembering.
+// Reading the pinned snapshot rather than resolving is what makes requirement 5.6 hold
+// by construction rather than by luck. The early pass reads the same pinned view out of
+// its request.AttemptMeta.Workspace, so the two passes cannot disagree about which
+// workspace a request belongs to no matter what the resolver chain would have answered
+// later - the shape a live re-resolution produces is two workspace tags in one
+// backend-bound request. Because the projection is a plain context value, nothing is
+// resolved per attempt here, and requirement 6.2's restart-equivalence follows from the
+// derivation being a pure function of the pin.
 //
-// A nil resolver is accepted and means "no workspace authority was published". It is
-// not an error, and it is reported as the unresolved-workspace condition rather than as
-// a root-shape refusal: what is missing is the authority, not the spelling of the root
+// An absent projection is accepted and means "no workspace authority was published". It
+// is not an error, and it is reported as the unresolved-workspace condition rather than
+// as a root-shape refusal: what is missing is the authority, not the spelling of the root
 // it would have supplied, and requirements.md 8.1 makes an unconfigured feature
 // unobservable while 5.7 forbids substituting any other root source. The pass publishes
 // nothing.
 func NewRequestPartHook(
 	mode rewrite.Mode,
 	resolver *pathvirtualization.Resolver,
-	src workspace.Resolver,
 	opts ...HookOption,
 ) *RequestPartHook {
-	hook := &RequestPartHook{mode: mode, resolver: resolver, workspace: src}
+	hook := &RequestPartHook{mode: mode, resolver: resolver}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(hook)
@@ -191,15 +189,14 @@ func (h *RequestPartHook) FailureMode() sdkhooks.FailureMode { return sdkhooks.F
 
 // HandleRequestParts implements sdkhooks.RequestPartHook: the one late outbound pass.
 //
-// It performs no I/O beyond the injected resolver's own, consults no stored mapping
-// dictionary, and never returns an error, so the request-part chain always continues
-// and the runtime's post-hook re-validation is the only thing that can reject a
-// publication. Every condition it can meet is either a bounded report or a silent
-// no-op:
+// It performs no I/O at all, consults no stored mapping dictionary, and never returns an
+// error, so the request-part chain always continues and the runtime's post-hook
+// re-validation is the only thing that can reject a publication. Every condition it can
+// meet is either a bounded report or a silent no-op:
 //
 //   - an absent pass or an absent call: there is nothing to publish, so the pass does
 //     nothing;
-//   - an unresolved authoritative workspace view: nothing is published, the real path
+//   - no pinned workspace view on the context: nothing is published, the real path
 //     survives, and a bounded reason is recorded (requirements.md 8.2);
 //   - an unusable project root: nothing is published and the mapper's own bounded
 //     refusal code is recorded (requirement 1.8);
@@ -218,11 +215,12 @@ func (h *RequestPartHook) HandleRequestParts(
 	if h == nil {
 		return nil
 	}
-	// The workspace view is the only authority read here. Resolving per invocation
-	// rather than caching is what keeps the alias identical across retries, race
-	// participants, failover candidates, and process restarts (requirements.md 5.6,
-	// 6.2), and it is why no identity field can influence the result
-	// (requirement 5.7).
+	// The pinned workspace view is the only authority read here. It is the same
+	// snapshot the early pass read out of its attempt metadata, and re-deriving the
+	// mapping from it per invocation - rather than caching one - keeps the alias
+	// identical across retries, race participants, failover candidates, and process
+	// restarts (requirements.md 5.6, 6.2). It is also why no identity field can
+	// influence the result (requirement 5.7).
 	root, resolved := h.projectRoot(ctx)
 	if !resolved {
 		h.record(Report{Outcome: OutcomeWorkspaceUnresolved})
@@ -261,24 +259,20 @@ func (h *RequestPartHook) HandleRequestParts(
 	return nil
 }
 
-// projectRoot resolves the authoritative workspace view and returns its project root.
+// projectRoot reads the pinned workspace view and returns its project root.
 //
-// It reports false only when the pass holds no resolver or the resolver failed, which
-// are the two conditions under which no root exists at all. An absent root from a
-// resolver that succeeded is NOT one of them: that is a genuine view, and DeriveMapping
-// is the authority that decides an empty project root is unusable
-// (requirements.md 1.8).
+// It reports false only when the runtime projected no workspace view at all, which is
+// the one condition under which no authority exists. An EMPTY project root inside an
+// attached view is NOT one of them: that is a genuine view - the detached auxiliary
+// path pins exactly that - and DeriveMapping is the authority that decides an empty
+// project root is unusable (requirements.md 1.8).
 //
-// The resolver's error is deliberately not surfaced, wrapped, or recorded. It is an
-// error from another component's contract, its text may name a path, and
-// requirements.md 7.7 forbids that text reaching any observable dimension of this
-// feature. The bounded reason above is what the caller gets instead.
+// Reading the projection cannot fail and cannot name a path, so unlike a resolver call
+// there is no error here to surface, wrap, or record, and nothing reaches an observable
+// dimension of this feature (requirements.md 7.7).
 func (h *RequestPartHook) projectRoot(ctx context.Context) (string, bool) {
-	if h.workspace == nil {
-		return "", false
-	}
-	view, err := h.workspace.Resolve(ctx)
-	if err != nil {
+	view, ok := workspace.WorkspaceViewFromContext(ctx)
+	if !ok {
 		return "", false
 	}
 	return view.ProjectRoot, true

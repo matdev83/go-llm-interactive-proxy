@@ -28,14 +28,9 @@ import (
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
-// internalPartResolver is the single workspace authority the white-box probes read.
-type internalPartResolver struct {
-	view lipworkspace.WorkspaceView
-	err  error
-}
-
-func (r internalPartResolver) Resolve(context.Context) (lipworkspace.WorkspaceView, error) {
-	return r.view, r.err
+// internalPinnedView is the runtime's per-turn pin, as the white-box probes see it.
+func internalPinnedView(ctx context.Context) context.Context {
+	return lipworkspace.WithWorkspaceView(ctx, lipworkspace.WorkspaceView{ProjectRoot: internalRoot})
 }
 
 // TestRequestPartHookFailsOpenOnUnexpectedTransformationError is requirements.md 8.2
@@ -50,9 +45,7 @@ func TestRequestPartHookFailsOpenOnUnexpectedTransformationError(t *testing.T) {
 	t.Parallel()
 
 	rec := &reports{}
-	hook := NewRequestPartHook(rewrite.ModeRewrite, nil, internalPartResolver{
-		view: lipworkspace.WorkspaceView{ProjectRoot: internalRoot},
-	}, WithHookReporter(rec.record))
+	hook := NewRequestPartHook(rewrite.ModeRewrite, nil, WithHookReporter(rec.record))
 	hook.bind = func(pathvirtualization.Mapping) virtualizer {
 		return virtualizerFunc(func(call *lipapi.Call) (*lipapi.Call, rewrite.Stats, error) {
 			partial := lipapi.CloneCall(*call)
@@ -71,7 +64,7 @@ func TestRequestPartHookFailsOpenOnUnexpectedTransformationError(t *testing.T) {
 		t.Fatalf("marshal fixture: %v", err)
 	}
 
-	if err := hook.HandleRequestParts(t.Context(), call, sdkhooks.PartMeta{}); err != nil {
+	if err := hook.HandleRequestParts(internalPinnedView(t.Context()), call, sdkhooks.PartMeta{}); err != nil {
 		t.Fatalf("requirements.md 8.2 - an unexpected late transformation failure must fail open rather than surface an error: %v", err)
 	}
 	after, err := json.Marshal(call)
@@ -105,9 +98,7 @@ func TestRequestPartHookFailsOpenOnUnexpectedTransformationError(t *testing.T) {
 func TestRequestPartHookPropagatesARewriterPanicWithoutPublishing(t *testing.T) {
 	t.Parallel()
 
-	hook := NewRequestPartHook(rewrite.ModeRewrite, nil, internalPartResolver{
-		view: lipworkspace.WorkspaceView{ProjectRoot: internalRoot},
-	})
+	hook := NewRequestPartHook(rewrite.ModeRewrite, nil)
 	hook.bind = func(pathvirtualization.Mapping) virtualizer {
 		return virtualizerFunc(func(*lipapi.Call) (*lipapi.Call, rewrite.Stats, error) {
 			panic(errUnexpected)
@@ -126,7 +117,7 @@ func TestRequestPartHookPropagatesARewriterPanicWithoutPublishing(t *testing.T) 
 				t.Fatal("a panic in the shared rewriter must reach the runtime's own panic boundary")
 			}
 		}()
-		_ = hook.HandleRequestParts(t.Context(), call, sdkhooks.PartMeta{})
+		_ = hook.HandleRequestParts(internalPinnedView(t.Context()), call, sdkhooks.PartMeta{})
 	}()
 
 	after, err := json.Marshal(call)
@@ -158,9 +149,7 @@ func TestRequestPartHookBindsTheOnePureRewriter(t *testing.T) {
 		t.Run(mode.String(), func(t *testing.T) {
 			t.Parallel()
 
-			hook := NewRequestPartHook(mode, resolver, internalPartResolver{
-				view: lipworkspace.WorkspaceView{ProjectRoot: internalRoot},
-			})
+			hook := NewRequestPartHook(mode, resolver)
 			mapping, reason := pathvirtualization.DeriveMapping(internalRoot)
 			if reason != pathvirtualization.SkipReasonNone {
 				t.Fatalf("DeriveMapping(%q) reason = %q", internalRoot, reason)
@@ -184,21 +173,19 @@ func TestRequestPartHookBindsTheOnePureRewriter(t *testing.T) {
 func TestRequestPartHookHoldsNoMutableRequestState(t *testing.T) {
 	t.Parallel()
 
-	hook := NewRequestPartHook(rewrite.ModeRewrite, nil, internalPartResolver{
-		view: lipworkspace.WorkspaceView{ProjectRoot: internalRoot},
-	}, WithHookReporter(func(Report) {}))
+	hook := NewRequestPartHook(rewrite.ModeRewrite, nil, WithHookReporter(func(Report) {}))
 	value := reflect.ValueOf(hook).Elem()
-	if value.NumField() != 5 {
+	if value.NumField() != 4 {
 		names := make([]string, 0, value.NumField())
 		for i := range value.NumField() {
 			names = append(names, value.Type().Field(i).Name)
 		}
-		t.Fatalf("pass fields = %v, want exactly the rollout mode, the policy, the workspace resolver, the reporter, and the rewriter binder", names)
+		t.Fatalf("pass fields = %v, want exactly the rollout mode, the policy, the reporter, and the rewriter binder", names)
 	}
-	if hook.mode != rewrite.ModeRewrite || hook.resolver != nil || hook.workspace == nil ||
+	if hook.mode != rewrite.ModeRewrite || hook.resolver != nil ||
 		hook.report == nil || hook.bind == nil {
-		t.Fatalf("unexpected pass configuration: mode=%v resolver_set=%t workspace_set=%t report_set=%t bind_set=%t",
-			hook.mode, hook.resolver != nil, hook.workspace != nil, hook.report != nil, hook.bind != nil)
+		t.Fatalf("unexpected pass configuration: mode=%v resolver_set=%t report_set=%t bind_set=%t",
+			hook.mode, hook.resolver != nil, hook.report != nil, hook.bind != nil)
 	}
 }
 
@@ -215,11 +202,89 @@ func TestRequestPartHookNeverReadsRequestIdentityFields(t *testing.T) {
 			t.Fatalf("requirements.md 5.7 - the late outbound pass must not read %s; no mapping may be keyed to it", forbidden)
 		}
 	}
-	for _, required := range []string{"Resolve", "ProjectRoot", "DeriveMapping"} {
+	for _, required := range []string{"WorkspaceViewFromContext", "ProjectRoot", "DeriveMapping"} {
 		if !used[required] {
-			t.Fatalf("the late outbound pass must read %s; the authoritative project root is the only mapping authority", required)
+			t.Fatalf("the late outbound pass must read %s; the pinned project root is the only mapping authority", required)
 		}
 	}
+}
+
+// TestTheLatePassNeverHoldsOrCallsAWorkspaceResolver is requirement 5.6's structural
+// form, and the one that makes it true by CONSTRUCTION rather than by convention.
+//
+// The hazard 5.6 forbids is two workspace tags in one backend-bound request, and the
+// way that used to be possible was specific: this pass held its own
+// lipworkspace.Resolver and re-resolved it live, while the early pass read the
+// runtime's per-turn PIN. A resolver that answered root A and then root B would put
+// aliasA on the early surface and aliasB on the late one.
+//
+// With the pass holding no authority and reading the pin the runtime already published,
+// that disagreement is not merely unlikely, it is unrepresentable: there is no field to
+// inject and no call site that could resolve anything. The check is therefore over the
+// WHOLE of part.go rather than over the two decision methods, because the injection
+// could be reintroduced anywhere - a field, a constructor argument, a package-level
+// value, a helper.
+//
+// It is deliberately a source scan and not a behavioral probe: "no call happened" is
+// unobservable from outside the package, so reading the construction site is the only
+// way to make the rule falsifiable. The positive control at the end keeps it from
+// passing vacuously.
+func TestTheLatePassNeverHoldsOrCallsAWorkspaceResolver(t *testing.T) {
+	t.Parallel()
+
+	used := allPartSelectorUses(t)
+	for _, forbidden := range []string{
+		// The compiled POLICY resolver is a different thing entirely and is required;
+		// it is the WORKSPACE resolver that must be absent.
+		"workspace.Resolver", "lipworkspace.Resolver", "Workspace.Resolver",
+		"DisabledResolver", "NewResolverChain", "NewStrictChain",
+		"Resolve", "ResolverChain",
+	} {
+		if used[forbidden] {
+			t.Fatalf("requirements.md 5.6 - the late outbound pass must not reference %s; the runtime's pinned view is its only workspace authority", forbidden)
+		}
+	}
+	if !used["workspace.WorkspaceViewFromContext"] {
+		t.Fatal("the scan proved nothing: part.go no longer reads the pinned workspace projection")
+	}
+	if !used["pathvirtualization.DeriveMapping"] {
+		t.Fatal("the scan proved nothing: part.go no longer derives the mapping from the pinned view")
+	}
+}
+
+// allPartSelectorUses reports every QUALIFIED selector name appearing anywhere in
+// part.go, keyed "package.Symbol".
+//
+// It is qualified rather than bare because the pass legitimately holds a
+// pathvirtualization.Resolver - the compiled policy - and only a qualified name can tell
+// that apart from the workspace authority this file forbids. Comments are not walked, so
+// a doc comment that merely NAMES a contract cannot fail the check, while any real
+// field, type, or method reference can.
+func allPartSelectorUses(t *testing.T) map[string]bool {
+	t.Helper()
+
+	used := map[string]bool{}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "part.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse part.go: %v", err)
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		sel, ok := node.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		switch qualifier := sel.X.(type) {
+		case *ast.Ident:
+			used[qualifier.Name+"."+sel.Sel.Name] = true
+		case *ast.SelectorExpr:
+			if outer, ok := qualifier.X.(*ast.Ident); ok {
+				used[outer.Name+"."+qualifier.Sel.Name+"."+sel.Sel.Name] = true
+			}
+		}
+		return true
+	})
+	return used
 }
 
 // handleRequestPartsFieldUses reports which resolver, view, and metadata fields the

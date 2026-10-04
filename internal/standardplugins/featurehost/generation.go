@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
+	pathvirtualizationconfig "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/reasoning"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -45,6 +46,18 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		return GenerationOutput{}, err
 	}
 
+	// 2. Cross-feature composition guard. Path virtualization's own subtree decoder
+	// cannot see tool-call repair's `order` key, so the rule that its mandatory
+	// expansion receives valid completed JSON belongs to the feature that declares
+	// the order and is CALLED from here, where the whole enabled registration list
+	// is in hand (requirements.md 8.4). It is a no-op for every generation that
+	// does not enable path virtualization, and it returns GenerationOutput{} so
+	// nothing is published on refusal. This runs before any plane is touched, so a
+	// refusal cannot leave a half-composed generation behind.
+	if err := pathvirtualizationconfig.ValidateGenerationComposition(in.Registrations); err != nil {
+		return GenerationOutput{}, fmt.Errorf("featurehost: path virtualization composition: %w", err)
+	}
+
 	surface := in.MergeSurface
 	if surface.Frozen.IsZero() && !in.Planes.IsZero() {
 		surface = featurebundle.GeneratedMergeSurface{
@@ -53,14 +66,14 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		}
 	}
 
-	// 2. Compaction continuity surface binding.
+	// 3. Compaction continuity surface binding.
 	var err error
 	surface, err = r.bindCompactionContinuity(surface, in.Registrations)
 	if err != nil {
 		return GenerationOutput{}, err
 	}
 
-	// 3. Reasoning composition. The facade merges production/testing options
+	// 4. Reasoning composition. The facade merges production/testing options
 	// internally so callers never interpret reasoning policy (Task 2.4).
 	reasoningOpts := composeReasoningOptions(in.ReasoningProdOpts, in.ReasoningTestOpts)
 	var genBound boundHostFeatures
@@ -112,7 +125,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		outLifecycles = slices.Clone(in.Lifecycles)
 	}
 
-	// 4. Secret Guard composition. Bound host inputs are selected by binding
+	// 5. Secret Guard composition. Bound host inputs are selected by binding
 	// presence: a supplied secret-guard binding (generation-bound, else
 	// process-bound) is preferred wholesale; legacy inputs apply only when no
 	// binding is present. The host pointer lets composition overlay
@@ -155,7 +168,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		return GenerationOutput{}, err
 	}
 
-	// 5. Interleaved Thinking processor. Outer Registration.Enabled is
+	// 6. Interleaved Thinking processor. Outer Registration.Enabled is
 	// authoritative: disabled entries are skipped, a lone disabled entry
 	// disables the feature (no legacy fallback).
 	var interleavedProc runtime.InterleavedProcessor
@@ -216,7 +229,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		interleavedProc = NewInterleavedProcessorAdapter(proc)
 	}
 
-	// 6. Keep-warm attachments: maintenance port, ledger-owned lifecycle,
+	// 7. Keep-warm attachments: maintenance port, ledger-owned lifecycle,
 	// deferred metrics swap, and opaque admin projection for CorePorts.
 	kwMaint, kwLife, kwSwap, kwAdmin, err := r.keepwarmGenerationPorts(in)
 	if err != nil {

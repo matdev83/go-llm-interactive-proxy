@@ -1234,9 +1234,10 @@ func (r driftRun) driftState() string {
 // steering overlay anchored on the path-bearing message.
 //
 // The runtime is wired exactly like the delivered two-pass characterization: the same frozen
-// conversation-view reader, the same workspace resolver handed to BOTH real passes so they
-// derive one alias, the same eligibility observer, and the same recording backend. Only the
-// anchored message and the selected profile differ.
+// conversation-view reader, the same pinned workspace view both real passes read (the early
+// one from its attempt metadata, the late one from the public SDK context projection), the
+// same eligibility observer, and the same recording backend. Only the anchored message and
+// the selected profile differ.
 func driftExecute(t *testing.T, surface string, anchor lipapi.Message, loc driftLocator, resolver *pathvirtualization.Resolver) driftRun {
 	t.Helper()
 
@@ -1257,7 +1258,6 @@ func driftExecute(t *testing.T, surface string, anchor lipapi.Message, loc drift
 	late := outbound.NewRequestPartHook(
 		rewrite.ModeRewrite,
 		resolver,
-		authority,
 		outbound.WithHookReporter(reports.onPart),
 	)
 	reader := &twoPassReader{snap: driftSnapshot(t, anchor)}
