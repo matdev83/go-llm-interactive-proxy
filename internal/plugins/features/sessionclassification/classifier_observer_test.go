@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/sessionclassification"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	sdkclassification "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -71,8 +72,35 @@ func observedClassifier(
 	observer sessionclassification.Observer,
 ) *sessionclassification.Classifier {
 	t.Helper()
+	return observedRemoteClassifier(t, cfg, state, observer, belowThresholdDecider())
+}
+
+// belowThresholdDecider answers every remote attempt below the configured
+// threshold, so a remote-capable fixture reaches its bounded unknown outcome
+// deterministically and without any network (requirements 6.8, 12.9).
+func belowThresholdDecider() *countingDecider {
+	return &countingDecider{fallback: scriptedAnswer{
+		decision: sessionclassification.RemoteDecision{CodingProbability: 0.1},
+	}}
+}
+
+// observedRemoteClassifier builds a generation classifier with an explicit
+// decider. A remote-capable mode is refused a nil decider by NewClassifier, so
+// every jev or hybrid fixture passes one deliberately.
+func observedRemoteClassifier(
+	t *testing.T,
+	cfg sessionclassification.Config,
+	state sessionclassification.StateAuthority,
+	observer sessionclassification.Observer,
+	decider sessionclassification.RemoteDecider,
+) *sessionclassification.Classifier {
+	t.Helper()
+	if cfg.Mode != sessionclassification.ModeJev && cfg.Mode != sessionclassification.ModeHybrid {
+		decider = nil
+	}
 	classifier, err := sessionclassification.NewClassifier(cfg, sessionclassification.ClassifierDeps{
 		State:    state,
+		Remote:   decider,
 		Observer: observer,
 		Now:      fixedNow(),
 	})
@@ -172,8 +200,11 @@ func TestClassifyEmitsBoundedOutcomeDiagnosticsWithoutTransition(t *testing.T) {
 			cfg:   sessionclassification.Config{Mode: sessionclassification.ModeHeuristic},
 			state: &fakeAuthority{store: newFakeStore()},
 			in: sdkclassification.Input{
-				Session:   session.SessionView{AuthoritativeSessionID: secretSessionID},
-				Evidence:  sdkclassification.Evidence{ClientUserAgent: "Mozilla/5.0 (X11; Linux x86_64)"},
+				Session: session.SessionView{AuthoritativeSessionID: secretSessionID},
+				Evidence: sdkclassification.Evidence{
+					ClientUserAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+					Operation:       lipapi.OperationOpenAIResponses,
+				},
 				Workspace: workspace.WorkspaceView{Markers: []string{secretMarker}},
 			},
 			want: sessionclassification.EvaluationUnknown,
@@ -192,34 +223,44 @@ func TestClassifyEmitsBoundedOutcomeDiagnosticsWithoutTransition(t *testing.T) {
 			want: sessionclassification.EvaluationExcluded,
 		},
 		{
-			name: "remote-required mode with decisive local evidence reports remote_skipped",
+			// Requirement 6.3: a jev turn's decisive local evidence is not enough;
+			// the configured remote decision is. A below-threshold remote answer
+			// leaves the session unknown and reports the bare-unknown outcome,
+			// because a remote decision was taken and simply did not promote.
+			name: "remote-required mode with decisive local evidence reports unknown after a below-threshold decision",
 			cfg: sessionclassification.Config{
 				Mode:   sessionclassification.ModeJev,
 				Remote: validTestRemoteConfig(),
 			},
 			state: &fakeAuthority{store: newFakeStore()},
 			in: sdkclassification.Input{
-				Session:  session.SessionView{ALegID: secretALegID},
-				Evidence: sdkclassification.Evidence{ClientUserAgent: "codex_cli_rs/1.2.3"},
+				Session: session.SessionView{ALegID: secretALegID},
+				Evidence: sdkclassification.Evidence{
+					ClientUserAgent: "codex_cli_rs/1.2.3",
+					Operation:       lipapi.OperationOpenAIResponses,
+				},
 			},
-			want: sessionclassification.EvaluationRemoteSkipped,
+			want: sessionclassification.EvaluationUnknown,
 		},
 		{
 			// Requirement 6.4: a hybrid turn that local evaluation left unknown is
-			// remote-eligible, so the faithful bounded diagnostic is a skipped
-			// remote decision rather than a bare unknown.
-			name: "hybrid mode with no decisive local evidence reports remote_skipped",
+			// remote-eligible, so a below-threshold remote decision leaves the
+			// session unknown rather than promoting it.
+			name: "hybrid mode with no decisive local evidence reports unknown after a below-threshold decision",
 			cfg: sessionclassification.Config{
 				Mode:   sessionclassification.ModeHybrid,
 				Remote: validTestRemoteConfig(),
 			},
 			state: &fakeAuthority{store: newFakeStore()},
 			in: sdkclassification.Input{
-				Session:   session.SessionView{AuthoritativeSessionID: secretSessionID},
-				Evidence:  sdkclassification.Evidence{ClientUserAgent: "Mozilla/5.0 (X11; Linux x86_64)"},
+				Session: session.SessionView{AuthoritativeSessionID: secretSessionID},
+				Evidence: sdkclassification.Evidence{
+					ClientUserAgent: "Mozilla/5.0 (X11; Linux x86_64)",
+					Operation:       lipapi.OperationOpenAIResponses,
+				},
 				Workspace: workspace.WorkspaceView{Markers: []string{secretMarker}},
 			},
-			want: sessionclassification.EvaluationRemoteSkipped,
+			want: sessionclassification.EvaluationUnknown,
 		},
 		{
 			// Requirement 6.4: an exclusion still takes precedence for a hybrid

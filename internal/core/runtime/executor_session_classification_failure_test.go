@@ -618,17 +618,18 @@ func ordinaryTechnicalChatCall(clientSessionID string) *lipapi.Call {
 	}
 }
 
-// TestSessionClassificationJevModeRemoteFailureFailsOpenToUnknown expresses
-// requirement 6.9 against the seam that exists today: the remote decider is
-// deliberately unwired until task 8.3, so no remote decision can ever arrive.
+// TestSessionClassificationRemoteFailureFailsOpenToUnknown expresses
+// requirement 6.9 end to end through the real executor: the generation holds a
+// wired but hermetic failing decider, so a remote decision is attempted, fails,
+// and must leave the session unknown while the request is preserved.
 //
-// In jev mode the real classifier must therefore never promote from local
-// evidence at all (requirement 6.3), even for a decisively coding-shaped turn.
-// In hybrid mode decisive local evidence may promote first (requirement 6.4), but
-// a still-unknown session has no path to promotion and creates no durable state.
-// Both modes must preserve the request, reach the classifier exactly once, and
-// create no remote-claim or completion state.
-func TestSessionClassificationJevModeRemoteFailureFailsOpenToUnknown(t *testing.T) {
+// In jev mode the real classifier must never promote from local evidence at all
+// (requirement 6.3), even for a decisively coding-shaped turn. In hybrid mode
+// decisive local evidence may promote first (requirement 6.4), and that positive
+// must be local because a failing remote decision promotes nothing. Both modes
+// must reach the classifier exactly once, and only a still-unknown turn may
+// consume the finite per-session attempt budget (requirement 6.7).
+func TestSessionClassificationRemoteFailureFailsOpenToUnknown(t *testing.T) {
 	cases := []struct {
 		mode featurestate.Mode
 		call func() *lipapi.Call
@@ -666,29 +667,60 @@ func TestSessionClassificationJevModeRemoteFailureFailsOpenToUnknown(t *testing.
 			got := pr.identity.preSession.Classification
 			if tc.wantPromotion {
 				// Requirement 6.4: hybrid may promote from decisive local
-				// evidence. That positive must be local, never remote, because
-				// no remote decider is wired.
+				// evidence, and that positive must stay local because a failing
+				// remote decision promotes nothing (requirement 6.8).
 				if !got.IsCodingAgent() {
 					t.Fatalf("%s classification = %+v, want a local positive from decisive evidence", tc.mode, got)
 				}
 				if got.Source == session.SourceRemote {
-					t.Fatalf("%s produced a remote-sourced classification %+v without a wired remote decider", tc.mode, got)
+					t.Fatalf("%s produced a remote-sourced classification %+v from a failing remote decision", tc.mode, got)
 				}
 			} else if got != (session.Classification{}) {
-				t.Fatalf("%s mode classification = %+v, want unknown: without a remote decision neither local evidence nor weak evidence may promote", tc.mode, got)
+				t.Fatalf("%s mode classification = %+v, want unknown: without a remote positive neither local evidence nor weak evidence may promote", tc.mode, got)
 			}
 			if got := real.callCount(); got != 1 {
 				t.Fatalf("%s mode classifier invoked %d times, want exactly 1", tc.mode, got)
 			}
-			// No remote attempt state may exist: an unwired decider must not
-			// consume the finite per-session attempt budget.
+
+			claims, completions := 0, 0
 			for _, op := range probe.mutationLog() {
-				if strings.HasPrefix(op, "claim_remote@") || strings.HasPrefix(op, "complete_remote@") {
-					t.Fatalf("%s mode performed remote state work %q without a wired remote decider", tc.mode, op)
+				switch {
+				case strings.HasPrefix(op, "claim_remote@"):
+					claims++
+				case strings.HasPrefix(op, "complete_remote@"):
+					completions++
 				}
 			}
-			if !tc.wantPromotion && probe.rowCount() != 0 {
-				t.Fatalf("%s mode created %d durable rows %v, want zero", tc.mode, probe.rowCount(), probe.rowKeys())
+			// Requirement 6.7: exactly one leased attempt happens, and only for a
+			// turn local evaluation left unknown. A decisive local hybrid turn
+			// promotes before any remote claim (requirement 6.4).
+			wantClaims := 1
+			if tc.wantPromotion {
+				wantClaims = 0
+			}
+			if claims != wantClaims {
+				t.Fatalf("%s mode performed %d remote claims, want %d", tc.mode, claims, wantClaims)
+			}
+			// Requirement 6.7: every granted lease is finished after the network
+			// call, so an abandoned lease cannot block later turns.
+			if completions != wantClaims {
+				t.Fatalf("%s mode performed %d remote completions, want %d", tc.mode, completions, wantClaims)
+			}
+			if !tc.wantPromotion {
+				// Requirement 6.9: the failed attempt leaves attempt state, never a
+				// durable classification of any kind.
+				for _, key := range probe.rowRecords() {
+					record, found, loadErr := probe.Load(context.Background(), key)
+					if loadErr != nil {
+						t.Fatalf("read back durable state for %+v: %v", key, loadErr)
+					}
+					if !found {
+						continue
+					}
+					if record.Classification != (session.Classification{}) {
+						t.Fatalf("%s mode persisted %+v after a remote failure, want no durable classification", tc.mode, record.Classification)
+					}
+				}
 			}
 		})
 	}

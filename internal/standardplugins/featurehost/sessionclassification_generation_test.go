@@ -58,14 +58,26 @@ func classificationPrefixList(count int) string {
 const classificationHybridRemoteYAML = "mode: hybrid\nremote:\n  provider: jev\n  api_key_env: TYPESAFE_API_KEY\n" +
 	"  timeout: 750ms\n  max_attempts_per_session: 1\n  lease_ttl: 2s\n  retry_backoff: 0s\n  positive_threshold: 0.90\n"
 
+// classificationJevRemoteYAML is the same validated posture under the mode that
+// forbids local promotion entirely (requirement 6.3).
+const classificationJevRemoteYAML = "mode: jev\nremote:\n  provider: jev\n  api_key_env: TYPESAFE_API_KEY\n" +
+	"  timeout: 750ms\n  max_attempts_per_session: 1\n  lease_ttl: 2s\n  retry_backoff: 0s\n  positive_threshold: 0.90\n"
+
 // TestCompileGeneration_RemoteCapableModesMakeNoClassifierRequest pins
-// requirements 6.1/6.2/6.3/8.3 at the generation boundary: composing and
-// classifying a remote-capable mode reaches no external service, and promotion
-// uses only deterministic local rules. The default HTTP transport is observed
+// requirements 6.1/6.2/6.3/8.3 at the generation boundary: composing a
+// remote-capable mode constructs its decider without contacting the service, and
+// classifying reaches no external service. The default HTTP transport is observed
 // because a remote-capable mode is exactly the configuration where an egress
 // would appear.
+//
+// The credential reference deliberately resolves to nothing here, so an ambiguous
+// turn's remote attempt is refused before egress and fails open to unknown
+// (requirement 6.9). That keeps the composed suite hermetic while still proving
+// the request survives a refused remote attempt.
 func TestCompileGeneration_RemoteCapableModesMakeNoClassifierRequest(t *testing.T) {
-	// Serial: this case temporarily observes the default HTTP transport.
+	// Serial: this case temporarily observes the default HTTP transport and the
+	// referenced credential.
+	t.Setenv("TYPESAFE_API_KEY", "")
 	originalTransport := http.DefaultTransport
 	transport := &countingClassificationRoundTripper{}
 	http.DefaultTransport = transport
@@ -76,23 +88,37 @@ func TestCompileGeneration_RemoteCapableModesMakeNoClassifierRequest(t *testing.
 		configYAML  string
 		userAgent   string
 		wantPromote bool
+		wantSource  session.ClassificationSource
 	}{
 		{
 			name:        "heuristic mode promotes from local identity only",
 			configYAML:  "",
 			userAgent:   "codex_cli_rs/1.2.3",
 			wantPromote: true,
+			wantSource:  session.SourceLocalIdentity,
 		},
 		{
 			name:        "hybrid mode promotes on decisive local evidence",
 			configYAML:  classificationHybridRemoteYAML,
 			userAgent:   "codex_cli_rs/1.2.3",
 			wantPromote: true,
+			wantSource:  session.SourceLocalIdentity,
 		},
 		{
+			// Requirement 6.4: a still-unknown hybrid session is remote-eligible, so
+			// the only path to a positive is a remote decision. A refused one
+			// leaves it unknown rather than promoting locally.
 			name:       "hybrid mode keeps local-only-unknown sessions unknown",
 			configYAML: classificationHybridRemoteYAML,
 			userAgent:  "openai-python/1.40.0",
+		},
+		{
+			// Requirement 6.3: jev mode never promotes from local evidence alone, so
+			// even a decisive coding-harness turn stays unknown without a remote
+			// positive.
+			name:       "jev mode never promotes from local evidence alone",
+			configYAML: classificationJevRemoteYAML,
+			userAgent:  "codex_cli_rs/1.2.3",
 		},
 	}
 
@@ -125,6 +151,9 @@ func TestCompileGeneration_RemoteCapableModesMakeNoClassifierRequest(t *testing.
 			}
 			if got.IsCodingAgent() != tc.wantPromote {
 				t.Fatalf("coding_agent = %t, want %t (%+v)", got.IsCodingAgent(), tc.wantPromote, got)
+			}
+			if tc.wantPromote && got.Source != tc.wantSource {
+				t.Fatalf("promotion source = %q, want %q (%+v)", got.Source, tc.wantSource, got)
 			}
 			if after := transport.calls.Load(); after != before {
 				t.Fatalf("classifier issued %d external requests, want none", after-before)

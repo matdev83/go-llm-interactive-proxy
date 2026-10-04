@@ -94,6 +94,53 @@ func (e *JevError) Error() string {
 // context.Canceled, or the port's sentinels.
 func (e *JevError) Unwrap() error { return e.Err }
 
+var _ featurestate.RemoteFailure = (*JevError)(nil)
+
+// Outcome maps this adapter's bounded failure kind onto the feature's closed
+// RemoteOutcome vocabulary.
+//
+// This is the whole of the adapter's contribution to the provider-neutral
+// failure contract: it lets the generation classify the attempt and decide
+// whether the finite budget permits a retry without parsing error text and
+// without the provider-neutral package knowing any vendor failure name
+// (requirements 6.7, 6.9, 9.4).
+//
+// The mapping is deliberately conservative about retryability, which the
+// generation owns rather than the adapter:
+//
+//   - rate_limited, server_unavailable, and timeout are transient service-side
+//     conditions, so a later attempt inside the budget can plausibly succeed;
+//   - transport_failure is a network condition the adapter cannot distinguish
+//     from a refusal, so it is reported as a network failure;
+//   - malformed_response and response_oversized are determined facts about the
+//     response, so repeating the identical request cannot repair them;
+//   - credential_missing, input_refused, request_refused, and redirect_refused
+//     are adapter-side refusals that no retry resolves without an operator
+//     change.
+func (e *JevError) Outcome() featurestate.RemoteOutcome {
+	if e == nil {
+		return featurestate.RemoteNetworkError
+	}
+	switch e.Kind {
+	case JevFailureRateLimited:
+		return featurestate.RemoteRateLimited
+	case JevFailureServerUnavailable:
+		return featurestate.RemoteServerError
+	case JevFailureTimeout:
+		return featurestate.RemoteTimeout
+	case JevFailureTransport:
+		return featurestate.RemoteNetworkError
+	case JevFailureMalformedResponse, JevFailureResponseOversized:
+		return featurestate.RemoteMalformed
+	default:
+		// Credential, refused-input, refused-request, refused-redirect, and
+		// caller cancellation. Each is reported as a skipped attempt: the
+		// adapter made no usable decision, so nothing about the session's
+		// coding-agent status may be inferred from it.
+		return featurestate.RemoteSkipped
+	}
+}
+
 // JevFailureKindOf reports the bounded failure kind carried by err, or the empty
 // kind when err did not come from this adapter. It lets a caller classify a
 // failure without reading error text (requirements 6.7, 7.5).

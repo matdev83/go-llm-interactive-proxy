@@ -100,7 +100,8 @@ type RemoteDecision struct {
 // RemoteDecider is the provider-neutral remote classification port. Exactly one
 // vendor adapter implements it, and that adapter owns every wire detail: the
 // endpoint, the request/response mapping, the credential, the body bounds, and
-// the mapping of transport failures onto the bounded RemoteOutcome vocabulary.
+// the mapping of transport failures onto the bounded RemoteOutcome vocabulary
+// through the optional RemoteFailure interface.
 //
 // Contract, in full:
 //

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -132,11 +133,29 @@ func (p *classificationStateProbe) recordAccepted(op string, key featurestate.Ke
 // rowKeys returns the distinct classification state keys for which a durable
 // mutation was accepted by the real process store. It is a conservative upper
 // bound on the rows that exist, so zero entries proves zero rows exist.
-func (p *classificationStateProbe) rowKeys() []string {
+// rowRecords returns the durable rows the probe observed the classifier touching,
+// in a stable order, so a test can read back what was actually persisted instead
+// of assuming a snapshot (requirements 6.9, 12.8).
+func (p *classificationStateProbe) rowRecords() []featurestate.Key {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	out := make([]string, 0, len(p.rows))
+	out := make([]featurestate.Key, 0, len(p.rows))
 	for key := range p.rows {
+		out = append(out, key)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func (p *classificationStateProbe) rowKeys() []string {
+	rows := p.rowRecords()
+	out := make([]string, 0, len(rows))
+	for _, key := range rows {
 		out = append(out, string(key.Kind)+":"+key.ID)
 	}
 	sort.Strings(out)
@@ -222,11 +241,30 @@ func (c *countingClassifier) callCount() int {
 	return c.calls
 }
 
+// failingRemoteDecider is a hermetic stand-in for the Jev adapter: it performs
+// no network and always fails with a bounded failure, which is the seam the
+// executor-level fail-open proofs exercise (requirements 6.9, 12.8, 12.9).
+type failingRemoteDecider struct {
+	calls atomic.Int32
+}
+
+var _ featurestate.RemoteDecider = (*failingRemoteDecider)(nil)
+
+func (d *failingRemoteDecider) Decide(context.Context, featurestate.RemoteInput) (featurestate.RemoteDecision, error) {
+	d.calls.Add(1)
+	return featurestate.RemoteDecision{}, errors.New("remote classification is unavailable in this hermetic fixture")
+}
+
 // newRealClassificationClassifier binds the real standard-feature classifier to
 // the counting process store with the documented V1 default heuristic policy.
+//
+// A remote-capable mode receives a decider because NewClassifier refuses to build
+// one without it (requirements 6.1, 6.10). The decider is a hermetic failing
+// fake so no executor suite performs egress (requirement 12.9).
 func newRealClassificationClassifier(t *testing.T, authority featurestate.StateAuthority, mode featurestate.Mode) *countingClassifier {
 	t.Helper()
 	cfg := featurestate.Config{Mode: mode}
+	var remote featurestate.RemoteDecider
 	if mode == featurestate.ModeJev || mode == featurestate.ModeHybrid {
 		cfg.Remote = &featurestate.RemoteConfig{
 			Provider:              "jev",
@@ -237,10 +275,12 @@ func newRealClassificationClassifier(t *testing.T, authority featurestate.StateA
 			RetryBackoff:          0,
 			PositiveThreshold:     0.9,
 		}
+		remote = &failingRemoteDecider{}
 	}
 	classifier, err := featurestate.NewClassifier(cfg, featurestate.ClassifierDeps{
-		State: authority,
-		Now:   func() time.Time { return time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC) },
+		State:  authority,
+		Remote: remote,
+		Now:    func() time.Time { return time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC) },
 	})
 	if err != nil {
 		t.Fatalf("new real session classifier: %v", err)

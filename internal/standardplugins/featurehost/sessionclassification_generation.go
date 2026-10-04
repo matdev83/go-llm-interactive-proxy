@@ -5,6 +5,7 @@ import (
 	"time"
 
 	featureclassification "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/sessionclassification"
+	hostclassification "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionclassification"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkclassification "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 )
@@ -38,8 +39,18 @@ func (r *Runtime) bindSessionClassifier(outPlanes lipfeature.FrozenPlaneSet, in 
 	if err != nil {
 		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("featurehost: %w", err)
 	}
+	// Requirement 6.2: the adapter is constructed only for a mode whose promotion
+	// depends on a remote decision. A heuristic candidate therefore performs no
+	// credential reference, no adapter construction, and no egress, and a remote
+	// mode with unusable settings fails this candidate before publication
+	// (requirements 6.10, 8.4).
+	decider, err := hostclassification.NewRemoteDecider(cfg)
+	if err != nil {
+		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("featurehost: session classification remote decider: %w", err)
+	}
 	classifier, err := featureclassification.NewClassifier(cfg, featureclassification.ClassifierDeps{
-		State: r.sessionClassification,
+		State:  r.sessionClassification,
+		Remote: decider,
 		// The bounded observation sink exists only on the process-owned collector,
 		// which this holder owns for the whole process. Because the sink is bound
 		// here, an absent or disabled registration contributes no observer at all

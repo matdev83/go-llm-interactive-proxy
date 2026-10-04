@@ -3,6 +3,7 @@ package sessionclassification_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/sessionclassification"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	sdkclassification "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -19,7 +21,7 @@ import (
 // often the classifier asked for it.
 type fakeAuthority struct {
 	mu    sync.Mutex
-	store *fakeStore
+	store sessionclassification.Store
 	err   error
 	calls int
 }
@@ -41,7 +43,8 @@ func (a *fakeAuthority) callCount() int {
 }
 
 // fakeStore is a minimal monotonic store: it keeps the first positive record
-// per authority key and counts every operation without retaining raw evidence.
+// per authority key, enforces the same single-lease attempt budget the real
+// stores enforce, and counts every operation without retaining raw evidence.
 type fakeStore struct {
 	mu       sync.Mutex
 	records  map[sessionclassification.Key]sessionclassification.Record
@@ -49,6 +52,15 @@ type fakeStore struct {
 	promote  int
 	promoted []sessionclassification.Record
 	loadErr  error
+
+	claims      int
+	granted     int
+	completions int
+	claimErr    error
+	completeErr error
+	leaseSeq    uint64
+	maxActive   int
+	active      int
 }
 
 var _ sessionclassification.Store = (*fakeStore)(nil)
@@ -82,18 +94,100 @@ func (s *fakeStore) Promote(_ context.Context, key sessionclassification.Key, pr
 	return record, true, nil
 }
 
-func (s *fakeStore) ClaimRemote(context.Context, sessionclassification.Key, time.Time, uint32, time.Duration, time.Duration) (sessionclassification.RemoteClaim, sessionclassification.Record, bool, error) {
-	return sessionclassification.RemoteClaim{}, sessionclassification.Record{}, false, errors.New("remote claims are not part of the local classifier")
+// ClaimRemote mirrors the store contract every implementation shares: it
+// consumes one finite attempt, refuses while another lease is active or while a
+// completion backoff has not elapsed, and never rewrites a positive. The fake
+// keeps the same counters the real stores expose so a test can prove how many
+// leases and egress calls one turn produced.
+func (s *fakeStore) ClaimRemote(_ context.Context, key sessionclassification.Key, now time.Time, maxAttempts uint32, leaseTTL time.Duration, retryBackoff time.Duration) (sessionclassification.RemoteClaim, sessionclassification.Record, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.claims++
+	if s.claimErr != nil {
+		return sessionclassification.RemoteClaim{}, sessionclassification.Record{}, false, s.claimErr
+	}
+	record, exists := s.records[key]
+	switch {
+	case exists && record.Classification.IsCodingAgent():
+		return sessionclassification.RemoteClaim{}, record, false, nil
+	case exists && record.RemoteLeaseID != "" && now.Before(record.RemoteLeaseUntil):
+		return sessionclassification.RemoteClaim{}, record, false, nil
+	case exists && record.RemoteAttempts >= maxAttempts:
+		return sessionclassification.RemoteClaim{}, record, false, nil
+	case exists && !record.RemoteNextEligibleAt.IsZero() && now.Before(record.RemoteNextEligibleAt):
+		return sessionclassification.RemoteClaim{}, record, false, nil
+	}
+	s.leaseSeq++
+	record.Key = key
+	record.RemoteAttempts++
+	record.RemoteLeaseID = fmt.Sprintf("fake-lease-%d", s.leaseSeq)
+	record.RemoteLeaseUntil = sessionclassification.RoundRemoteDeadlineUpToMicrosecond(now.Add(leaseTTL))
+	record.UpdatedAt = now
+	s.records[key] = record
+	s.granted++
+	s.active++
+	if s.active > s.maxActive {
+		s.maxActive = s.active
+	}
+	claim := sessionclassification.RemoteClaim{
+		Key: key, LeaseID: record.RemoteLeaseID, Attempt: record.RemoteAttempts, RetryBackoff: retryBackoff,
+	}
+	return claim, record, true, nil
 }
 
-func (s *fakeStore) CompleteRemote(context.Context, sessionclassification.RemoteClaim, sessionclassification.RemoteCompletion, time.Time) (sessionclassification.Record, error) {
-	return sessionclassification.Record{}, errors.New("remote completion is not part of the local classifier")
+// CompleteRemote accepts only the currently held lease, clears it, and starts
+// the bounded completion backoff for a non-promoting result.
+func (s *fakeStore) CompleteRemote(_ context.Context, claim sessionclassification.RemoteClaim, result sessionclassification.RemoteCompletion, now time.Time) (sessionclassification.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.completions++
+	if s.completeErr != nil {
+		return sessionclassification.Record{}, s.completeErr
+	}
+	record, exists := s.records[claim.Key]
+	if !exists || record.RemoteLeaseID != claim.LeaseID || record.RemoteAttempts != claim.Attempt || !now.Before(record.RemoteLeaseUntil) {
+		return record, sessionclassification.ErrStaleRemoteClaim
+	}
+	s.active--
+	record.RemoteLeaseID = ""
+	record.RemoteLeaseUntil = time.Time{}
+	switch {
+	case result.Proposal != (session.Classification{}) && !record.Classification.IsCodingAgent():
+		result.Proposal.Revision = 1
+		record.Classification = result.Proposal
+		record.RemoteNextEligibleAt = time.Time{}
+	case record.Classification.IsCodingAgent() || claim.RetryBackoff == 0:
+		record.RemoteNextEligibleAt = time.Time{}
+	default:
+		record.RemoteNextEligibleAt = sessionclassification.RoundRemoteDeadlineUpToMicrosecond(now.Add(claim.RetryBackoff))
+	}
+	record.UpdatedAt = now
+	s.records[claim.Key] = record
+	return record, nil
 }
 
 func (s *fakeStore) counts() (int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.loads, s.promote
+}
+
+// leaseCounts reports how many lease claims were granted and how many leases
+// were simultaneously active, which is what proves single-flight remote work.
+func (s *fakeStore) leaseCounts() (granted int, completions int, maxActive int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.granted, s.completions, s.maxActive
+}
+
+// claimAttempts reports how many times the store was asked for a lease, whether
+// or not it granted one. A canceled turn must not ask again after its context
+// ended, so this is what distinguishes a released wait from an immediate
+// surrender (requirements 6.7, 6.9).
+func (s *fakeStore) claimAttempts() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.claims
 }
 
 func (s *fakeStore) stored(key sessionclassification.Key) (sessionclassification.Record, bool) {
@@ -105,9 +199,25 @@ func (s *fakeStore) stored(key sessionclassification.Key) (sessionclassification
 
 func mustClassifier(t *testing.T, cfg sessionclassification.Config, store *fakeStore, now func() time.Time) *sessionclassification.Classifier {
 	t.Helper()
+	return mustRemoteClassifier(t, cfg, store, now, nil)
+}
+
+// mustRemoteClassifier builds a generation classifier bound to the given decider.
+// A remote-capable mode without a decider is refused by NewClassifier, so every
+// jev or hybrid fixture supplies one and the decider's call count is the
+// load-bearing instrument of the remote proofs (requirements 6.1, 6.2, 6.3).
+func mustRemoteClassifier(
+	t *testing.T,
+	cfg sessionclassification.Config,
+	store *fakeStore,
+	now func() time.Time,
+	decider sessionclassification.RemoteDecider,
+) *sessionclassification.Classifier {
+	t.Helper()
 	classifier, err := sessionclassification.NewClassifier(cfg, sessionclassification.ClassifierDeps{
-		State: &fakeAuthority{store: store},
-		Now:   now,
+		State:  &fakeAuthority{store: store},
+		Remote: decider,
+		Now:    now,
 	})
 	if err != nil {
 		t.Fatalf("NewClassifier: %v", err)
@@ -115,10 +225,112 @@ func mustClassifier(t *testing.T, cfg sessionclassification.Config, store *fakeS
 	return classifier
 }
 
+// countingDecider is a fake RemoteDecider that records every call and returns a
+// scripted bounded answer or bounded failure. It exists so a test can prove the
+// exact number of remote calls a mode, a claim outcome, or a retry budget
+// produces without any network (requirements 6.7, 12.8, 12.9).
+//
+// A scripted answer may also gate on a channel, which is how a test observes
+// that the durable lease is published before the call and released after it
+// returns (requirement 6.6).
+type countingDecider struct {
+	mu       sync.Mutex
+	calls    int
+	inputs   []sessionclassification.RemoteInput
+	answers  []scriptedAnswer
+	fallback scriptedAnswer
+	// entered receives just before each scripted answer is returned, so a test
+	// can observe the in-flight window of the remote call.
+	entered chan struct{}
+	// release, when non-nil, blocks every call until it is closed. The lease must
+	// already be published while a call is parked here.
+	release <-chan struct{}
+	// blockOnContext makes every call block until the caller's context ends and
+	// return its error, which is what a real adapter's in-flight HTTP call does.
+	blockOnContext bool
+	// malformedOnEnd returns the scripted answer instead of the context error
+	// after blockOnContext released. It models an adapter that answers with a
+	// determined failure in the same window the caller canceled, which is the case
+	// where the two signals must be told apart.
+	malformedOnEnd bool
+}
+
+type scriptedAnswer struct {
+	decision sessionclassification.RemoteDecision
+	err      error
+}
+
+var _ sessionclassification.RemoteDecider = (*countingDecider)(nil)
+
+// boundedFailure is a scripted remote failure carrying a closed-vocabulary
+// outcome through the optional featurestate.RemoteFailure contract, which is
+// how an adapter reports its failure without leaking error text into a label.
+type boundedFailure struct {
+	outcome sessionclassification.RemoteOutcome
+	cause   error
+}
+
+func (f boundedFailure) Error() string { return "scripted remote failure" }
+func (f boundedFailure) Unwrap() error { return f.cause }
+
+func (f boundedFailure) Outcome() sessionclassification.RemoteOutcome { return f.outcome }
+
+var _ sessionclassification.RemoteFailure = boundedFailure{}
+
+func (d *countingDecider) Decide(ctx context.Context, in sessionclassification.RemoteInput) (sessionclassification.RemoteDecision, error) {
+	d.mu.Lock()
+	d.calls++
+	d.inputs = append(d.inputs, in)
+	answer := d.fallback
+	if len(d.answers) > 0 {
+		answer = d.answers[0]
+		d.answers = d.answers[1:]
+	}
+	entered, release, blockOnContext, malformedOnEnd := d.entered, d.release, d.blockOnContext, d.malformedOnEnd
+	d.mu.Unlock()
+	// The lease must already be published and no store lock held while this call
+	// is in flight, so the bookkeeping lock is released before anything blocks.
+	if entered != nil {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+	}
+	switch {
+	case blockOnContext:
+		<-ctx.Done()
+		if malformedOnEnd {
+			return answer.decision, answer.err
+		}
+		return sessionclassification.RemoteDecision{}, ctx.Err()
+	case release != nil:
+		<-release
+	}
+	return answer.decision, answer.err
+}
+
+func (d *countingDecider) callCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.calls
+}
+
+func (d *countingDecider) observedInputs() []sessionclassification.RemoteInput {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]sessionclassification.RemoteInput(nil), d.inputs...)
+}
+
 func fixedNow() func() time.Time {
 	instant := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
 	return func() time.Time { return instant }
 }
+
+// realNow is the process clock. It is used where lease deadlines must actually
+// elapse, because the store anchors its retry backoff at the timestamp the
+// classifier passes, and only a moving clock can release that deadline
+// (requirements 6.7, 12.8).
+func realNow() func() time.Time { return time.Now }
 
 // validTestRemoteConfig mirrors the documented operational values for the
 // remote modes. The credential stays a referenced environment name.
@@ -213,19 +425,23 @@ func TestClassifierIdentityIsTheStableFeatureIdentity(t *testing.T) {
 	}
 }
 
-func TestClassifierHoldsNoNetworkCapableDependency(t *testing.T) {
+func TestClassifierHoldsOnlyBoundedGenerationFields(t *testing.T) {
 	t.Parallel()
 
-	// Requirements 6.1/6.2: composing or running this generation's classifier
-	// cannot reach an external service. The concrete classifier holds only
-	// bounded policy, a lazy state authority, and a clock, so no remote adapter
-	// can be constructed or called until a future task deliberately binds one.
+	// Requirements 6.1/6.2/10.5: the concrete classifier holds only bounded
+	// generation policy, a lazy state authority, at most the frozen remote port
+	// its mode requires, a copy of its validated remote settings, a bounded
+	// observation sink, and a clock. It holds no HTTP client, no endpoint, no
+	// credential, no per-session map, and no goroutine or timer, so composing or
+	// running a heuristic generation cannot reach an external service.
 	typ := reflect.TypeOf(sessionclassification.Classifier{})
 	allowed := map[string]reflect.Type{
-		"cfg":      reflect.TypeOf(sessionclassification.Config{}),
-		"state":    reflect.TypeOf((*sessionclassification.StateAuthority)(nil)).Elem(),
-		"observer": reflect.TypeOf((*sessionclassification.Observer)(nil)).Elem(),
-		"now":      reflect.TypeOf((func() time.Time)(nil)),
+		"cfg":           reflect.TypeOf(sessionclassification.Config{}),
+		"state":         reflect.TypeOf((*sessionclassification.StateAuthority)(nil)).Elem(),
+		"remoteDecider": reflect.TypeOf((*sessionclassification.RemoteDecider)(nil)).Elem(),
+		"remote":        reflect.TypeOf(sessionclassification.RemoteConfig{}),
+		"observer":      reflect.TypeOf((*sessionclassification.Observer)(nil)).Elem(),
+		"now":           reflect.TypeOf((func() time.Time)(nil)),
 	}
 	if typ.NumField() != len(allowed) {
 		t.Fatalf("classifier has %d fields, want exactly %d bounded fields", typ.NumField(), len(allowed))
@@ -393,22 +609,47 @@ func TestClassifyModeControlsWhichLocalEvidenceMayPromote(t *testing.T) {
 			t.Parallel()
 			store := newFakeStore()
 			cfg := sessionclassification.Config{Mode: tc.mode}
+			// The decider variable keeps its concrete type so the call count can be read
+			// after the fixture, while a heuristic generation must receive a truly
+			// nil interface: a typed nil would be a non-nil interface value and
+			// would be refused as a network-capable dependency (requirement 6.2).
+			decider := &countingDecider{fallback: scriptedAnswer{
+				decision: sessionclassification.RemoteDecision{CodingProbability: 0.2},
+			}}
+			var bound sessionclassification.RemoteDecider
 			if tc.mode == sessionclassification.ModeJev || tc.mode == sessionclassification.ModeHybrid {
 				cfg.Remote = validTestRemoteConfig()
+				bound = decider
 			}
-			classifier := mustClassifier(t, cfg, store, fixedNow())
+			classifier := mustRemoteClassifier(t, cfg, store, fixedNow(), bound)
 			userAgent := ""
 			if tc.wantSource == session.SourceLocalIdentity {
 				userAgent = "codex_cli_rs/1.2.3"
 			}
 			in := sdkclassification.Input{
-				Session:  session.SessionView{ALegID: "a-leg-mode-" + string(rune('a'+i))},
-				Evidence: sdkclassification.Evidence{ClientUserAgent: userAgent, ToolCategories: distinctCluster},
+				Session: session.SessionView{ALegID: "a-leg-mode-" + string(rune('a'+i))},
+				Evidence: sdkclassification.Evidence{
+					ClientUserAgent: userAgent,
+					ToolCategories:  distinctCluster,
+					Operation:       lipapi.OperationOpenAIResponses,
+				},
 			}
 
 			got, err := classifier.Classify(t.Context(), in)
 			if err != nil {
 				t.Fatalf("Classify: %v", err)
+			}
+			// Requirement 6.2: a mode whose local evidence promotes makes no
+			// remote call at all; requirement 6.3: a jev turn whose decisive local
+			// evidence is not enough still consults the remote decider.
+			wantCalls := 0
+			if tc.mode == sessionclassification.ModeJev {
+				wantCalls = 1
+			} else if tc.mode == sessionclassification.ModeHybrid && !tc.wantPromote {
+				wantCalls = 1
+			}
+			if calls := decider.callCount(); calls != wantCalls {
+				t.Fatalf("remote calls = %d, want %d for mode %q", calls, wantCalls, tc.mode)
 			}
 			if !tc.wantPromote {
 				if got != (session.Classification{}) {
@@ -456,6 +697,7 @@ func TestClassifyFailsOpenWhenProcessStateIsUnavailable(t *testing.T) {
 
 	loadFailure := errors.New("durable load failed")
 	stateFailure := errors.New("state holder closed")
+	failing := newFakeStore()
 	cases := []struct {
 		name      string
 		authority *fakeAuthority
@@ -463,11 +705,13 @@ func TestClassifyFailsOpenWhenProcessStateIsUnavailable(t *testing.T) {
 		want      session.Classification
 	}{
 		{name: "uninitialized state authority", authority: &fakeAuthority{err: stateFailure}},
-		{name: "durable load failure", authority: &fakeAuthority{store: newFakeStore()}, storeErr: loadFailure},
+		{name: "durable load failure", authority: &fakeAuthority{store: failing}, storeErr: loadFailure},
 	}
 	for _, tc := range cases {
 		if tc.storeErr != nil {
-			tc.authority.store.loadErr = tc.storeErr
+			// The injected failure must be the one the authority's own store
+			// reports, so the store under test is wired before the fixture runs.
+			failing.loadErr = tc.storeErr
 		}
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
