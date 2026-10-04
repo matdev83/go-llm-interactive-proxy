@@ -99,12 +99,17 @@ func (r *Rewriter) RewriteCall(call *lipapi.Call) (*lipapi.Call, Stats, error) {
 }
 
 // callWalker carries one rewrite across a call: the input it reads, the published
-// copy it writes on first change, the running accounting, and the first failure.
+// copy it writes on first change, the running accounting, the resolutions it has
+// already made, and the first failure.
+//
+// The resolution memo is the only field here that grows with the input, and it is
+// deliberately walk-local rather than rewriter-local: see resolve.go.
 type callWalker struct {
 	rewriter *Rewriter
 	in       *lipapi.Call
 	out      *lipapi.Call
 	acc      account
+	resolved map[resolutionKey]pathvirtualization.Resolved
 	err      error
 }
 
@@ -201,8 +206,10 @@ func (w *callWalker) rewriteMessages() {
 func (w *callWalker) rewriteToolCall(toolName string, arguments []byte, assign func([]byte)) {
 	// Only an argument surface offers its declared schema to the inference step: it
 	// is the one surface the tool contract declares, and it is what makes a safely
-	// inferred location reachable at all (requirement 2.1).
-	resolved := w.rewriter.resolver.Resolve(toolName, w.declaredSchema(toolName))
+	// inferred location reachable at all (requirement 2.1). The resolution itself is
+	// memoized per pass, so a tool no profile claims does not have its declared
+	// schema re-walked once per occurrence (requirements.md 9.3, 9.4).
+	resolved := w.resolveToolCall(toolName)
 	w.rewritePayload(arguments, resolved.ArgPointers, assign)
 }
 
@@ -217,8 +224,9 @@ func (w *callWalker) rewriteToolResult(index int, result *lipapi.ToolResultItem)
 		return
 	}
 	// A result has no declared schema, so nothing is offered to the inference step:
-	// requirement 3.2 keeps structured result selection explicit.
-	resolved := w.rewriter.resolver.Resolve(result.Name, nil)
+	// requirement 3.2 keeps structured result selection explicit. The memo entry is
+	// therefore separate from the same name's argument-surface entry; see resolve.go.
+	resolved := w.resolveToolResult(result.Name)
 	if result.Output != "" {
 		w.rewriteOpaque(result.Output, resolved.OpaqueResultMode,
 			func(raw string) { w.working().Items[index].ToolResult.Output = raw })
@@ -251,7 +259,7 @@ func (w *callWalker) rewriteLegacyToolResult(message, part int, value lipapi.Par
 	if w.err != nil {
 		return
 	}
-	resolved := w.rewriter.resolver.Resolve(value.ToolName, nil)
+	resolved := w.resolveToolResult(value.ToolName)
 	if !isAbsentOrNullPayload(value.Content) {
 		w.rewritePayload(value.Content, resolved.ResultJSONPointers,
 			func(raw []byte) { w.working().Messages[message].Parts[part].Content = raw })

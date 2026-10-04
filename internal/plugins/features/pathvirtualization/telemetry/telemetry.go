@@ -97,6 +97,7 @@ func (t *Telemetry) ObserveOutbound(report outbound.Report) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.out.reports++
+	t.out.recordPass(report.Pass, stats)
 	t.total.reports++
 	t.total.eligible += int64(stats.Eligible)
 	t.total.rewritten += int64(stats.Rewritten)

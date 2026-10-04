@@ -170,8 +170,10 @@ func TestRequestPartHookCatchesARealPathIntroducedAfterTheFirstPass(t *testing.T
 	const lateSuffix = "internal/core/runtime/executor.go"
 	call.Items = append(call.Items, lipapi.Item{
 		Kind: lipapi.ItemKindToolCall, ID: "item_call_late", Status: lipapi.ItemStatusCompleted,
-		ToolCall: &lipapi.ToolCallItem{CallID: "call_late", Name: attemptTool,
-			Arguments: json.RawMessage(`{"file_path":"` + attemptRoot + "/" + lateSuffix + `","limit":10}`)},
+		ToolCall: &lipapi.ToolCallItem{
+			CallID: "call_late", Name: attemptTool,
+			Arguments: json.RawMessage(`{"file_path":"` + attemptRoot + "/" + lateSuffix + `","limit":10}`),
+		},
 	})
 	if err := call.Validate(); err != nil {
 		t.Fatalf("fixture: the reintroduced tool call must be canonical: %v", err)

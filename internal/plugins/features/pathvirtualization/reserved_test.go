@@ -1,3 +1,4 @@
+//nolint:misspell // Fixtures spell path segments like "other-repository"; the linter reads the "ther" inside "other" as "there". Path data, not prose.
 package pathvirtualization_test
 
 import (

@@ -1,3 +1,4 @@
+//nolint:misspell // Fixtures spell path segments like "other-repository"; the linter reads the "ther" inside "other" as "there". Path data, not prose.
 package pathvirtualization_test
 
 import (
@@ -1255,16 +1256,26 @@ func TestExpandPathReservedAliasSeamNowFailsClosed(t *testing.T) {
 		path    string
 		wantRes pathvirtualization.ExpandResult
 	}{
-		{name: "foreign_workspace_alias", path: `/.__lip_v1__/w_aaaaaaaaaaaaaaaaaaaa/src/main.go`,
-			wantRes: pathvirtualization.ExpandResultWorkspaceMismatch},
-		{name: "malformed_short_tag", path: `/.__lip_v1__/w_tooshort/src/main.go`,
-			wantRes: pathvirtualization.ExpandResultMalformedReservedAlias},
-		{name: "malformed_missing_tag", path: `/.__lip_v1__/src/main.go`,
-			wantRes: pathvirtualization.ExpandResultMalformedReservedAlias},
-		{name: "alias_mid_segment", path: `/.__lip_v1__/w_ylfucd77chy74zh3qwmaX/src/main.go`,
-			wantRes: pathvirtualization.ExpandResultMalformedReservedAlias},
-		{name: "drive_alias_under_a_posix_mapping", path: `C:\.__lip_v1__\w_ilcrzjze5qdqueaesaxa\src\main.go`,
-			wantRes: pathvirtualization.ExpandResultWorkspaceMismatch},
+		{
+			name: "foreign_workspace_alias", path: `/.__lip_v1__/w_aaaaaaaaaaaaaaaaaaaa/src/main.go`,
+			wantRes: pathvirtualization.ExpandResultWorkspaceMismatch,
+		},
+		{
+			name: "malformed_short_tag", path: `/.__lip_v1__/w_tooshort/src/main.go`,
+			wantRes: pathvirtualization.ExpandResultMalformedReservedAlias,
+		},
+		{
+			name: "malformed_missing_tag", path: `/.__lip_v1__/src/main.go`,
+			wantRes: pathvirtualization.ExpandResultMalformedReservedAlias,
+		},
+		{
+			name: "alias_mid_segment", path: `/.__lip_v1__/w_ylfucd77chy74zh3qwmaX/src/main.go`,
+			wantRes: pathvirtualization.ExpandResultMalformedReservedAlias,
+		},
+		{
+			name: "drive_alias_under_a_posix_mapping", path: `C:\.__lip_v1__\w_ilcrzjze5qdqueaesaxa\src\main.go`,
+			wantRes: pathvirtualization.ExpandResultWorkspaceMismatch,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

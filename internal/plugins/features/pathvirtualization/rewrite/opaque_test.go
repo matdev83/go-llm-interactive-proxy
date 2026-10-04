@@ -92,18 +92,24 @@ func opaqueCalls(text string) map[string]*lipapi.Call {
 		}},
 		"text_part": {Items: []lipapi.Item{
 			opaqueToolCall(),
-			opaqueResultItem(&lipapi.ToolResultItem{CallID: "call_7f3a", Name: opaqueTool,
-				Parts: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: text}}}),
+			opaqueResultItem(&lipapi.ToolResultItem{
+				CallID: "call_7f3a", Name: opaqueTool,
+				Parts: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: text}},
+			}),
 		}},
 		"tool_result_part": {Items: []lipapi.Item{
 			opaqueToolCall(),
-			opaqueResultItem(&lipapi.ToolResultItem{CallID: "call_7f3a", Name: opaqueTool,
-				Parts: []lipapi.ContentPart{{Kind: lipapi.ContentPartToolResult, Text: text}}}),
+			opaqueResultItem(&lipapi.ToolResultItem{
+				CallID: "call_7f3a", Name: opaqueTool,
+				Parts: []lipapi.ContentPart{{Kind: lipapi.ContentPartToolResult, Text: text}},
+			}),
 		}},
 		"legacy_text": {Messages: []lipapi.Message{
 			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
-				{Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: opaqueTool,
-					Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`)},
+				{
+					Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: opaqueTool,
+					Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`),
+				},
 			}},
 			{Role: lipapi.RoleUser, Parts: []lipapi.Part{
 				{Kind: lipapi.PartToolResult, ToolCallID: "call_7f3a", ToolName: opaqueTool, Text: text},
@@ -248,12 +254,14 @@ func TestOpaqueResultUnknownToolIsNeverRewritten(t *testing.T) {
 	payload := fixtureTarget + "\n" + fixtureRoot + "/pkg/lipapi/items.go"
 	call := &lipapi.Call{Items: []lipapi.Item{
 		opaqueToolCall(),
-		{Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
+		{
+			Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
 			ToolResult: &lipapi.ToolResultItem{
 				CallID: "call_7f3a",
 				Name:   "never_profiled_tool",
 				Output: payload,
-			}},
+			},
+		},
 	}}
 	if err := call.Validate(); err != nil {
 		t.Fatalf("fixture call must be canonical: %v", err)
@@ -750,8 +758,10 @@ func TestOpaqueResultWindowsFlavor(t *testing.T) {
 
 			call := &lipapi.Call{Items: []lipapi.Item{
 				opaqueToolCall(),
-				{Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
-					ToolResult: &lipapi.ToolResultItem{CallID: "call_7f3a", Name: opaqueTool, Output: tc.text}},
+				{
+					Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
+					ToolResult: &lipapi.ToolResultItem{CallID: "call_7f3a", Name: opaqueTool, Output: tc.text},
+				},
 			}}
 			if err := call.Validate(); err != nil {
 				t.Fatalf("fixture call must be canonical: %v", err)

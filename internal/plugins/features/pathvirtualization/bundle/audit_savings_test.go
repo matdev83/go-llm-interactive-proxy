@@ -655,6 +655,18 @@ func TestEachOutboundPassMeasuresItsOwnInputIdenticallyInBothModes(t *testing.T)
 						savingsDirectionCounters("late_audit", auditLate),
 						savingsDirectionCounters("late_rewrite", mutatedLate)))
 			}
+
+			// Task 12.1's pass breakdown makes the SAME per-pass comparison readable
+			// without subtracting two snapshots: each pass wrote its own row, so the
+			// published series IS the per-pass attribution this test used to reconstruct
+			// by hand. Comparing the rendered series keeps the per-pass parity requirement
+			// 7.3 states - and it is the assertion that would catch a wiring change that
+			// stamped both passes with the same value.
+			if got, want := mustMarshal(t, audit.final.Outbound.ByPass),
+				mustMarshal(t, mutated.final.Outbound.ByPass); got != want {
+				t.Errorf("%s: the per-pass breakdown differs between the two modes: %s vs %s",
+					tc.name, got, want)
+			}
 		})
 	}
 }
@@ -709,10 +721,15 @@ func auditSavingsDeltaJSON(t *testing.T, before, after telemetry.Snapshot) strin
 // per-pass, since it measured its own input, and which is why the generation-wide
 // total of an audit deployment counts an occurrence once per outbound pass.
 //
-// The per-pass figures are pinned; the generation-wide audit total is deliberately NOT
-// asserted as either right or wrong, because whether that amplification should be
-// reported differently is an operator-facing decision about requirement 9.5 rather
-// than a fact this suite can establish. It is recorded in the task's findings.
+// Task 11.2 left the generation total UNASSERTED because no correct answer had been
+// decided: an operator reading an audit deployment could not recover the rewrite figure
+// without knowing how many passes re-measured, and the measured ratio was exactly 2.00.
+// Task 12.1 settled it by publishing the pass breakdown, so the total is asserted here
+// as the arithmetic the two modes actually produce, and the per-candidate figure an
+// operator needs is recovered from the early pass's own row. The full recovery rule is
+// stated in audit_savings_pass_test.go; what this test owns is that the production
+// ORDER still holds - the late pass contributes nothing after a rewrite and everything
+// after an audit - and that the two are now told apart rather than summed.
 func TestAReappliedOutboundPassMeasuresZeroOnlyAfterARewrite(t *testing.T) {
 	t.Parallel()
 	tc := auditSavingsCase{
@@ -741,6 +758,20 @@ func TestAReappliedOutboundPassMeasuresZeroOnlyAfterARewrite(t *testing.T) {
 		t.Errorf("generation saving = %d, want %d: one pass's worth on a candidate the second pass found idempotent",
 			got, want)
 	}
+	// The generation total is now ASSERTED rather than left open.
+	if got, want := mutated.final.Total.BytesSaved, perPass*int64(tc.occurrences); got != want {
+		t.Errorf("the rewrite generation total = %d, want %d", got, want)
+	}
+	// The late pass ran and found nothing, and says so with a report count rather than an
+	// absent row: "ran and found nothing" and "never ran" are different operational facts.
+	late, present := savingsPassRow(mutated.final, outbound.PassRequestPart.String())
+	if !present {
+		t.Error("the rewrite deployment published no late-pass row, so a pass that never ran is " +
+			"indistinguishable from one that found nothing")
+	} else if late.Reports != 1 || late.Eligible != 0 || late.BytesSaved != 0 {
+		t.Errorf("the rewrite late-pass row = %+v, want one report and no measurement", late)
+	}
+
 	audit := tc.run(t, rewrite.ModeAudit, true)
 	if first := auditSavingsDelta(zeroSnapshot(), audit.afterEarly); first.BytesSaved != perPass*int64(tc.occurrences) {
 		t.Errorf("the first audit pass reported a saving of %d, want %d",
@@ -750,6 +781,18 @@ func TestAReappliedOutboundPassMeasuresZeroOnlyAfterARewrite(t *testing.T) {
 		t.Errorf("the second audit pass reported a saving of %d, want %d: it measured the same unmutated input",
 			second.BytesSaved, perPass*int64(tc.occurrences))
 	}
+	// The audit total is the sum of two equal per-pass contributions, and it is stated as
+	// exactly that: the figure an operator recovers is the early row, which the
+	// sibling suite proves equals the rewrite deployment's total.
+	if got, want := audit.final.Total.BytesSaved, 2*perPass*int64(tc.occurrences); got != want {
+		t.Errorf("the audit generation total = %d, want %d: two passes each measured the same candidate",
+			got, want)
+	}
+	if got, want := audit.final.Outbound.Virtualized.BytesSaved, 2*perPass*int64(tc.occurrences); got != want {
+		t.Errorf("the audit outbound saving = %d, want %d", got, want)
+	}
+	// The mode's non-mutation contract is unchanged by the breakdown: audit still
+	// publishes nothing.
 	if !audit.bytesIdentical || !audit.backingShared {
 		t.Error("audit mode changed a canonical call on a shared candidate")
 	}
@@ -977,7 +1020,7 @@ func auditSavingsCounters(s telemetry.Snapshot) []savingsCounter {
 			savingsCounter{name: direction.prefix + ".skipped", value: direction.set.Skipped},
 		)
 	}
-	return append(counters,
+	counters = append(counters,
 		savingsCounter{name: "outbound.reports", value: s.Outbound.Reports},
 		savingsCounter{name: "outbound.transform_failed", value: s.Outbound.TransformFailed},
 		savingsCounter{name: "outbound.root_unusable", value: s.Outbound.RootUnusable},
@@ -988,6 +1031,29 @@ func auditSavingsCounters(s telemetry.Snapshot) []savingsCounter {
 		savingsCounter{name: "inbound.rejected", value: s.Inbound.Rejected},
 		savingsCounter{name: "inbound.mandatory_overflows", value: s.Inbound.MandatoryOverflows},
 	)
+	// The per-pass breakdown publishes integers too, so it belongs in the enumeration
+	// that proves nothing this feature publishes can read negative. A row's LABEL is not
+	// enumerated: it is a bounded closed-set member, checked where the series is read, and
+	// a hyphen inside one of those labels is not a negative.
+	return append(counters, savingsPassCounterFields(s)...)
+}
+
+// savingsPassCounterFields enumerates every integer the per-pass breakdown publishes, so
+// the "no published counter reads negative" sweep covers the new dimension too.
+func savingsPassCounterFields(s telemetry.Snapshot) []savingsCounter {
+	var out []savingsCounter
+	for _, row := range s.Outbound.ByPass {
+		prefix := "outbound.by_pass." + row.Pass
+		out = append(out,
+			savingsCounter{name: prefix + ".reports", value: row.Reports},
+			savingsCounter{name: prefix + ".eligible", value: row.Eligible},
+			savingsCounter{name: prefix + ".rewritten", value: row.Rewritten},
+			savingsCounter{name: prefix + ".bytes_before", value: row.BytesBefore},
+			savingsCounter{name: prefix + ".bytes_after", value: row.BytesAfter},
+			savingsCounter{name: prefix + ".bytes_saved", value: row.BytesSaved},
+		)
+	}
+	return out
 }
 
 // The hostile fixture for the content-freedom assertions. Every content-bearing input

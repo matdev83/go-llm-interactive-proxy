@@ -135,10 +135,14 @@ func attemptItemCall(arguments string) *lipapi.Call {
 			{Kind: lipapi.ItemKindMessage, ID: "item_user", Role: lipapi.RoleUser, Content: []lipapi.ContentPart{
 				{Kind: lipapi.ContentPartText, Text: "open " + attemptTarget},
 			}},
-			{Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
-				ToolCall: &lipapi.ToolCallItem{CallID: attemptCallID, Name: attemptTool, Arguments: json.RawMessage(arguments)}},
-			{Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
-				ToolResult: &lipapi.ToolResultItem{CallID: attemptCallID, Name: attemptTool, Output: "read " + attemptTarget}},
+			{
+				Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
+				ToolCall: &lipapi.ToolCallItem{CallID: attemptCallID, Name: attemptTool, Arguments: json.RawMessage(arguments)},
+			},
+			{
+				Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
+				ToolResult: &lipapi.ToolResultItem{CallID: attemptCallID, Name: attemptTool, Output: "read " + attemptTarget},
+			},
 		},
 	}
 }

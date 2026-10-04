@@ -64,12 +64,20 @@ func internalCall() *lipapi.Call {
 		Route: lipapi.RouteIntent{Selector: "attempt:m"},
 		Tools: []lipapi.ToolDef{{Name: "read_file", Parameters: []byte(`{"type":"object"}`)}},
 		Items: []lipapi.Item{
-			{Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
-				ToolCall: &lipapi.ToolCallItem{CallID: "call_7f3a", Name: "read_file",
-					Arguments: json.RawMessage(`{"file_path":"` + internalTarget + `"}`)}},
-			{Kind: lipapi.ItemKindToolCall, ID: "item_call_2", Status: lipapi.ItemStatusCompleted,
-				ToolCall: &lipapi.ToolCallItem{CallID: "call_7f3b", Name: "read_file",
-					Arguments: json.RawMessage(`{"file_path":"` + internalTarget + `.bak"}`)}},
+			{
+				Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
+				ToolCall: &lipapi.ToolCallItem{
+					CallID: "call_7f3a", Name: "read_file",
+					Arguments: json.RawMessage(`{"file_path":"` + internalTarget + `"}`),
+				},
+			},
+			{
+				Kind: lipapi.ItemKindToolCall, ID: "item_call_2", Status: lipapi.ItemStatusCompleted,
+				ToolCall: &lipapi.ToolCallItem{
+					CallID: "call_7f3b", Name: "read_file",
+					Arguments: json.RawMessage(`{"file_path":"` + internalTarget + `.bak"}`),
+				},
+			},
 		},
 	}
 }

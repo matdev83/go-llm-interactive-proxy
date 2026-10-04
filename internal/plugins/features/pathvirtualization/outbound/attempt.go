@@ -193,7 +193,7 @@ func (t *AttemptTransform) HandleAttempt(
 	// one logical turn reads the same pinned view.
 	mapping, rootReason := pathvirtualization.DeriveMapping(meta.Workspace.ProjectRoot)
 	if rootReason != pathvirtualization.SkipReasonNone {
-		t.record(Report{Outcome: OutcomeProjectRootUnusable, RootReason: rootReason})
+		t.record(Report{Pass: PassAttempt, Outcome: OutcomeProjectRootUnusable, RootReason: rootReason})
 		return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 	}
 
@@ -204,7 +204,7 @@ func (t *AttemptTransform) HandleAttempt(
 		// backend and no partially rewritten call can escape. The statistics the
 		// rewriter returned alongside its error describe work it did not publish, so
 		// they are deliberately dropped rather than reported.
-		t.record(Report{Outcome: OutcomeTransformationFailed})
+		t.record(Report{Pass: PassAttempt, Outcome: OutcomeTransformationFailed})
 		return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 	}
 	// The rewriter publishes the input pointer itself when nothing changed, which is
@@ -218,7 +218,7 @@ func (t *AttemptTransform) HandleAttempt(
 	if call != nil && published != nil && published != call {
 		*call = *published
 	}
-	t.record(Report{Outcome: OutcomeRewriterRan, Stats: stats})
+	t.record(Report{Pass: PassAttempt, Outcome: OutcomeRewriterRan, Stats: stats})
 	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 }
 

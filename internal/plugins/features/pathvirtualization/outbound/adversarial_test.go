@@ -243,9 +243,13 @@ func TestAdversarialOutboundInputs(t *testing.T) {
 				// bypasses it to reach the rewriter's own refusal path.
 				return &lipapi.Call{
 					Items: []lipapi.Item{
-						{Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
-							ToolCall: &lipapi.ToolCallItem{CallID: attemptCallID, Name: attemptTool,
-								Arguments: json.RawMessage(`{"file_path": "unterminated`)}},
+						{
+							Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
+							ToolCall: &lipapi.ToolCallItem{
+								CallID: attemptCallID, Name: attemptTool,
+								Arguments: json.RawMessage(`{"file_path": "unterminated`),
+							},
+						},
 					},
 				}
 			},

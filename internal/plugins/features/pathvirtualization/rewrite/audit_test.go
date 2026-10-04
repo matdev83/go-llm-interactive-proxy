@@ -512,12 +512,16 @@ func auditCorpus(t *testing.T) []auditCase {
 			profiles: pathProfiles(tool),
 			call: &lipapi.Call{Messages: []lipapi.Message{
 				{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
-					{Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: tool,
-						Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`)},
+					{
+						Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: tool,
+						Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`),
+					},
 				}},
 				{Role: lipapi.RoleUser, Parts: []lipapi.Part{
-					{Kind: lipapi.PartToolResult, ToolCallID: "call_7f3a", ToolName: tool,
-						Content: json.RawMessage(`{"entries":["` + fixtureTarget + `"]}`), Text: fixtureRoot + "/pkg/lipapi/call.go"},
+					{
+						Kind: lipapi.PartToolResult, ToolCallID: "call_7f3a", ToolName: tool,
+						Content: json.RawMessage(`{"entries":["` + fixtureTarget + `"]}`), Text: fixtureRoot + "/pkg/lipapi/call.go",
+					},
 				}},
 			}},
 		},
@@ -527,8 +531,10 @@ func auditCorpus(t *testing.T) []auditCase {
 			profiles: pathProfiles(tool),
 			call: &lipapi.Call{Messages: []lipapi.Message{
 				{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
-					{Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: tool,
-						Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`)},
+					{
+						Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: tool,
+						Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`),
+					},
 				}},
 				{Role: lipapi.RoleUser, Parts: []lipapi.Part{
 					{Kind: lipapi.PartToolResult, ToolCallID: "call_7f3a", ToolName: tool, Content: json.RawMessage(`null`)},
@@ -590,28 +596,50 @@ func auditCorpus(t *testing.T) []auditCase {
 		mode pathvirtualization.OpaqueResultMode
 		text string
 	}{
-		{name: "path_tokens_listing", mode: pathvirtualization.OpaqueResultModePathTokens,
-			text: fixtureTarget + "\n" + fixtureRoot + "/pkg/lipapi/items.go"},
-		{name: "path_tokens_comma_separated", mode: pathvirtualization.OpaqueResultModePathTokens,
-			text: fixtureTarget + ", " + fixtureRoot + "/pkg/lipapi/items.go"},
-		{name: "path_tokens_partially_accepted", mode: pathvirtualization.OpaqueResultModePathTokens,
-			text: fixtureTarget + "\ngrep -n hit " + fixtureTarget + "\n" + fixtureRoot + "/pkg/lipapi/items.go"},
-		{name: "path_tokens_mixed_alias_and_real_line", mode: pathvirtualization.OpaqueResultModePathTokens,
-			text: fixtureVPath + " " + fixtureTarget + "\n" + fixtureRoot + "/pkg/lipapi/items.go"},
-		{name: "path_tokens_already_virtualized", mode: pathvirtualization.OpaqueResultModePathTokens,
-			text: fixtureVPath + "\n" + fixtureAlias + "pkg/lipapi/items.go"},
-		{name: "path_tokens_indentation_only_and_blank", mode: pathvirtualization.OpaqueResultModePathTokens,
-			text: "\n   \n\t" + fixtureTarget + "\n,"},
-		{name: "path_lines_single_per_line", mode: pathvirtualization.OpaqueResultModePathLines,
-			text: fixtureTarget + "\n" + fixtureRoot + "/pkg/lipapi/items.go"},
-		{name: "path_lines_refuses_multi_token_line", mode: pathvirtualization.OpaqueResultModePathLines,
-			text: fixtureTarget + ", " + fixtureRoot + "/pkg/lipapi/items.go\n" + fixtureTarget},
-		{name: "declared_mode_with_nothing_to_recognize", mode: pathvirtualization.OpaqueResultModePathTokens,
-			text: "2 files changed\nno paths here at all\n"},
-		{name: "declared_mode_over_a_windows_listing", mode: pathvirtualization.OpaqueResultModePathTokens,
-			text: winFixtureRoot + `\pkg\lipapi\call.go` + "\n" + winFixtureRoot + `\pkg\lipapi\items.go`},
-		{name: "declared_mode_near_miss_tool_name", mode: pathvirtualization.OpaqueResultModePathTokens,
-			text: fixtureTarget},
+		{
+			name: "path_tokens_listing", mode: pathvirtualization.OpaqueResultModePathTokens,
+			text: fixtureTarget + "\n" + fixtureRoot + "/pkg/lipapi/items.go",
+		},
+		{
+			name: "path_tokens_comma_separated", mode: pathvirtualization.OpaqueResultModePathTokens,
+			text: fixtureTarget + ", " + fixtureRoot + "/pkg/lipapi/items.go",
+		},
+		{
+			name: "path_tokens_partially_accepted", mode: pathvirtualization.OpaqueResultModePathTokens,
+			text: fixtureTarget + "\ngrep -n hit " + fixtureTarget + "\n" + fixtureRoot + "/pkg/lipapi/items.go",
+		},
+		{
+			name: "path_tokens_mixed_alias_and_real_line", mode: pathvirtualization.OpaqueResultModePathTokens,
+			text: fixtureVPath + " " + fixtureTarget + "\n" + fixtureRoot + "/pkg/lipapi/items.go",
+		},
+		{
+			name: "path_tokens_already_virtualized", mode: pathvirtualization.OpaqueResultModePathTokens,
+			text: fixtureVPath + "\n" + fixtureAlias + "pkg/lipapi/items.go",
+		},
+		{
+			name: "path_tokens_indentation_only_and_blank", mode: pathvirtualization.OpaqueResultModePathTokens,
+			text: "\n   \n\t" + fixtureTarget + "\n,",
+		},
+		{
+			name: "path_lines_single_per_line", mode: pathvirtualization.OpaqueResultModePathLines,
+			text: fixtureTarget + "\n" + fixtureRoot + "/pkg/lipapi/items.go",
+		},
+		{
+			name: "path_lines_refuses_multi_token_line", mode: pathvirtualization.OpaqueResultModePathLines,
+			text: fixtureTarget + ", " + fixtureRoot + "/pkg/lipapi/items.go\n" + fixtureTarget,
+		},
+		{
+			name: "declared_mode_with_nothing_to_recognize", mode: pathvirtualization.OpaqueResultModePathTokens,
+			text: "2 files changed\nno paths here at all\n",
+		},
+		{
+			name: "declared_mode_over_a_windows_listing", mode: pathvirtualization.OpaqueResultModePathTokens,
+			text: winFixtureRoot + `\pkg\lipapi\call.go` + "\n" + winFixtureRoot + `\pkg\lipapi\items.go`,
+		},
+		{
+			name: "declared_mode_near_miss_tool_name", mode: pathvirtualization.OpaqueResultModePathTokens,
+			text: fixtureTarget,
+		},
 	} {
 		text := modeCase.text
 		profiles := []pathvirtualization.ToolProfile{{

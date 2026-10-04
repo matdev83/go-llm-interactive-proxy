@@ -191,8 +191,10 @@ func TestRewriteCallVirtualizesLegacyPartJSONToolCall(t *testing.T) {
 		{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("please read")}},
 		{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
 			{Kind: lipapi.PartText, Text: "working on it"},
-			{Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: "read_file",
-				Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `","content":"` + fixtureRoot + `"}`)},
+			{
+				Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: "read_file",
+				Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `","content":"` + fixtureRoot + `"}`),
+			},
 		}},
 		{Role: lipapi.RoleTool, Parts: []lipapi.Part{{Kind: lipapi.PartToolResult, ToolCallID: "call_7f3a", Text: "ok"}}},
 	}}
@@ -267,8 +269,10 @@ func TestRewriteCallDoesNotMutateInput(t *testing.T) {
 		Items: []lipapi.Item{itemToolCall(`{"file_path":"` + fixtureTarget + `"}`)},
 		Messages: []lipapi.Message{
 			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
-				{Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: "read_file",
-					Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`)},
+				{
+					Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: "read_file",
+					Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`),
+				},
 			}},
 		},
 	}
@@ -336,10 +340,15 @@ func TestRewriteCallStructuredToolResultJSONPart(t *testing.T) {
 		ResultJSONPointers: []string{"/entries"},
 	}}, nil)
 	call := &lipapi.Call{Items: []lipapi.Item{
-		{Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
-			ToolCall: &lipapi.ToolCallItem{CallID: "call_7f3a", Name: "list_dir",
-				Arguments: json.RawMessage(`{"path":"` + fixtureTarget + `"}`)}},
-		{Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
+		{
+			Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
+			ToolCall: &lipapi.ToolCallItem{
+				CallID: "call_7f3a", Name: "list_dir",
+				Arguments: json.RawMessage(`{"path":"` + fixtureTarget + `"}`),
+			},
+		},
+		{
+			Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
 			ToolResult: &lipapi.ToolResultItem{
 				CallID: "call_7f3a",
 				Name:   "list_dir",
@@ -347,7 +356,8 @@ func TestRewriteCallStructuredToolResultJSONPart(t *testing.T) {
 					{Kind: lipapi.ContentPartText, Text: "listed " + fixtureRoot},
 					{Kind: lipapi.ContentPartJSON, Text: `{"entries":["` + fixtureTarget + `"],"note":"` + fixtureRoot + `","count":1}`},
 				},
-			}},
+			},
+		},
 	}}
 	if err := call.Validate(); err != nil {
 		t.Fatalf("fixture call must be canonical: %v", err)
@@ -391,8 +401,10 @@ func TestRewriteCallLeavesOpaqueResultUnchanged(t *testing.T) {
 		opaque := "diff --git a" + fixtureTarget + " b" + fixtureTarget
 		call := &lipapi.Call{Items: []lipapi.Item{
 			itemToolCall(`{"file_path":"` + fixtureTarget + `"}`),
-			{Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
-				ToolResult: &lipapi.ToolResultItem{CallID: "call_7f3a", Name: "read_file", Output: opaque}},
+			{
+				Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
+				ToolResult: &lipapi.ToolResultItem{CallID: "call_7f3a", Name: "read_file", Output: opaque},
+			},
 		}}
 		if err := call.Validate(); err != nil {
 			t.Fatalf("fixture call must be canonical: %v", err)
@@ -416,8 +428,10 @@ func TestRewriteCallLeavesOpaqueResultUnchanged(t *testing.T) {
 		opaque := "package lipapi // " + fixtureRoot
 		call := &lipapi.Call{Messages: []lipapi.Message{
 			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
-				{Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: "read_file",
-					Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`)},
+				{
+					Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: "read_file",
+					Content: json.RawMessage(`{"file_path":"` + fixtureTarget + `"}`),
+				},
 			}},
 			{Role: lipapi.RoleUser, Parts: []lipapi.Part{
 				{Kind: lipapi.PartToolResult, ToolCallID: "call_7f3a", ToolName: "read_file", Text: opaque},
@@ -445,9 +459,13 @@ func TestRewriteCallLeavesOpaqueResultUnchanged(t *testing.T) {
 		opaque := "Total files: 1 under " + fixtureRoot
 		call := &lipapi.Call{Items: []lipapi.Item{
 			itemToolCall(`{"file_path":"` + fixtureTarget + `"}`),
-			{Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
-				ToolResult: &lipapi.ToolResultItem{CallID: "call_7f3a", Name: "read_file",
-					Parts: []lipapi.ContentPart{{Kind: lipapi.ContentPartToolResult, Text: opaque}}}},
+			{
+				Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
+				ToolResult: &lipapi.ToolResultItem{
+					CallID: "call_7f3a", Name: "read_file",
+					Parts: []lipapi.ContentPart{{Kind: lipapi.ContentPartToolResult, Text: opaque}},
+				},
+			},
 		}}
 		if err := call.Validate(); err != nil {
 			t.Fatalf("fixture call must be canonical: %v", err)
@@ -478,8 +496,10 @@ func TestRewriteCallRecordsDeclaredOpaqueModeSeparately(t *testing.T) {
 	build := func() *lipapi.Call {
 		return &lipapi.Call{Messages: []lipapi.Message{
 			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
-				{Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: "list_paths",
-					Content: json.RawMessage(`{"root":"` + fixtureTarget + `"}`)},
+				{
+					Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: "list_paths",
+					Content: json.RawMessage(`{"root":"` + fixtureTarget + `"}`),
+				},
 			}},
 			{Role: lipapi.RoleTool, Parts: []lipapi.Part{
 				{Kind: lipapi.PartToolResult, ToolCallID: "call_7f3a", ToolName: "list_paths", Text: opaque},
@@ -533,9 +553,11 @@ func TestRewriteCallLegacyPartToolResultStructuredContent(t *testing.T) {
 			{Kind: lipapi.PartJSON, ToolCallID: "call_7f3a", ToolName: "glob_files", Content: json.RawMessage(`{"pattern":"**/*.go"}`)},
 		}},
 		{Role: lipapi.RoleTool, Parts: []lipapi.Part{
-			{Kind: lipapi.PartToolResult, ToolCallID: "call_7f3a", ToolName: "glob_files",
+			{
+				Kind: lipapi.PartToolResult, ToolCallID: "call_7f3a", ToolName: "glob_files",
 				Text:    "matched " + fixtureRoot,
-				Content: json.RawMessage(`{"matches":["` + fixtureTarget + `"],"pattern":"**/*.go"}`)},
+				Content: json.RawMessage(`{"matches":["` + fixtureTarget + `"],"pattern":"**/*.go"}`),
+			},
 		}},
 	}}
 	if err := call.Validate(); err != nil {
@@ -972,9 +994,13 @@ func TestRewriteCallDoesNotInferThroughResultSurfaces(t *testing.T) {
 	}
 	call := &lipapi.Call{Items: []lipapi.Item{
 		itemToolCall(`{"file_path":"` + fixtureTarget + `"}`),
-		{Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
-			ToolResult: &lipapi.ToolResultItem{CallID: "call_7f3a", Name: "read_file",
-				Parts: []lipapi.ContentPart{{Kind: lipapi.ContentPartJSON, Text: `{"entries":["` + fixtureTarget + `"]}`}}}},
+		{
+			Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
+			ToolResult: &lipapi.ToolResultItem{
+				CallID: "call_7f3a", Name: "read_file",
+				Parts: []lipapi.ContentPart{{Kind: lipapi.ContentPartJSON, Text: `{"entries":["` + fixtureTarget + `"]}`}},
+			},
+		},
 	}}
 	if err := call.Validate(); err != nil {
 		t.Fatalf("fixture call must be canonical: %v", err)

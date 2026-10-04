@@ -881,7 +881,6 @@ func TestToolCallRepairComposesWithInvalidFinalizerRewriteSemantics(t *testing.T
 
 				args := mandatoryArgsJSON(8 * 1024)
 				released, err := streamMandatoryToolCall(t, a, "residual-"+shape.name, args)
-
 				if err != nil {
 					t.Fatalf("a post-declaration failure keeps the pre-existing error-free replay: %v", err)
 				}

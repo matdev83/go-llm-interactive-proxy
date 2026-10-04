@@ -228,12 +228,12 @@ func (h *RequestPartHook) HandleRequestParts(
 	// influence the result (requirement 5.7).
 	root, resolved := h.projectRoot(ctx)
 	if !resolved {
-		h.record(Report{Outcome: OutcomeWorkspaceUnresolved})
+		h.record(Report{Pass: PassRequestPart, Outcome: OutcomeWorkspaceUnresolved})
 		return nil
 	}
 	mapping, rootReason := pathvirtualization.DeriveMapping(root)
 	if rootReason != pathvirtualization.SkipReasonNone {
-		h.record(Report{Outcome: OutcomeProjectRootUnusable, RootReason: rootReason})
+		h.record(Report{Pass: PassRequestPart, Outcome: OutcomeProjectRootUnusable, RootReason: rootReason})
 		return nil
 	}
 
@@ -244,7 +244,7 @@ func (h *RequestPartHook) HandleRequestParts(
 		// no partially rewritten call can escape. The statistics the rewriter returned
 		// alongside its error describe work it did not publish, so they are
 		// deliberately dropped rather than reported.
-		h.record(Report{Outcome: OutcomeTransformationFailed})
+		h.record(Report{Pass: PassRequestPart, Outcome: OutcomeTransformationFailed})
 		return nil
 	}
 	// The rewriter publishes the input pointer itself when nothing changed, which is
@@ -260,7 +260,7 @@ func (h *RequestPartHook) HandleRequestParts(
 	if call != nil && published != nil && published != call {
 		*call = *published
 	}
-	h.record(Report{Outcome: OutcomeRewriterRan, Stats: stats})
+	h.record(Report{Pass: PassRequestPart, Outcome: OutcomeRewriterRan, Stats: stats})
 	return nil
 }
 

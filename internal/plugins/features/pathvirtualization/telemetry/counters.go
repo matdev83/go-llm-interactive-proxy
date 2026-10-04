@@ -61,7 +61,32 @@ const (
 	expansionOutcomeSlots = 3
 	skipReasonSlots       = 12
 	expansionReasonSlots  = 13
+	// passSlots is the size of the per-pass breakdown array: one slot per member of the
+	// outbound pass vocabulary - the unattributed value, the early pass, and the late pass -
+	// plus ONE bounded slot for a value outside it.
+	//
+	// The extra slot is what makes the fold distinguishable from the last genuine member.
+	// Sharing it would report a value this build does not define as though the late pass
+	// had produced it, and for this dimension that would be a wrong figure rather than a
+	// merely mislabelled one: the whole point of the breakdown is which pass measured what.
+	passSlots = 4
 )
+
+// passUnknownSlot is the bounded slot every pass outside the vocabulary folds into. It is
+// deliberately NOT the last member's slot; see [passSlots].
+const passUnknownSlot = passSlots - 1
+
+// labelPass is the bounded label of one per-pass breakdown slot.
+//
+// The fallback renders through the vocabulary's own total [outbound.Pass] String method
+// with a value outside the closed set, so "a pass this build does not define" is the
+// dimension's own answer rather than a second spelling of it.
+func labelPass(slot int) string {
+	if slot >= passSlots {
+		return outbound.Pass(outOfVocabularyOrdinal).String()
+	}
+	return outbound.Pass(slot).String()
+}
 
 // expansionReasonMembers is the finalizer's decision vocabulary in slot order, minus the
 // no-decision value.
@@ -263,6 +288,56 @@ func (c DirectionCounters) BytesGrown() int64 {
 	return c.BytesAfter - c.BytesBefore
 }
 
+// PassCounters is one outbound pass's own measurement: the occurrences it saw and the
+// byte accounting it performed.
+//
+// It exists to make the REALIZED per-candidate saving calculable, which is what
+// requirements.md 9.5 asks for and what [OutboundCounters.ByPass] is read for. The
+// arithmetic that makes it necessary is a fact about the shipped two-pass composition, not
+// about this package: both passes observe one candidate, a rewrite publishes the alias so
+// the late pass measures nothing, and an audit publishes nothing so the late pass measures
+// the same figure again. Summed, the two modes were indistinguishable from a feature that
+// saved twice as much, and an audit deployment's headline figure was exactly double a
+// rewrite deployment's for identical traffic.
+//
+// So an operator reads the row of the pass that measured each candidate FIRST. With the
+// shipped composition that is the early pass, and its row is byte-identical to what a
+// rewrite deployment publishes as its whole total - which is exactly the figure a measured
+// rollout is meant to predict. A later shaping pass that introduced a path the early pass
+// never saw would publish that new saving in its OWN row rather than folding it into a
+// headline total, so such a case is visible instead of averaged away.
+//
+// Every field is an integer or a bounded label, so the value is safe to serialize as a
+// metric attribute set (requirements.md 7.7).
+type PassCounters struct {
+	// Pass is the bounded label of the pass that produced this row, drawn from the closed
+	// pass vocabulary. It never contains path, alias, workspace-tag, suffix, tool-name,
+	// tool-call-ID, or hash bytes.
+	Pass string `json:"pass"`
+	// Reports is how many reports that pass contributed.
+	Reports int64 `json:"reports"`
+	// Eligible is the number of selected leaves that pass's mappings accepted.
+	Eligible int64 `json:"eligible"`
+	// Rewritten is the number of eligible leaves whose published value differed from the
+	// value the client sent. In rewrite mode this equals Eligible.
+	Rewritten int64 `json:"rewritten"`
+	// BytesBefore is the total DECODED length of the eligible values as the client spelled
+	// them.
+	BytesBefore int64 `json:"bytes_before"`
+	// BytesAfter is the total DECODED length of the values that pass published.
+	BytesAfter int64 `json:"bytes_after"`
+	// BytesSaved is the realized saving THIS PASS performed, clamped per observation at
+	// zero.
+	//
+	// It is never negative, for the same reason [DirectionCounters.BytesSaved] is not: a
+	// published saving that could read negative would be the single most misleading number
+	// this package could publish, and the projection does not depend on requirement 9.1 to
+	// prevent it. It is a per-observation clamped sum rather than the row's own clamped net
+	// so that the rows partition [TotalCounters.BytesSaved] exactly; see
+	// [OutboundCounters.ByPass].
+	BytesSaved int64 `json:"bytes_saved"`
+}
+
 // OutboundCounters is the content-free outcome of the OUTBOUND direction: the two passes
 // that replace real paths with aliases before a backend sees them.
 //
@@ -272,6 +347,19 @@ type OutboundCounters struct {
 	// Reports is how many outbound reports this generation recorded, across BOTH passes. It
 	// is the denominator every rate on this value is read against.
 	Reports int64 `json:"reports"`
+	// ByPass breaks the outbound direction down by the pass that measured it, so a
+	// generation-wide saving is decomposable into per-pass contributions and the
+	// per-candidate realized figure requirement 9.5 asks for is readable rather than
+	// inferred. It holds one entry per pass that reported, in vocabulary order, so the
+	// series is bounded by the closed pass vocabulary whatever traffic arrives. A pass
+	// that reported and measured nothing keeps its row, with a non-zero Reports count and
+	// zero figures: "the pass ran and found nothing" and "the pass did not run" are
+	// different facts, and only the second is an absent row.
+	//
+	// The rows PARTITION [OutboundCounters.Virtualized]: their eligible occurrences sum to
+	// it and their savings sum to [TotalCounters.BytesSaved]. The breakdown therefore
+	// restates the same measurement rather than adding a second accounting of it.
+	ByPass []PassCounters `json:"by_pass,omitempty"`
 	// Virtualized is the rewrite direction's own tally: eligible occurrences, published
 	// replacements, and the byte accounting requirements 7.6 and 9.5 ask for.
 	Virtualized DirectionCounters `json:"virtualized"`
@@ -403,6 +491,9 @@ type tallySet struct {
 // outboundCounters is the recorder's mutable outbound half. See [inboundCounters].
 type outboundCounters struct {
 	reports             int64
+	byPass              [passSlots]tallySet
+	passReports         [passSlots]int64
+	passSaved           [passSlots]int64
 	virtualized         tallySet
 	transformFailed     int64
 	rootUnusable        int64
@@ -481,6 +572,50 @@ func (a *outboundCounters) recordOutcome(outcome outbound.Outcome) {
 	a.outcomes[outcomeSlot(outcome)]++
 }
 
+// recordPass folds one report's statistics into the row of the pass that produced it.
+//
+// The row's SAVING is clamped per observation rather than derived from the row's own raw
+// totals, and that is a requirement of the projection rather than a presentation choice:
+// the rows must PARTITION the generation total, and [totalCounters.saved] is a per-observation
+// clamped sum. A row derived as one clamped net would swallow every per-observation clamp in
+// the row, so the row and the total would disagree for the same traffic - which is the
+// disagreement requirement 9.5's figure cannot afford. The raw totals are still
+// accumulated exactly as measured, so the row's measurement is untouched by the clamp.
+func (a *outboundCounters) recordPass(pass outbound.Pass, stats rewrite.Stats) {
+	slot := passSlot(pass)
+	a.passReports[slot]++
+	a.byPass[slot].record(stats)
+	a.passSaved[slot] += nonNegative(int64(stats.BytesBefore) - int64(stats.BytesAfter))
+}
+
+// passRows projects the per-pass tally onto the published series, dropping the passes that
+// never reported.
+//
+// A pass that reported but measured nothing KEEPS its row, with a non-zero
+// [PassCounters.Reports] and zero figures throughout. That is the shape that makes
+// requirement 9.5's figure recoverable: "the late pass ran and found nothing" and "the late
+// pass did not run" are different operational facts, and only the second one is an absent
+// row.
+func (a *outboundCounters) passRows() []PassCounters {
+	var rows []PassCounters
+	for slot := range passSlots {
+		if a.passReports[slot] == 0 {
+			continue
+		}
+		set := a.byPass[slot].snapshot()
+		rows = append(rows, PassCounters{
+			Pass:        labelPass(slot),
+			Reports:     a.passReports[slot],
+			Eligible:    set.Eligible,
+			Rewritten:   set.Rewritten,
+			BytesBefore: set.BytesBefore,
+			BytesAfter:  set.BytesAfter,
+			BytesSaved:  a.passSaved[slot],
+		})
+	}
+	return rows
+}
+
 // recordRootReason counts one bounded root refusal code.
 func (a *outboundCounters) recordRootReason(reason pathvirtualization.SkipReason) {
 	a.rootReasons[rootReasonSlot(reason)]++
@@ -517,6 +652,7 @@ func (t *totalCounters) recordOutboundBytes(stats rewrite.Stats) {
 func (a outboundCounters) snapshot() OutboundCounters {
 	return OutboundCounters{
 		Reports:             a.reports,
+		ByPass:              a.passRows(),
 		Virtualized:         a.virtualized.snapshot(),
 		TransformFailed:     a.transformFailed,
 		RootUnusable:        a.rootUnusable,
@@ -592,6 +728,20 @@ func outcomeSlot(outcome outbound.Outcome) int {
 		return outboundOutcomeSlots - 1
 	}
 	return int(outcome)
+}
+
+// passSlot maps a bounded pass onto its breakdown position, folding anything outside the
+// closed vocabulary into [passUnknownSlot].
+//
+// The fold is a bounded slot rather than a drop, for the reason the other vocabularies use
+// one: a pass is an exported numeric type a future build could extend, and losing the
+// measurement entirely would be worse than reporting it under a label that says the
+// recorder did not recognise the pass.
+func passSlot(pass outbound.Pass) int {
+	if int(pass) >= passSlots {
+		return passUnknownSlot
+	}
+	return int(pass)
 }
 
 // expansionOutcomeSlot maps a bounded expansion outcome onto its series position, folding

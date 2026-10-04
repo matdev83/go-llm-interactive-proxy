@@ -717,7 +717,11 @@ func hookRegRun(t *testing.T, scenario hookRegScenario) hookRegObservation {
 	for _, call := range raw.eligCalls {
 		stages = append(stages, call.stage)
 	}
-	view := ex.ConversationViewObserver.(*hookRegViewObserver).driftViewObserver
+	viewObserver, ok := ex.ConversationViewObserver.(*hookRegViewObserver)
+	if !ok {
+		panic("hookRegRun: the conversation-view observer is not the harness observer")
+	}
+	view := viewObserver.driftViewObserver
 	return hookRegObservation{
 		order:      raw.order,
 		turnDone:   raw.turnResolved,

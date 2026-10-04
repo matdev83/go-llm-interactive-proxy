@@ -116,6 +116,66 @@ func (o Outcome) String() string {
 // than restating the vocabulary a second time.
 func (o Outcome) MarshalText() ([]byte, error) { return []byte(o.String()), nil }
 
+// Pass names which outbound pass produced one report.
+//
+// It exists because a generation-wide saving cannot answer requirements.md 9.5 on its own.
+// In production both outbound passes observe ONE candidate, and the two modes differ on it:
+// a REWRITE publishes the alias, so the late pass finds no real-root prefix and measures
+// nothing, while an AUDIT publishes nothing, so the late pass finds exactly what the early
+// pass found and measures the same figure again. Measured over the shipped composition,
+// that made an audit deployment's total exactly twice the rewrite deployment's for identical
+// traffic with nothing in the projection saying so, so an operator could not recover the
+// per-candidate figure the measurement was about.
+//
+// A fixed pass index is the right dimension for it. The alternative - keying a measurement
+// by something about the candidate - would be a per-candidate de-duplication key whose
+// cardinality an input chooses, which requirements.md 7.7 forbids and which would make the
+// series unbounded for reasons that have nothing to do with this feature.
+//
+// The vocabulary is closed, and its zero value is deliberately NOT a shipped pass. A pass
+// that forgets to stamp its report then lands in the unattributed row, where the omission
+// is visible, rather than being silently attributed to one of the two real passes - which
+// for this dimension would be the difference between a recoverable figure and a wrong one.
+type Pass uint8
+
+const (
+	// PassUnattributed marks a report whose originating pass was not stated. It is the
+	// zero value and no shipped pass produces it; see the type comment.
+	PassUnattributed Pass = iota
+	// PassAttempt marks the EARLY outbound pass: the candidate attempt transform, which
+	// runs before candidate sizing, context eligibility, and token-accounting preflight
+	// (requirement 5.3).
+	PassAttempt
+	// PassRequestPart marks the LATE outbound pass: the request-part hook, which
+	// reapplies the same rewriter after the later shaping that sits between the candidate
+	// attempt stage and the backend-bound request (requirements.md 5.2, 5.4).
+	PassRequestPart
+	// passCount is the size of the closed pass vocabulary. It is the bound on any
+	// projection over this dimension: a value outside the vocabulary folds into one
+	// bounded slot rather than indexing out of range or vanishing.
+	passCount
+)
+
+// String returns the fixed, low-cardinality label of a pass. It is safe for content-free
+// observability dimensions: a pass identity is a stage name and nothing else, so it never
+// contains path, alias, workspace-tag, tool-name, or payload bytes.
+func (p Pass) String() string {
+	switch p {
+	case PassUnattributed:
+		return "unattributed"
+	case PassAttempt:
+		return "attempt"
+	case PassRequestPart:
+		return "request_part"
+	default:
+		return "unknown"
+	}
+}
+
+// MarshalText implements [encoding.TextMarshaler] so a pass reaches any exporter as the
+// bounded label rather than as its ordinal, for the reason [Outcome.MarshalText] gives.
+func (p Pass) MarshalText() ([]byte, error) { return []byte(p.String()), nil }
+
 // Report is the content-free record of one outbound pass.
 //
 // Every field is a closed code, a count, or a byte total, so the whole value is safe
@@ -125,6 +185,9 @@ func (o Outcome) MarshalText() ([]byte, error) { return []byte(o.String()), nil 
 // cannot accidentally surface an internal detail it never inspected
 // (requirements.md 7.7).
 type Report struct {
+	// Pass names which outbound pass produced this report. It is what makes a
+	// generation-wide saving decomposable into per-pass contributions; see [Pass].
+	Pass Pass
 	// Outcome is the pass-level verdict. It is always set.
 	Outcome Outcome
 	// RootReason is the mapper's own bounded refusal code, set only when Outcome is

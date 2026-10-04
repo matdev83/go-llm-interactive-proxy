@@ -405,6 +405,9 @@ func TestBuiltinToolProfilesArePinnedAndImmutable(t *testing.T) {
 	mutated[0].ArgPointers[0] = "/mutated"
 	mutated[0].ArgPointers = append(mutated[0].ArgPointers, "/appended")
 	mutated = append(mutated, pathvirtualization.ToolProfile{Names: []string{"injected"}})
+	if reflect.DeepEqual(mutated, want) {
+		t.Fatalf("the mutation fixture did not change the caller copy, so the check below proves nothing: %+v", mutated)
+	}
 	if again := pathvirtualization.BuiltinToolProfiles(); !reflect.DeepEqual(again, want) {
 		t.Fatalf("the built-in layer was mutated through a returned copy: %+v", again)
 	}
