@@ -92,6 +92,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/expansion"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/outbound"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/rewrite"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/telemetry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -637,6 +638,18 @@ func (r *expHookReports) expansion() []expansion.Report {
 	return append([]expansion.Report(nil), r.expansin...)
 }
 
+// total is how many bounded reports each of the three real contributions emitted.
+//
+// It answers the one question the one-report accessors above cannot: whether a run
+// recorded NOTHING at all, which is what a composition that contributes no participant
+// looks like from the outside. Every field is a count, so a failure message built from
+// them carries no payload byte.
+func (r *expHookReports) total() (attempt, part, expansion int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.attempt), len(r.part), len(r.expansin)
+}
+
 // expBackend is the final provider-translation boundary. It records the call it was
 // handed through the shared Task 1.3 recorder and returns the fixture's fixed
 // canonical stream, which is the only source of the model-emitted tool call.
@@ -898,15 +911,57 @@ type expScenario struct {
 	// because requirement 6.5's property is about what happens when the AUTHORITATIVE
 	// root changes, and only a harness that can pin an arbitrary root can stage that.
 	workspaceRoot string
+
+	// pinnedRoot, when non-nil, is the authoritative root the runtime pins for the
+	// turn, INCLUDING an empty one. It exists because workspaceRoot's empty value
+	// already means "the shared fixture root", so requirement 1.8's empty-root refusal
+	// cannot be expressed through it. A scenario that sets this field has opted into a
+	// root the lexical core may refuse, which is what allowRefusedRoot then permits.
+	pinnedRoot *string
+
+	// allowRefusedRoot permits the pinned project root to be one the lexical core
+	// refuses. Without it expRun still fails the run loudly, because every scenario
+	// above is written on a root that derives an active mapping and a silently
+	// inactive one would turn those fixtures into vacuous passes.
+	allowRefusedRoot bool
+
+	// wiring selects which real feature contributions this run installs on the three
+	// planes this feature owns. The zero value keeps this file's own fixture exactly:
+	// both real outbound passes plus the expansion pass. It exists so a scenario can
+	// stage the composition question - "what does a deployment contribute when the
+	// operator's switch is where it is?" - without a second end-to-end harness.
+	wiring expWiring
+
+	// bundleYAML is the operator subtree the shipped composition decodes when wiring
+	// is expWiringShippedBundle. Empty selects the minimal enabled rewrite subtree.
+	bundleYAML string
+
+	// modelEchoesRealPath makes the backend emit a REAL path instead of a reserved
+	// alias in its model-emitted argument document. It exists for the fail-open rows,
+	// where virtualization never became model-visible, so the only echo a model can
+	// produce is the real path it was shown. It changes the model's stream and nothing
+	// else; the cuts, the event shape, and the fixture guards are unchanged.
+	modelEchoesRealPath bool
 }
 
 // effectiveRoot is the root this scenario's runtime pins for the turn.
 func (tc expScenario) effectiveRoot() string {
+	if tc.pinnedRoot != nil {
+		return *tc.pinnedRoot
+	}
 	if tc.workspaceRoot == "" {
 		return twoPassRealRoot
 	}
 	return tc.workspaceRoot
 }
+
+// pinsProjectRoot reports whether this scenario's run pins a NON-EMPTY authoritative
+// project root.
+//
+// It exists so the observer-view guard in expRun can tell a scenario that failed to deliver
+// the workspace view from one that deliberately pinned an empty one. Those are different
+// facts, and requirement 1.8's empty-root refusal is the second of them.
+func (tc expScenario) pinsProjectRoot() bool { return tc.effectiveRoot() != "" }
 
 // ingressCall builds the client request, applying the default when the scenario did
 // not override it.
@@ -923,7 +978,18 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	t.Helper()
 
 	realRoot := scenario.effectiveRoot()
-	alias := expAliasOf(t, realRoot)
+	alias, aliasActive := expMappingAlias(realRoot)
+	if !aliasActive && !scenario.allowRefusedRoot {
+		t.Fatalf("%s: fixture: the pinned project root must derive an active mapping unless the scenario explicitly stages a refused root", scenario.label)
+	}
+	// A refused root publishes no alias at all, and an empty needle matches every
+	// string, so the alias-shaped oracle is handed a needle no path can contain rather
+	// than an empty one. The published call is still measured, so a scenario that
+	// expected an alias and got none fails on its own counts.
+	measuredAlias := alias
+	if !aliasActive {
+		measuredAlias = expUnmatchableNeedle
+	}
 	fixture := expFixture{root: scenario.aliasRoot, suffix: expModelSuffix}
 
 	stage := &expStage{}
@@ -937,9 +1003,12 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	}
 
 	var backendEvents []lipapi.Event
-	if scenario.assembleBody > 0 {
+	switch {
+	case scenario.assembleBody > 0:
 		backendEvents = expOversizedBackendEvents(t, fixture, scenario.assembleBody)
-	} else {
+	case scenario.modelEchoesRealPath:
+		backendEvents = expRealPathBackendEvents(t, fixture)
+	default:
 		backendEvents = expBackendEvents(t, fixture)
 	}
 
@@ -950,20 +1019,10 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	// is what makes one run a proof that the two request planes and the response plane
 	// agree on one workspace rather than on two independently spelled roots.
 	authority := twoPassWorkspaceResolver{root: realRoot}
-	resolver := hookRegResolver(t)
-	early := outbound.NewAttemptTransform(
-		rewrite.ModeRewrite,
-		resolver,
-		outbound.WithReporter(reports.onAttempt),
-	)
-	late := outbound.NewRequestPartHook(
-		rewrite.ModeRewrite,
-		resolver,
-		outbound.WithHookReporter(reports.onPart),
-	)
+	contribs := expScenarioContributions(t, scenario, stage, reports, marker)
 
 	bus := corehooks.New(corehooks.Config{
-		RequestPartHooks: []sdkhooks.RequestPartHook{&expPartMarker{stage: stage, real: late}},
+		RequestPartHooks: contribs.partHooks(),
 		ToolReactors:     []sdkhooks.ToolReactor{reactor},
 	})
 	ex, _ := interleavedSecureExecutor(t, map[string]execbackend.Backend{
@@ -972,23 +1031,12 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	ex.Processor = nil
 	ex.Bus = bus
 
-	finalizers := make([]toolcall.Finalizer, 0, 1+len(scenario.extraFinalizers))
-	if scenario.expansionDecides {
-		finalizers = append(finalizers, marker)
-	} else {
-		// The control still contributes one ordinary finalizer so the assembler is
-		// constructed exactly as it is in the guarded run. It decides nothing and
-		// publishes nothing, so the control is exactly "expansion contributed
-		// nothing" rather than "a whole plane was missing".
-		finalizers = append(finalizers, &expInertFinalizer{})
-	}
-	finalizers = append(finalizers, scenario.extraFinalizers...)
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: authority,
 		FeaturePlanes: testkit.FreezeTestBundle(testkit.TestFeatureBundle{
-			AttemptTransforms:  []request.AttemptTransform{&expAttemptMarker{stage: stage, real: early}},
+			AttemptTransforms:  contribs.attemptTransforms(),
 			ToolCallPolicies:   []toolpolicy.Policy{policy},
-			ToolCallFinalizers: finalizers,
+			ToolCallFinalizers: contribs.finalizers,
 		}),
 	})
 
@@ -1009,10 +1057,17 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	}
 	result.released, result.lifecycle = expReleasedArgs(events)
 	raw := rec.observation(true, 0)
-	result.openMeasure = expMeasureDocuments(raw.backendOpenCall, alias, realRoot)
+	result.backendOpenCall = raw.backendOpenCall
+	result.openMeasure = expMeasureDocuments(raw.backendOpenCall, measuredAlias, realRoot)
 	result.openSelected = expFirstSelectedPath(raw.backendOpenCall)
 	result.realRoot = realRoot
 	result.alias = alias
+	result.aliasActive = aliasActive
+	result.wiring = scenario.wiring
+	result.observations = contribs.observations
+	result.contributedAttempt = contribs.attempt != nil
+	result.contributedPart = contribs.part != nil
+	result.contributedFinalizer = len(contribs.finalizers) > 0
 	result.previousResponseID = raw.backendOpenCall.PreviousResponseID
 	result.expCalls, result.expSeen, result.expResult = marker.observation()
 	result.expReports = reports.expansion()
@@ -1025,7 +1080,13 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	// Scaffolding guards. Every assertion below reads one of them, so they run first
 	// and any later failure is attributable to the property under test rather than to
 	// a fixture that never reached the observers.
-	if attemptAt == 0 || partAt == 0 {
+	//
+	// The two-outbound-stage guard is scoped to a run that actually installs them. A
+	// run staged as "this feature contributes nothing" - because it is absent, or
+	// because the shipped composition decoded a disabled subtree - installs no
+	// participant to reach, and asserting otherwise would assert the opposite of the
+	// property. Every run above installs both and is guarded exactly as before.
+	if (contribs.attempt != nil || contribs.part != nil) && (attemptAt == 0 || partAt == 0) {
 		t.Fatalf("%s: fixture: both real outbound stages must be reached: %s", scenario.label, result.stages)
 	}
 	// The backend-bound request must carry EXACTLY the one path-bearing history tool
@@ -1042,7 +1103,12 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 			t.Fatalf("%s: fixture: both step-12 observer planes must run: policy_calls=%d reactor_calls=%d",
 				scenario.label, result.policyCalls, result.reactorCalls)
 		}
-		if !result.policyRoot {
+		// The observer must be shown the view the runtime actually pinned, which is
+		// only checkable when the scenario pinned a project root at all. A scenario
+		// that deliberately pins an EMPTY root has no root to show, and requirement
+		// 1.8's empty-root refusal is precisely that case - the workspace view is
+		// attached and carries nothing, which is a different fact from a missing one.
+		if scenario.pinsProjectRoot() && !result.policyRoot {
 			t.Fatalf("%s: fixture: the tool policy plane must receive the authoritative workspace view, otherwise the run cannot isolate expansion",
 				scenario.label)
 		}
@@ -1165,6 +1231,12 @@ type expRunResult struct {
 	lifecycle int
 
 	openMeasure expMeasure
+	// backendOpenCall is the whole canonical call the backend was handed, captured
+	// through the shared harness recorder. It is held so a scenario can compare two
+	// runs' backend-bound surfaces BYTE for byte, which is the only way to state that a
+	// composition decision changed nothing observable. Like realRoot and alias it is
+	// never formatted into a failure message.
+	backendOpenCall lipapi.Call
 	// openSelected is the FIRST selected path value the backend-bound request carried.
 	// It is held so a scenario can compare the alias the provider was actually handed
 	// across two turns byte for byte, which counts alone cannot do. Like realRoot and
@@ -1177,6 +1249,25 @@ type expRunResult struct {
 	// (requirements.md 7.7).
 	realRoot string
 	alias    string
+	// aliasActive reports whether the pinned root derived an active mapping at all. A
+	// refused root leaves it false, which is what lets a scenario distinguish "the pass
+	// preserved the real path because there was nothing to publish" from "the pass
+	// published an alias".
+	aliasActive bool
+	// wiring is the composition shape this run installed, so a scenario can assert
+	// that the run it compared against really contributed what it claimed to.
+	wiring expWiring
+	// contributedAttempt, contributedPart, and contributedFinalizer report whether the
+	// composition this run installed put a participant on each of the three planes this
+	// feature owns. They are what makes "a disabled generation contributes nothing" a
+	// measurement of the wiring rather than an assumption about it.
+	contributedAttempt   bool
+	contributedPart      bool
+	contributedFinalizer bool
+	// observations is the feature's own content-free recorder for a run installed
+	// through the shipped composition seam, and nil otherwise. It is the handle
+	// requirements.md 7.6's bounded counters are read through.
+	observations *telemetry.Telemetry
 	// previousResponseID is the continuation parent the backend-bound request carried,
 	// captured so a continuation scenario can assert the parent reached the provider
 	// unchanged.

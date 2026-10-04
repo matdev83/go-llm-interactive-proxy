@@ -50,6 +50,13 @@ func (r *reports) only(t *testing.T) Report {
 	return r.seen[0]
 }
 
+// all returns every report the sink collected, for a caller that drives one pass over
+// several canonical surfaces and therefore needs to read the whole sequence rather than
+// insist on a single record.
+//
+// The slice is a copy, so a caller cannot reach the sink's own storage.
+func (r *reports) all() []Report { return append([]Report(nil), r.seen...) }
+
 // internalCall builds one item-authoritative outgoing candidate carrying two
 // path-bearing historical tool calls.
 func internalCall() *lipapi.Call {
