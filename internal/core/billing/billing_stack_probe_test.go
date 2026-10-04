@@ -5,6 +5,7 @@ package billing_test
 import (
 	"bytes"
 	"context"
+	"math"
 	"os"
 	"os/exec"
 	"runtime/debug"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 const (
@@ -176,4 +179,130 @@ func TestBillingStackProbeControls(t *testing.T) {
 		t.Fatalf("recursive child unexpectedly completed: %s", output)
 	}
 	drAssertStackOverflow(t, output)
+}
+
+func TestDRStackResultParserRejectsMalformedRecords(t *testing.T) {
+	t.Parallel()
+	const valid = "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"
+	tests := []struct {
+		name   string
+		output string
+		valid  bool
+	}{
+		{name: "valid", output: valid, valid: true},
+		{name: "missing depth", output: "DR_STACK_RESULT stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "missing stack growth", output: "DR_STACK_RESULT depth=8192 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "missing allocations", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "missing bytes", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "missing fingerprint", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 wall_ms=3"},
+		{name: "missing wall time", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef"},
+		{name: "negative integer", output: "DR_STACK_RESULT depth=8192 stack_growth=-1 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "negative allocation", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=-1 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "nan allocation", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=NaN bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "positive infinity bytes", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=+Inf fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "negative infinity bytes", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=-Inf fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "unknown field", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3 extra=1"},
+		{name: "duplicate field", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+		{name: "duplicate record", output: valid + "\n" + valid},
+		{name: "truncated diagnostic", output: valid + "\nDR_STACK_DIAGNOSTIC output_truncated"},
+		{name: "unknown record", output: valid + "\nDR_STACK_OTHER depth=8192"},
+		{name: "negative wall time", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=-1"},
+		{name: "invalid wall time", output: "DR_STACK_RESULT depth=8192 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=NaN"},
+		{name: "mismatched depth", output: "DR_STACK_RESULT depth=800 stack_growth=65536 allocs_per_node=1.25 bytes_per_node=2.5 fingerprint=0123456789abcdef wall_ms=3"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := drParseStackResult(tc.output, 8192)
+			if tc.valid {
+				if err != nil {
+					t.Fatalf("valid record rejected: %v", err)
+				}
+				if result.depth != 8192 {
+					t.Fatalf("valid record depth=%d, want 8192", result.depth)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("malformed record accepted: %+v", result)
+			}
+		})
+	}
+}
+
+func TestDRMutantResultParserRejectsMalformedRecords(t *testing.T) {
+	t.Parallel()
+	const valid = "DR_STACK_MUTANT frame=small depth=8192 stack_growth=524288"
+	tests := []struct {
+		name   string
+		output string
+		valid  bool
+	}{
+		{name: "valid", output: valid, valid: true},
+		{name: "missing frame", output: "DR_STACK_MUTANT depth=8192 stack_growth=524288"},
+		{name: "missing depth", output: "DR_STACK_MUTANT frame=small stack_growth=524288"},
+		{name: "missing stack growth", output: "DR_STACK_MUTANT frame=small depth=8192"},
+		{name: "negative growth", output: "DR_STACK_MUTANT frame=small depth=8192 stack_growth=-1"},
+		{name: "unknown field", output: "DR_STACK_MUTANT frame=small depth=8192 stack_growth=524288 extra=1"},
+		{name: "duplicate field", output: "DR_STACK_MUTANT frame=small depth=8192 depth=8192 stack_growth=524288"},
+		{name: "duplicate record", output: valid + "\n" + valid},
+		{name: "truncated diagnostic", output: valid + "\nDR_STACK_DIAGNOSTIC output_truncated"},
+		{name: "unknown record", output: valid + "\nDR_STACK_OTHER frame=small"},
+		{name: "mismatched frame", output: "DR_STACK_MUTANT frame=large depth=8192 stack_growth=524288"},
+		{name: "mismatched depth", output: "DR_STACK_MUTANT frame=small depth=3200 stack_growth=524288"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			growth, err := drParseMutantStackResult(tc.output, drStackChildMutantSmall, 8192)
+			growthValue := growth.stackGrowth
+			if tc.valid {
+				if err != nil {
+					t.Fatalf("valid record rejected: %v", err)
+				}
+				if growthValue != 524288 {
+					t.Fatalf("valid record growth=%d, want 524288", growthValue)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("malformed record accepted: growth=%d", growthValue)
+			}
+		})
+	}
+}
+
+func TestDRMeasurementControlsDisableAndRestoreMemoryLimit(t *testing.T) {
+	// This test deliberately leaves the process-wide limit in a constrained
+	// state while the helper sets up its measurement. The callback runs in the
+	// measured goroutine, so it proves the limit is disabled at the exact point
+	// where StackInuse and NumGC are sampled.
+	previousLimit := debug.SetMemoryLimit(64 << 10)
+	defer debug.SetMemoryLimit(previousLimit)
+	var observedLimit int64
+	drMeasureRateWithRuntimeControls(t, func() (economics.Valuation, error) {
+		return economics.Valuation{}, nil
+	}, func() {
+		observedLimit = debug.SetMemoryLimit(-1)
+	})
+	if observedLimit != math.MaxInt64 {
+		t.Fatalf("measurement memory limit=%d, want disabled limit %d", observedLimit, int64(math.MaxInt64))
+	}
+	if restored := debug.SetMemoryLimit(-1); restored != 64<<10 {
+		t.Fatalf("memory limit after measurement=%d, want prior limit %d", restored, int64(64<<10))
+	}
+}
+
+func TestDRMeasurementRejectsExplicitGC(t *testing.T) {
+	if mode := drStackChildMode(); mode != "" {
+		drRunStackChild(t, mode)
+		return
+	}
+	output, err := drRunStackChildProcess(t, drStackChildExplicitGC, "^TestDRMeasurementRejectsExplicitGC$")
+	if err == nil {
+		t.Fatalf("explicit-GC measurement child unexpectedly passed: %s", output)
+	}
+	if !strings.Contains(output, "DR_STACK_DIAGNOSTIC gc_during_measurement") {
+		t.Fatalf("explicit-GC measurement child failed without the bounded diagnostic: %s", output)
+	}
 }

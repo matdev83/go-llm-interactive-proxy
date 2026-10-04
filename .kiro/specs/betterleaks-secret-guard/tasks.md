@@ -226,7 +226,7 @@
     - Confirm no implementation task changed routing/failover/B2BUA/billing/protocol semantics outside the specified secret-guard boundary.
     - _Requirements: 3.3, 3.4, 3.6, 6.7, 9.3, 9.5, 10.1, 10.2, 10.7, 10.8_
     - _Boundary: whole-feature certification_
-    - _Depends: 7.1, 7.2, 8.3, 8.4, 8.5, 8.6, 9.2_
+    - _Depends: 7.1, 7.2, 8.3, 8.4, 8.5, 8.6, 9.2, 9.3, 9.4_
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
   - [x] 9.2 Repair upstream billing boundedness measurement
@@ -236,6 +236,21 @@
     - _Boundary: billing boundedness integration test and directly related test helpers; no downstream detector workaround_
     - _Depends: 8.6_
     - _Validation: strict TDD; independent negative controls; focused maximum-depth integration probe; scoped lint/vet and affected regression checks_
+
+  - [x] 9.3 Preserve billing certification population after harness repair
+    - Move the four new harness regression tests into the existing integration-tagged stack-probe helper file. Keep their behavior and coverage, the existing certification population assertion, and the canonical sweep selector unchanged.
+    - _Requirements: 10.1; upstream billing certification-tier contract_
+    - _Boundary: billing stress integration test and stack-probe test helper file only_
+    - _Depends: 9.2_
+    - _Validation: failing billing-schema QA preflight before relocation; passing preflight and all relocated integration regressions afterward; scoped vet and diff checks_
+
+  - [ ] 9.4 Isolate billing-spool worker semantics from disk synchronization
+    - Use the existing injected database seam to give the two failing worker-delivery tests private in-memory SQLite fixtures, consistent with the testing steering. Preserve their one-second/five-second observation limits, assertions, repeated Start calls, claim configuration, and caller-owned database cleanup.
+    - Keep file-backed durability/restart tests and production spool behavior unchanged. Diagnostic passes do not establish the cause of the original full-suite failures; final certification must establish the resulting suite status.
+    - _Requirements: 10.1; upstream billing-spool worker/certification contract_
+    - _Boundary: the two worker-delivery tests and a directly related test fixture helper in internal/infra/billingspool/spool_test.go_
+    - _Depends: 9.3_
+    - _Validation: equivalent pre-change fixture check; focused worker and complete spool tests; unchanged file-backed durability tests; scoped vet and Linux race; comprehensive certification in 9.1_
 
 ## Implementation Notes
 
