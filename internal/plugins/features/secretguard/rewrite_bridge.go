@@ -302,14 +302,9 @@ func collectBetterLeaksJSONTokens(value jsonOccurrenceValue, out *[]betterLeaksJ
 }
 
 func betterLeaksRewriteOptions(exact sdk.Matcher) engine.MatcherOptions {
-	// BetterLeaks discoveries retain the existing public-prefix convention; the
-	// mask byte is copied from the exact matcher when that adapter exposes it.
 	opts := engine.MatcherOptions{PreserveKnownPrefixes: true}
 	if provider, ok := exact.(interface{ RedactionOptions() engine.MatcherOptions }); ok {
-		configured := provider.RedactionOptions()
-		if configured.MaskByte != 0 {
-			opts.MaskByte = configured.MaskByte
-		}
+		opts = provider.RedactionOptions()
 	}
 	return opts
 }

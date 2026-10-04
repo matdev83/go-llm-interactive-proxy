@@ -151,6 +151,10 @@ func scanCall(ctx context.Context, call *lipapi.Call, m sdk.Matcher, mode scanMo
 	if m == nil {
 		m = engine.AsMatcher(engine.NewMatcher(nil))
 	}
+	if mode == modeRedact && generation != nil {
+		positional, _ := m.(sdk.PositionalMatcher)
+		m = generationRedactionMatcher{Matcher: m, positional: positional, options: generation.redaction}
+	}
 
 	budget := newScanBudget(maxBytes)
 	fragments := walkLogicalFragments(call, budget)

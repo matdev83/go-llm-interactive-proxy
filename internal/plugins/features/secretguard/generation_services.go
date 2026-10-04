@@ -11,6 +11,7 @@ import (
 // capability. The concrete BetterLeaks scanner remains private to this package;
 // generic runtime only carries this value opaquely through the frozen plane.
 type GenerationServices struct {
+	redaction          engine.MatcherOptions
 	source             engine.Source
 	betterLeaks        *betterLeaksScanner
 	localAutoDiscovery bool
@@ -32,14 +33,21 @@ type DetectorPosture struct {
 // BuildGenerationServices creates the generation-owned exact source and, when
 // enabled, one precompiled BetterLeaks scanner. The scanner is never rebuilt
 // for a request or fragment and the returned facts are safe to project.
-func BuildGenerationServices(policy DetectorPolicy, source engine.Source) (*GenerationServices, error) {
+func BuildGenerationServices(policy DetectorPolicy, source engine.Source, redaction ...engine.MatcherOptions) (*GenerationServices, error) {
 	if source == nil {
 		source = engine.NewDisabledSource()
 	}
 	services := &GenerationServices{
+		redaction:          engine.MatcherOptions{MaskByte: '*', PreserveKnownPrefixes: true},
 		source:             source,
 		localAutoDiscovery: policy.LocalAutoDiscoveryEnabled,
 		betterLeaksEnabled: policy.BetterLeaks.Enabled,
+	}
+	if len(redaction) > 0 {
+		services.redaction = redaction[0]
+		if services.redaction.MaskByte == 0 {
+			services.redaction.MaskByte = '*'
+		}
 	}
 	if !policy.BetterLeaks.Enabled {
 		return services, nil

@@ -268,7 +268,7 @@
   - _Boundary: private BetterLeaks adapter, location helpers, and directly related feature tests/benchmarks_
   - _Validation: strict TDD; bounded allocation regression; targeted benchmarks; full secretguard tests and vet_
 
-- [ ] 10.2 Apply immutable generation redaction policy in every access mode
+- [x] 10.2 Apply immutable generation redaction policy in every access mode
   - Make resolved mask and prefix policy authoritative for exact, BetterLeaks, and hybrid redaction in single-user and multi-user modes; preserve explicit false and custom masks.
   - _Requirements: 6.3, 6.4, 7.10, 8.1, 10.2_
   - _Boundary: generation services, host composition, rewrite policy plumbing, request-credential redaction, and directly related tests_

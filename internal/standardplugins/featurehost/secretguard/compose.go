@@ -123,7 +123,7 @@ func Compose(in Input) (*Output, error) {
 			BetterLeaks:               runtimeCfg.BetterLeaks,
 		}
 	}
-	services, err := featsecretguard.BuildGenerationServices(detectorPolicy, src)
+	services, err := featsecretguard.BuildGenerationServices(detectorPolicy, src, singleUser.Matcher)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: betterleaks generation scanner: %w", err)
 	}
