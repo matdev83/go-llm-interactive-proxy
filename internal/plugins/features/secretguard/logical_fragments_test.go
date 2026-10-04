@@ -54,7 +54,7 @@ func TestWalkLogicalFragments_PreservesCanonicalContextAndLocations(t *testing.T
 		if got := fragment.Kind; got != want[i].kind {
 			t.Errorf("fragment %d kind: got %v want %v", i, got, want[i].kind)
 		}
-		if got := string(fragment.Raw); got != want[i].raw {
+		if got := fragment.textValue(); got != want[i].raw {
 			t.Errorf("fragment %d raw: got %q want %q", i, got, want[i].raw)
 		}
 	}
@@ -66,6 +66,29 @@ func TestWalkLogicalFragments_PreservesCanonicalContextAndLocations(t *testing.T
 	}
 	if reflect.DeepEqual(fragments[2].Raw, fragments[3].Raw) {
 		t.Fatal("text and JSON tool-result fields must remain distinct fragments")
+	}
+}
+
+func TestWalkLogicalFragments_TextUsesImmutableStringRepresentation(t *testing.T) {
+	const content = "immutable text fragment"
+	call := &lipapi.Call{Messages: []lipapi.Message{{
+		Role:  lipapi.RoleUser,
+		Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: content}},
+	}}}
+
+	fragments := walkLogicalFragments(call, newScanBudget(len(content)))
+	if len(fragments) != 1 {
+		t.Fatalf("fragments=%d, want 1", len(fragments))
+	}
+	fragment := fragments[0]
+	if fragment.Kind != FragmentText {
+		t.Fatalf("kind=%v, want text", fragment.Kind)
+	}
+	if fragment.Text != content {
+		t.Fatalf("text=%q, want %q", fragment.Text, content)
+	}
+	if fragment.Raw != nil {
+		t.Fatalf("text fragment retained a byte representation of length %d", len(fragment.Raw))
 	}
 }
 
@@ -115,8 +138,8 @@ func TestWalkLogicalFragments_ItemAuthorityCoversMessagesAndToolPayloads(t *test
 		t.Fatalf("item fragment count: got %d want %d", len(fragments), len(want))
 	}
 	for i, fragment := range fragments {
-		if fragment.Location != want[i].location || fragment.Kind != want[i].kind || string(fragment.Raw) != want[i].raw {
-			t.Fatalf("item fragment %d mismatch: got location=%q kind=%v raw_len=%d", i, fragment.Location, fragment.Kind, len(fragment.Raw))
+		if fragment.Location != want[i].location || fragment.Kind != want[i].kind || fragment.textValue() != want[i].raw {
+			t.Fatalf("item fragment %d mismatch: got location=%q kind=%v raw_len=%d", i, fragment.Location, fragment.Kind, len(fragment.rawBytes()))
 		}
 	}
 
@@ -149,7 +172,7 @@ func TestWalkLogicalFragments_AdmitsWholeFragmentsAgainstSharedBudget(t *testing
 	if len(fragments) != 1 {
 		t.Fatalf("admitted fragments: got %d want 1: %#v", len(fragments), fragments)
 	}
-	if got := string(fragments[0].Raw); got != first {
+	if got := fragments[0].textValue(); got != first {
 		t.Fatalf("first fragment: got %q want %q", got, first)
 	}
 	if !budget.limitHit {

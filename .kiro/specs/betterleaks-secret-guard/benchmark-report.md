@@ -197,6 +197,25 @@ The exact-only 2 MiB text no-hit baseline was **2,816 B/op, 9 allocs/op**. Candi
 
 This evidence is a maintainer/design performance-review trigger. Bounded root-cause hypotheses are request-owned logical-fragment copies in `walkLogicalFragments`, JSON decode/canonical-merge buffers, and BetterLeaks report/projection allocations. The next investigation should use allocation profiles and ownership tracing to separate those sources, then evaluate zero-copy or admission-owned buffers only where the security ownership and redaction contracts remain intact. This task intentionally does not tune production defaults or weaken confidence, decode depth, worker count, scan limits, or finding limits to hide the regression.
 
+## Task 8.6 remediation measurements
+
+The remediation keeps text fragments as immutable Go strings through admission, exact scanning, and BetterLeaks source delivery. A byte slice is materialized lazily only when occurrence spans or a rewrite require byte mapping; the same admitted byte slice is shared by BetterLeaks projection and exact occurrence mapping for a positive hybrid scan. JSON fragments retain their admitted raw bytes because canonical JSON occurrence mapping and mutation require byte offsets. The walker, source, and redaction regressions remained green after this change.
+
+The comparable Windows/amd64 run used Go 1.26.6, the unchanged medium-confidence/decode-depth-1/worker-4 policy, and `-benchtime=3x`. Values in this allocation table are `B/op / allocs/op`; the earlier candidate values are retained above for comparison.
+
+| Case | Before task 8.6 | After task 8.6 |
+| --- | ---: | ---: |
+| exact-only, text, 2 MiB, no-hit | 4,195,509 / 10 | 1,221 / 8 |
+| BetterLeaks-only, text, 2 MiB, no-hit | 6,309,088 / 30 | 17,906 / 28 |
+| hybrid, text, 2 MiB, no-hit | 6,309,232 / 30 | 18,210 / 29 |
+| exact-only, text, 2 MiB, positive | 4,196,682 / 10 | 2,099,637 / 21 |
+| BetterLeaks-only, text, 2 MiB, positive | 6,513,221 / 30 | 2,307,245 / 188 |
+| hybrid, text, 2 MiB, positive | 6,499,554 / 30 | 2,280,453 / 172 |
+
+The text no-hit allocation regression is removed: exact-only is below the 2,816 B/op pre-BetterLeaks baseline, and BetterLeaks-only/hybrid no-hit scans no longer duplicate a multi-megabyte text payload. Positive text scans still materialize approximately one 2 MiB byte representation for occurrence mapping; the profile shows that remaining cost alongside BetterLeaks report and matching work. The hybrid positive path now reuses that representation rather than allocating a second copy. JSON remains dominated by its required decode/mapping buffers (for example, the 2 MiB no-hit rows remain approximately 12.58 MiB exact-only and 14.70 MiB BetterLeaks-only), so this remediation does not claim a broad JSON allocation reduction.
+
+Fresh allocation profiles are retained at `C:/Users/Mateusz/tmp/betterleaks-cert-20261003/task-8-6-final-exact-nohit-2m.mem.pprof` and `C:/Users/Mateusz/tmp/betterleaks-cert-20261003/task-8-6-final2-hybrid-positive-2m.mem.pprof`. The exact no-hit profile is setup-dominated after the change; the hybrid positive profile attributes the remaining request-sized allocation to `betterLeaksLogicalFragmentSource.betterLeaksRaw`. Its `regexp/syntax` allocations arise during scanner/config construction in benchmark setup and do not measure steady-request matching allocation cost. Independently repeated 2 MiB positive scans measured approximately 311–316 ms for BetterLeaks/hybrid. Large positive text occurrence mapping and JSON decode buffers remain a performance-review item. This evidence supports the scoped copy-remediation change while retaining the recommendation against a feature GO claim until those material positive/JSON costs receive a separate design review.
+
 ## Reproduction and verification
 
 Candidate commands:

@@ -372,6 +372,52 @@ func TestBetterLeaksLogicalFragmentSource_YieldsOneWholeFragment(t *testing.T) {
 	}
 }
 
+func TestBetterLeaksLogicalFragmentSource_TextDefersByteMaterialization(t *testing.T) {
+	text := strings.Repeat("x", 128*1024)
+	var raw []byte
+	source := betterLeaksLogicalFragmentSource{text: text, rawCache: &raw}
+	var yielded sources.Fragment
+	if err := source.Fragments(context.Background(), func(fragment sources.Fragment, fragmentErr error) error {
+		if fragmentErr != nil {
+			return fragmentErr
+		}
+		yielded = fragment
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if yielded.Raw != text {
+		t.Fatal("text source changed its immutable content")
+	}
+	if raw != nil {
+		t.Fatalf("source materialized bytes while yielding text: %d", len(raw))
+	}
+	got := source.betterLeaksRaw()
+	if string(got) != text || &got[0] != &raw[0] {
+		t.Fatal("source did not retain one lazily materialized byte representation")
+	}
+}
+
+func TestBetterLeaksFindingNeedsRawOnlyForLiteralOccurrences(t *testing.T) {
+	tests := []struct {
+		name    string
+		finding report.Finding
+		want    bool
+	}{
+		{name: "literal primary", finding: report.Finding{Match: report.Match{Value: "literal"}}, want: true},
+		{name: "decoded primary", finding: report.Finding{DecodeDepth: 1, Match: report.Match{Value: "decoded"}}, want: false},
+		{name: "literal component", finding: report.Finding{ComponentSets: []report.ComponentSet{{Components: []report.ComponentFinding{{Match: report.Match{Value: "literal"}}}}}}, want: true},
+		{name: "decoded component", finding: report.Finding{ComponentSets: []report.ComponentSet{{Components: []report.ComponentFinding{{DecodeDepth: 1, Match: report.Match{Value: "decoded"}}}}}}, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := betterLeaksFindingNeedsRaw(tc.finding); got != tc.want {
+				t.Fatalf("betterLeaksFindingNeedsRaw()=%t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestProjectBetterLeaksFinding_PreservesPrivateOccurrenceIdentity(t *testing.T) {
 	location := "messages[0].parts[0]"
 	first, err := projectBetterLeaksFinding(report.Finding{

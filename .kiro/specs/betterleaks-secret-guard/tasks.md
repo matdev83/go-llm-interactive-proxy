@@ -162,7 +162,7 @@
     - _Depends: 4.1, 6.3_
     - _Validation: canary absence assertions across all observability sinks_
 
-- [ ] 8. Certify protocol parity, concurrency, fuzz safety, and performance
+- [x] 8. Certify protocol parity, concurrency, fuzz safety, and performance
   - [x] 8.1 Build the synthetic detector corpus and frontend parity matrix
     - Cover OpenAI, Anthropic, GitHub, Slack, Stripe, AWS multipart, generic API key/password/credential URI, private key, public/non-secret negatives, JSON key context, tool schemas/results, repeated overlaps, allow markers, and decoded forms.
     - Run equivalent canonical payload cases through every bundled frontend flavor that can represent them.
@@ -209,7 +209,7 @@
     - _Depends: 8.4_
     - _Validation: strict TDD; exact unchanged shrinkage ratchet; full architecture suite; affected auth/composition/diagnostics regressions_
 
-  - [ ] 8.6 Reduce measured feature-private fragment allocation costs
+  - [x] 8.6 Reduce measured feature-private fragment allocation costs
     - Preserve immutable text as strings and reuse one admitted fragment representation; materialize byte buffers only when occurrence mapping or mutation needs them. Avoid unsafe string aliases.
     - Preserve whole JSON context, distinct-field byte accounting, clone-only mutation, cancellation, deterministic merge, and decoded fail-closed behavior.
     - Repeat comparable exact-only, BetterLeaks-only, and hybrid no-hit/hit benchmarks and allocation profiles. Record the performance assessment and remaining upstream matching cost without weakening detector defaults.
@@ -230,6 +230,8 @@
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
 ## Implementation Notes
+
+- Task 8.6 removes avoidable no-hit text copies: independently measured 2 MiB scans allocate 1,221 B exact-only, 11,048 B BetterLeaks-only, and 17,816 B hybrid. Positive/JSON costs require the final performance assessment; setup allocations are not steady-request costs.
 
 - Task 8.5 removes 54 measured production lines through reviewed feature-owned deduplication; the unchanged architecture convergence ratchet now passes at -800 with accepted-credential and diagnostic-isolation regressions green.
 

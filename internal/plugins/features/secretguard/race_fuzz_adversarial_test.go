@@ -193,7 +193,7 @@ func FuzzLogicalFragmentMapping_BoundedAndDeterministic(f *testing.F) {
 		}
 		for i, want := range wantFragments {
 			got := first[i]
-			if got.Location != want.location || got.Kind != want.kind || string(got.Raw) != want.raw {
+			if got.Location != want.location || got.Kind != want.kind || got.textValue() != want.raw {
 				t.Fatalf("authoritative fragment %d did not preserve required location, kind, and content", i)
 			}
 		}
@@ -202,7 +202,7 @@ func FuzzLogicalFragmentMapping_BoundedAndDeterministic(f *testing.F) {
 		}
 		seenIDs := make(map[string]struct{}, len(first))
 		for _, fragment := range first {
-			if len(fragment.Raw) == 0 || fragment.privateID == "" {
+			if fragment.Text == "" && len(fragment.Raw) == 0 || fragment.privateID == "" {
 				t.Fatal("walker emitted an empty or identity-free fragment")
 			}
 			if _, duplicate := seenIDs[fragment.privateID]; duplicate {
@@ -547,7 +547,7 @@ func assertHybridCanaryFindings(t *testing.T, decision sdk.Decision) {
 func logicalFragmentSummary(fragments []LogicalFragment) string {
 	var b strings.Builder
 	for _, fragment := range fragments {
-		fmt.Fprintf(&b, "%s|%d|%d|%s\n", fragment.Location, fragment.Kind, len(fragment.Raw), fragment.privateID)
+		fmt.Fprintf(&b, "%s|%d|%d|%s\n", fragment.Location, fragment.Kind, len(fragment.rawBytes()), fragment.privateID)
 	}
 	return b.String()
 }

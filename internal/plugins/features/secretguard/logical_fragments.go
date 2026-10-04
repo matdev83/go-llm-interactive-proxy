@@ -27,19 +27,58 @@ const (
 type LogicalFragment struct {
 	Location string
 	Kind     FragmentKind
-	Raw      []byte
+	// Text retains an admitted text fragment in its immutable canonical form.
+	// Raw is used for JSON fragments and remains available for feature-private
+	// test/source construction. Exactly one representation is populated by the
+	// canonical walker.
+	Text string
+	Raw  []byte
 
 	// privateID distinguishes canonical fields that intentionally share a
 	// public location (for example tool-result text and raw JSON content).
 	// It never crosses the feature-private merger boundary.
-	privateID string
-	replace   func([]byte)
+	privateID   string
+	replace     func([]byte)
+	replaceText func(string)
 }
 
 func (f LogicalFragment) setRaw(raw []byte) {
+	if f.replaceText != nil {
+		f.replaceText(string(raw))
+		return
+	}
 	if f.replace != nil {
 		f.replace(raw)
 	}
+}
+
+func (f LogicalFragment) setText(text string) {
+	if f.replaceText != nil {
+		f.replaceText(text)
+		return
+	}
+	if f.replace != nil {
+		f.replace([]byte(text))
+	}
+}
+
+// textValue returns the immutable text representation without materializing a
+// byte slice. Raw-backed fragments are retained for private test/source
+// callers, so the fallback is intentionally lazy.
+func (f LogicalFragment) textValue() string {
+	if f.Text != "" || f.Raw == nil {
+		return f.Text
+	}
+	return string(f.Raw)
+}
+
+// rawBytes materializes text only for byte-oriented occurrence mapping or
+// mutation. JSON fragments already own their admitted byte representation.
+func (f LogicalFragment) rawBytes() []byte {
+	if f.Raw != nil {
+		return f.Raw
+	}
+	return []byte(f.Text)
 }
 
 type scanBudget struct {
@@ -85,11 +124,11 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 			return budget.limitHit
 		}
 		fragments = append(fragments, LogicalFragment{
-			Location:  location,
-			Kind:      FragmentText,
-			Raw:       []byte(*value),
-			privateID: fmt.Sprintf("fragment[%d]", len(fragments)),
-			replace:   func(raw []byte) { *value = string(raw) },
+			Location:    location,
+			Kind:        FragmentText,
+			Text:        *value,
+			privateID:   fmt.Sprintf("fragment[%d]", len(fragments)),
+			replaceText: func(text string) { *value = text },
 		})
 		return false
 	}

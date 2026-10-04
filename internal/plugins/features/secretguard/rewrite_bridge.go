@@ -13,9 +13,10 @@ import (
 var errBetterLeaksUnrewritable = errors.New("secretguard: betterleaks finding has no safely rewritable literal representation")
 
 func betterLeaksLiteralCandidates(fragment LogicalFragment, findings []betterLeaksFinding) []betterLeaksOccurrence {
-	if len(fragment.Raw) == 0 || len(findings) == 0 {
+	if (fragment.Text == "" && len(fragment.Raw) == 0) || len(findings) == 0 {
 		return nil
 	}
+	raw := fragment.rawBytes()
 	var out []betterLeaksOccurrence
 	for _, finding := range findings {
 		if finding.Location != fragment.Location {
@@ -28,11 +29,11 @@ func betterLeaksLiteralCandidates(fragment LogicalFragment, findings []betterLea
 			if occurrence.representation != betterLeaksOccurrenceLiteral || len(occurrence.value) == 0 {
 				continue
 			}
-			start, end, ok := literalBetterLeaksByteRange(fragment.Raw, occurrence)
+			start, end, ok := literalBetterLeaksByteRange(raw, occurrence)
 			if !ok {
 				continue
 			}
-			occurrence.span, _ = spanForByteRange(fragment.Raw, start, end)
+			occurrence.span, _ = spanForByteRange(raw, start, end)
 			out = appendUniquePrivateOccurrences(out, occurrence)
 		}
 	}
@@ -156,6 +157,7 @@ func newBetterLeaksRewriteMatcher(exact sdk.Matcher, fragment LogicalFragment, o
 	if len(occurrences) == 0 {
 		return exact, nil
 	}
+	raw := fragment.rawBytes()
 	verified := make([]betterLeaksOccurrence, 0, len(occurrences))
 	for _, occurrence := range occurrences {
 		if occurrence.fieldID != "" && occurrence.fieldID != fragment.privateID {
@@ -164,11 +166,11 @@ func newBetterLeaksRewriteMatcher(exact sdk.Matcher, fragment LogicalFragment, o
 		if occurrence.representation != betterLeaksOccurrenceLiteral || len(occurrence.value) == 0 {
 			continue
 		}
-		start, end, ok := literalBetterLeaksByteRange(fragment.Raw, occurrence)
+		start, end, ok := literalBetterLeaksByteRange(raw, occurrence)
 		if !ok {
 			continue
 		}
-		occurrence.span, _ = spanForByteRange(fragment.Raw, start, end)
+		occurrence.span, _ = spanForByteRange(raw, start, end)
 		verified = appendUniquePrivateOccurrences(verified, occurrence)
 	}
 	if len(verified) == 0 {
@@ -176,13 +178,13 @@ func newBetterLeaksRewriteMatcher(exact sdk.Matcher, fragment LogicalFragment, o
 	}
 	m := &betterLeaksRewriteMatcher{
 		exact:       exact,
-		raw:         bytes.Clone(fragment.Raw),
+		raw:         raw,
 		kind:        fragment.Kind,
 		options:     betterLeaksRewriteOptions(exact),
 		occurrences: verified,
 	}
 	if fragment.Kind == FragmentJSON {
-		if root, err := decodedJSONOccurrenceValue(fragment.Raw); err == nil {
+		if root, err := decodedJSONOccurrenceValue(raw); err == nil {
 			collectBetterLeaksJSONTokens(root, &m.jsonTokens)
 			for _, occurrence := range verified {
 				if !betterLeaksJSONOccurrenceHasToken(m.raw, occurrence, m.jsonTokens) {

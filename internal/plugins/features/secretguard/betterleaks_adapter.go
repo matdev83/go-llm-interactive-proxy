@@ -100,11 +100,35 @@ type betterLeaksScanResult struct {
 // admitted and bounded before this source is constructed, so yielding the
 // complete fragment preserves the feature's canonical context contract.
 type betterLeaksLogicalFragmentSource struct {
-	raw []byte
+	// Text is the canonical representation for text fragments. Raw is retained
+	// for JSON fragments and private adapter tests; only one is populated by the
+	// fragment walker.
+	text     string
+	raw      []byte
+	rawCache *[]byte
 }
 
 func (s betterLeaksLogicalFragmentSource) betterLeaksRaw() []byte {
-	return s.raw
+	if s.raw != nil {
+		return s.raw
+	}
+	if s.rawCache != nil {
+		if *s.rawCache == nil {
+			*s.rawCache = []byte(s.text)
+		}
+		return *s.rawCache
+	}
+	if s.text != "" {
+		return []byte(s.text)
+	}
+	return nil
+}
+
+func (s betterLeaksLogicalFragmentSource) content() string {
+	if s.text != "" || s.raw == nil {
+		return s.text
+	}
+	return string(s.raw)
 }
 
 func (s betterLeaksLogicalFragmentSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
@@ -117,7 +141,7 @@ func (s betterLeaksLogicalFragmentSource) Fragments(ctx context.Context, yield s
 	if yield == nil {
 		return errors.New("betterleaks fragment source requires a yield function")
 	}
-	if err := yield(sources.Fragment{Raw: string(s.raw)}, nil); err != nil {
+	if err := yield(sources.Fragment{Raw: s.content()}, nil); err != nil {
 		return err
 	}
 	return ctx.Err()
@@ -242,11 +266,13 @@ func (s *betterLeaksScanner) scanFragments(ctx context.Context, fragments []Logi
 	if err := ctx.Err(); err != nil {
 		return result, newBetterLeaksScanError(err)
 	}
-	for _, fragment := range fragments {
-		if len(fragment.Raw) == 0 {
+	for index := range fragments {
+		fragment := &fragments[index]
+		if fragment.Text == "" && len(fragment.Raw) == 0 {
 			continue
 		}
-		if err := s.scanSourceWithFieldID(ctx, betterLeaksLogicalFragmentSource{raw: fragment.Raw}, fragment.Location, fragment.privateID, &result); err != nil {
+		source := betterLeaksLogicalFragmentSource{text: fragment.Text, raw: fragment.Raw, rawCache: &fragment.Raw}
+		if err := s.scanSourceWithFieldID(ctx, source, fragment.Location, fragment.privateID, &result); err != nil {
 			return result, err
 		}
 	}
@@ -261,6 +287,24 @@ func (s *betterLeaksScanner) scanSource(ctx context.Context, source sources.Sour
 	return s.scanSourceWithFieldID(ctx, source, location, "", result)
 }
 
+func betterLeaksFindingNeedsRaw(finding report.Finding) bool {
+	if betterLeaksOccurrenceNeedsRaw(finding.Match.Value, finding.DecodeDepth, finding.Encodings) {
+		return true
+	}
+	for _, set := range finding.ComponentSets {
+		for _, component := range set.Components {
+			if betterLeaksOccurrenceNeedsRaw(component.Match.Value, component.DecodeDepth, component.Encodings) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func betterLeaksOccurrenceNeedsRaw(value string, decodeDepth int, encodings []string) bool {
+	return value != "" && decodeDepth == 0 && len(encodings) == 0
+}
+
 func (s *betterLeaksScanner) scanSourceWithFieldID(ctx context.Context, source sources.Source, location, fieldID string, result *betterLeaksScanResult) error {
 	if s == nil || s.scanner == nil || source == nil || result == nil {
 		return newBetterLeaksUnavailableError()
@@ -272,14 +316,24 @@ func (s *betterLeaksScanner) scanSourceWithFieldID(ctx context.Context, source s
 		return newBetterLeaksScanError(err)
 	}
 	var admittedRaw []byte
-	if rawSource, ok := source.(interface{ betterLeaksRaw() []byte }); ok {
-		admittedRaw = rawSource.betterLeaksRaw()
+	getAdmittedRaw := func() []byte {
+		if admittedRaw != nil {
+			return admittedRaw
+		}
+		if rawSource, ok := source.(interface{ betterLeaksRaw() []byte }); ok {
+			admittedRaw = rawSource.betterLeaksRaw()
+		}
+		return admittedRaw
 	}
 	_, err := s.scanner.Scan(ctx, source, func(finding report.Finding) error {
 		if len(result.Findings) >= s.findingCap() {
 			return errBetterLeaksFindingCap
 		}
-		projected, err := projectBetterLeaksFindingWithFieldID(finding, location, fieldID, admittedRaw)
+		var admitted []byte
+		if betterLeaksFindingNeedsRaw(finding) {
+			admitted = getAdmittedRaw()
+		}
+		projected, err := projectBetterLeaksFindingWithFieldID(finding, location, fieldID, admitted)
 		if err != nil {
 			return err
 		}

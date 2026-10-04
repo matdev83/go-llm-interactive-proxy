@@ -48,12 +48,12 @@ func collectExactPrivateFindings(m sdk.Matcher, fragment LogicalFragment, findin
 		// decoder-failed fallback so escaped bytes and punctuation cannot add
 		// independent occurrences.
 		var mapped bool
-		private, mapped = collectExactJSONOccurrencesMapped(positional, fragment.Raw, fragment.privateID)
+		private, mapped = collectExactJSONOccurrencesMapped(positional, fragment.rawBytes(), fragment.privateID)
 		if !mapped {
-			private = collectExactRawOccurrences(positional, fragment.Raw, fragment.privateID)
+			private = collectExactRawOccurrences(positional, fragment.rawBytes(), fragment.privateID)
 		}
 	} else {
-		private = collectExactRawOccurrences(positional, fragment.Raw, fragment.privateID)
+		private = collectExactRawOccurrences(positional, fragment.rawBytes(), fragment.privateID)
 	}
 	return exactPrivateFindingsAt(fragment, findings, private)
 }
@@ -69,12 +69,12 @@ func collectExactPrivateFindingsForRedact(m sdk.Matcher, fragment LogicalFragmen
 	var private []betterLeaksOccurrence
 	if fragment.Kind == FragmentJSON {
 		var mapped bool
-		private, mapped = collectExactJSONRedactOccurrences(positional, fragment.Raw, fragment.privateID)
+		private, mapped = collectExactJSONRedactOccurrences(positional, fragment.rawBytes(), fragment.privateID)
 		if !mapped {
-			private = collectExactRawOccurrences(positional, fragment.Raw, fragment.privateID)
+			private = collectExactRawOccurrences(positional, fragment.rawBytes(), fragment.privateID)
 		}
 	} else {
-		private = collectExactRawOccurrences(positional, fragment.Raw, fragment.privateID)
+		private = collectExactRawOccurrences(positional, fragment.rawBytes(), fragment.privateID)
 	}
 	return exactPrivateFindingsAt(fragment, findings, private)
 }
@@ -232,7 +232,7 @@ func betterLeaksOccurrenceRewriteEligible(fragments []LogicalFragment, location 
 		if occurrence.fieldID != "" && occurrence.fieldID != fragment.privateID {
 			continue
 		}
-		if _, _, ok := literalBetterLeaksByteRange(fragment.Raw, occurrence); ok {
+		if _, _, ok := literalBetterLeaksByteRange(fragment.rawBytes(), occurrence); ok {
 			return true
 		}
 	}
@@ -258,9 +258,9 @@ func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Ma
 			err      error
 		)
 		if fragment.Kind == FragmentJSON {
-			findings, err = scanJSONPayload(ctx, activeMatcher, fragment.Raw)
+			findings, err = scanJSONPayload(ctx, activeMatcher, fragment.rawBytes())
 		} else {
-			findings, err = activeMatcher.ScanString(ctx, string(fragment.Raw))
+			findings, err = activeMatcher.ScanString(ctx, fragment.textValue())
 		}
 		if err != nil {
 			return err
@@ -274,11 +274,14 @@ func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Ma
 			err      error
 		)
 		if fragment.Kind == FragmentJSON {
-			redacted, findings, err = redactJSONPayload(ctx, activeMatcher, fragment.Raw)
+			redacted, findings, err = redactJSONPayload(ctx, activeMatcher, fragment.rawBytes())
 		} else {
 			var text string
-			text, findings, err = activeMatcher.RedactString(ctx, string(fragment.Raw))
-			redacted = []byte(text)
+			text, findings, err = activeMatcher.RedactString(ctx, fragment.textValue())
+			if err == nil && text != fragment.textValue() {
+				fragment.setText(text)
+				out.MutationCount++
+			}
 		}
 		if err != nil {
 			if fragment.Kind == FragmentJSON {
@@ -289,7 +292,7 @@ func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Ma
 		}
 		out.Findings = mergeFindingsAt(out.Findings, findings, fragment.Location)
 		out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindingsForRedact(m, fragment, findings)...)
-		if string(redacted) != string(fragment.Raw) {
+		if fragment.Kind == FragmentJSON && !bytes.Equal(redacted, fragment.rawBytes()) {
 			fragment.setRaw(redacted)
 			out.MutationCount++
 		}
