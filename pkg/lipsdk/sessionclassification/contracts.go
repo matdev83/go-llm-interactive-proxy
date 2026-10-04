@@ -28,6 +28,18 @@ const (
 	ToolCategoryUnknownSeen
 )
 
+// ToolCategorySetBytes is the fixed in-memory width of ToolCategorySet. It is
+// the constant part of the bounded evidence cost: presence bits never grow with
+// tool count, body size or prompt material.
+const ToolCategorySetBytes = 2
+
+// DefinedToolCategoryBits is every category bit AddToolName can derive. Any
+// other bit is a carrier defect rather than new evidence, so bounded carriers
+// reject it instead of forwarding an undefined classification signal.
+const DefinedToolCategoryBits = ToolCategoryFileRead | ToolCategoryFileSearch |
+	ToolCategoryOSCommand | ToolCategoryFileEdit | ToolCategoryFileRemove |
+	ToolCategoryWebAccess | ToolCategoryUnknownSeen
+
 // AddToolName returns the set with the canonical category for name added.
 // The name itself is not retained; unknown names set ToolCategoryUnknownSeen.
 func (s ToolCategorySet) AddToolName(name string) ToolCategorySet {
@@ -58,6 +70,24 @@ type Evidence struct {
 	Operation       lipapi.Operation
 	ClientUserAgent string
 	ToolCategories  ToolCategorySet
+}
+
+// IsZero reports whether no evidence was compiled for this turn. Callers treat
+// absent evidence as "stay unknown": they must not infer a negative
+// classification from it (requirements 5.4, 12.7).
+func (e Evidence) IsZero() bool {
+	return e.Operation == "" && e.ClientUserAgent == "" && e.ToolCategories == 0
+}
+
+// MetadataBytes returns the bounded in-memory byte cost that a carrier holding
+// this evidence must charge: the accepted client identity length plus the fixed
+// category-bitset width.
+//
+// The cost never scales with tool count, body size or request content. The
+// operation is a copy of an operation the carrier already holds, so it is
+// deliberately not counted twice here.
+func (e Evidence) MetadataBytes() int64 {
+	return int64(len(e.ClientUserAgent)) + ToolCategorySetBytes
 }
 
 // Input is the bounded metadata snapshot presented to a session classifier.

@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/capabilityfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/compactionfacts"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 )
 
 // redactedSensitive is the only rendering of a sensitive value outside its
@@ -395,6 +396,18 @@ type Proof struct {
 	Source          SourceDigest
 	BodyBytes       int64
 
+	// ClassificationEvidence is the bounded classification summary for this
+	// turn: the already-accepted client identity plus fixed tool-category bits.
+	//
+	// It exists so a classification-enabled large request stays wire-eligible
+	// instead of forcing canonical materialization. It deliberately carries no
+	// header bag, tool list, transcript, prompt text, path or shadow
+	// lipapi.Call; absent evidence is legal and simply keeps the session
+	// unknown (requirements 5.1, 5.2, 5.4, 5.5).
+	//
+	// Named consumer: the wire-path classification stage.
+	ClassificationEvidence sessionclassification.Evidence
+
 	CompactionFacts    compactionfacts.RequestFacts
 	CompactionComplete bool
 
@@ -414,6 +427,12 @@ func (p Proof) AggregateFactBytes() int64 {
 	for _, c := range p.RequiredCapabilities {
 		total += int64(len(c))
 	}
+	// Bounded classification evidence is charged to the large-payload cost
+	// model: the accepted client identity length plus the fixed category
+	// bitset. The bits never grow with tool count or body size, so a huge
+	// request cannot inflate proof metadata through classification
+	// (requirements 5.1, 5.2, 12.7).
+	total += p.ClassificationEvidence.MetadataBytes()
 	return total
 }
 
@@ -488,6 +507,16 @@ func (p Proof) Validate(maxFactBytes int64) error {
 	}
 	if err := p.Session.Validate(maxFactBytes); err != nil {
 		return err
+	}
+	if err := p.ClassificationEvidence.Validate(maxFactBytes); err != nil {
+		return fmt.Errorf("largebody: proof classification evidence: %w", err)
+	}
+	// Present evidence must describe the same turn the proof describes:
+	// compiling evidence from a different operation would let the wire path
+	// classify a request it never observed (requirements 5.2, 5.5).
+	if !p.ClassificationEvidence.IsZero() && p.ClassificationEvidence.Operation != p.Operation {
+		return fmt.Errorf("largebody: proof classification evidence operation %q does not match proof operation %q",
+			string(p.ClassificationEvidence.Operation), string(p.Operation))
 	}
 	if p.Source.IsZero() {
 		return fmt.Errorf("largebody: proof source digest must not be zero")

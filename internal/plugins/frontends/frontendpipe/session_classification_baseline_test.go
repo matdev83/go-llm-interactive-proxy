@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 )
 
 func TestSessionClassificationBaseline_CanonicalAndWireInputs(t *testing.T) {
@@ -62,15 +63,25 @@ func TestSessionClassificationBaseline_CanonicalAndWireInputs(t *testing.T) {
 	// The certified wire compiler sees the same bounded request body and its
 	// tool catalog, but its current proof retains only the aggregate tool count.
 	require.Equal(t, len(decoded.Call.Tools), proof.CompactionFacts.ToolCount)
-	// User-Agent and tool names are available to canonical code, while the
-	// implementation-time wire proof still has no classification evidence.
-	// Task 7.1 should replace these shape-absence checks with bounded evidence
-	// validation; Task 7.2 should prove accepted User-Agent/tool evidence parity.
-	for i := range reflect.TypeFor[largebody.Proof]().NumField() {
-		name := reflect.TypeFor[largebody.Proof]().Field(i).Name
-		require.NotContains(t, name, "Classification")
-		require.NotEqual(t, "ClientUserAgent", name)
-		require.NotEqual(t, "ToolCategories", name)
+
+	// Task 7.1 replaced the pre-carrier shape-absence checks with bounded
+	// carrier validation: the proof carries exactly the provider-neutral SDK
+	// evidence value and no loose identity or tool-bits field. Task 7.2 owns
+	// the accepted User-Agent/tool evidence parity against the canonical call.
+	proofType := reflect.TypeFor[largebody.Proof]()
+	carrier, ok := proofType.FieldByName("ClassificationEvidence")
+	require.True(t, ok, "proof must carry the bounded classification evidence carrier")
+	require.Equal(t, reflect.TypeFor[sessionclassification.Evidence](), carrier.Type,
+		"the carrier must be the provider-neutral SDK evidence type itself")
+	for i := range proofType.NumField() {
+		field := proofType.Field(i)
+		if field.Type == reflect.TypeFor[sessionclassification.Evidence]() {
+			continue
+		}
+		require.NotEqual(t, "ClientUserAgent", field.Name,
+			"no loose client identity field may sit beside the bounded carrier")
+		require.NotEqual(t, "ToolCategories", field.Name,
+			"no loose tool-bits field may sit beside the bounded carrier")
 	}
 
 	stamp, err := largebody.BindAssessmentStamp("gen-session-classification-baseline", proof)
@@ -78,4 +89,13 @@ func TestSessionClassificationBaseline_CanonicalAndWireInputs(t *testing.T) {
 	facts, err := largebody.NewWireTurnFactsFromProof(proof, stamp, "req-baseline", "trace-baseline", "bill-baseline")
 	require.NoError(t, err)
 	require.NoError(t, facts.AssertNoShadowCall())
+
+	// Task 7.1 must not assert proof-to-wire carrier propagation here: no
+	// certified profile compiles the carrier until Task 7.2, so both sides of
+	// such a comparison would be the zero value and the assertion would pass
+	// vacuously. Task 7.2 owns the accepted User-Agent/tool evidence parity
+	// against the canonical call, and the in-boundary propagation proof lives in
+	// TestNewWireTurnFactsFromProof_CarriesPopulatedClassificationEvidence.
+	require.True(t, proof.ClassificationEvidence.IsZero(),
+		"no certified profile compiles classification evidence before Task 7.2")
 }
