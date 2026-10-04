@@ -555,13 +555,15 @@ var sessionClassificationContractFiles = map[string]bool{
 }
 
 // sessionClassificationContractImporters are the production files allowed to
-// depend on the SDK classifier contract: the canonical stage plus the generated
-// feature-plane registry. Any other importer could obtain a second,
-// independent classification decision for the same turn.
+// depend on the SDK classifier contract: the two generic-core classification
+// stages (canonical and wire) plus the generated feature-plane registry. Any
+// other importer could obtain a second, independent classification decision for
+// the same turn.
 var sessionClassificationContractImporters = map[string]bool{
-	"executor_session_classification.go": true,
-	"plane_manifest.go":                  true,
-	"plane_generated.go":                 true,
+	"executor_session_classification.go":      true,
+	"executor_session_classification_wire.go": true,
+	"plane_manifest.go":                       true,
+	"plane_generated.go":                      true,
 }
 
 // TestSessionClassificationFieldHasNoExistingConsumer is the load-bearing static
@@ -575,11 +577,12 @@ var sessionClassificationContractImporters = map[string]bool{
 // This guard does NOT cover internal/core/extensions, which holds the sanctioned
 // generic-core classification seam (extensions.RunSessionClassificationStage):
 // that file legitimately reads the field and invokes the classifier, and it is
-// the one place outside the canonical stage where a second decision could be
-// requested. Its single production caller is executor_session_classification.go,
-// which the per-turn classifier invocation count in this package pins. A
-// repo-wide guard across internal/plugins and internal/standardplugins belongs to
-// task 12.1, not here.
+// the one place outside the two sanctioned stages where a second decision could
+// be requested. Its production callers are executor_session_classification.go
+// (canonical lane) and executor_session_classification_wire.go (wire lane); the
+// per-turn classifier invocation counts in this package pin each to one call per
+// admitted turn. A repo-wide guard across internal/plugins and
+// internal/standardplugins belongs to task 12.1, not here.
 func TestSessionClassificationFieldHasNoExistingConsumer(t *testing.T) {
 	roots := []string{
 		".",
@@ -653,10 +656,12 @@ func TestSessionClassificationFieldHasNoExistingConsumer(t *testing.T) {
 
 	for file, imported := range classifierImporters {
 		if !sessionClassificationContractImporters[file] {
-			t.Errorf("production file %q depends on the classifier contract %q; only the canonical classification stage may classify", file, imported)
+			t.Errorf("production file %q depends on the classifier contract %q; only the two sanctioned classification stages (canonical and wire) may classify", file, imported)
 		}
 	}
-	if _, ok := classifierImporters["executor_session_classification.go"]; !ok {
-		t.Error("the canonical classification stage no longer depends on the SDK classifier contract")
+	for _, stage := range []string{"executor_session_classification.go", "executor_session_classification_wire.go"} {
+		if _, ok := classifierImporters[stage]; !ok {
+			t.Errorf("the sanctioned classification stage %q no longer depends on the SDK classifier contract", stage)
+		}
 	}
 }

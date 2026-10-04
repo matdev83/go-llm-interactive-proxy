@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 )
 
 // ErrBodySessionMetadataRejected indicates that the profile rejected body-carried
@@ -169,9 +170,10 @@ func SessionInputFromRef(ref lipapi.SessionRef) SessionInput {
 }
 
 type (
-	wireSessionCtxKey   struct{}
-	wireTurnShapeCtxKey struct{}
-	wireIdentityCtxKey  struct{}
+	wireSessionCtxKey        struct{}
+	wireTurnShapeCtxKey      struct{}
+	wireIdentityCtxKey       struct{}
+	wireClassificationCtxKey struct{}
 )
 
 // WireIdentity carries logical RequestID and TraceID for wire execution.
@@ -225,8 +227,33 @@ func WireClientTurnShapeFromContext(ctx context.Context) (ClientTurnShape, bool)
 	return shape, ok
 }
 
-// ContextWithWireProof enriches ctx with assessed proof Session, Turn, and canonical
-// Request/Trace IDs in one pass so all frontend lanes cannot forget part of the handoff.
+// WithWireClassificationEvidence attaches the bounded classification evidence a
+// certified frontend proof compiled for this wire turn to ctx.
+//
+// The value is the provider-neutral SDK evidence carrier and nothing else: the
+// already-accepted client identity, the canonical operation and the fixed
+// tool-category bits. It carries no header bag, tool list, transcript, prompt
+// text, local path or shadow canonical Call, so handing it to the wire
+// classification stage never requires materializing a canonical request
+// (Requirements 5.2, 5.3, 5.5).
+func WithWireClassificationEvidence(ctx context.Context, evidence sessionclassification.Evidence) context.Context {
+	return context.WithValue(ctx, wireClassificationCtxKey{}, evidence)
+}
+
+// WireClassificationEvidenceFromContext extracts the bounded classification
+// evidence from ctx if attached. Absent evidence is legal and means "stay
+// unknown": it is never read as a negative classification (Requirements 5.4).
+func WireClassificationEvidenceFromContext(ctx context.Context) (sessionclassification.Evidence, bool) {
+	if ctx == nil {
+		return sessionclassification.Evidence{}, false
+	}
+	evidence, ok := ctx.Value(wireClassificationCtxKey{}).(sessionclassification.Evidence)
+	return evidence, ok
+}
+
+// ContextWithWireProof enriches ctx with assessed proof Session, Turn, bounded
+// classification evidence and canonical Request/Trace IDs in one pass so all
+// frontend lanes cannot forget part of the handoff.
 // RequestID derives from proof.Identity.CallID(explicitRequestID) matching
 // diag.StableCallID (explicit ID or "call_"+token); TraceID equals RequestID under the
 // canonical single-identity contract. Overwrites any prior Wire* values so a stale or
@@ -234,6 +261,8 @@ func WireClientTurnShapeFromContext(ctx context.Context) (ClientTurnShape, bool)
 // payload decode, no new IDs: only already-derived bounded proof facts are carried.
 // SessionInput strings are immutable; TurnShape shallow copy shares bounded read-only
 // slices consumed without mutation by PrepareSecureSession/RecordClientTurnWithShape.
+// ClassificationEvidence is a fixed-shape metadata value, so it is carried by value
+// and consumed by the wire session-classification stage.
 func ContextWithWireProof(ctx context.Context, proof Proof, explicitRequestID string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -241,6 +270,7 @@ func ContextWithWireProof(ctx context.Context, proof Proof, explicitRequestID st
 	reqID := proof.Identity.CallID(strings.TrimSpace(explicitRequestID))
 	ctx = WithWireSessionInput(ctx, proof.Session)
 	ctx = WithWireClientTurnShape(ctx, proof.Turn)
+	ctx = WithWireClassificationEvidence(ctx, proof.ClassificationEvidence)
 	ctx = WithWireIdentity(ctx, reqID, reqID)
 	return ctx
 }
