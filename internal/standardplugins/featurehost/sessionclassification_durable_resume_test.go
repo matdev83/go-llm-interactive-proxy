@@ -313,6 +313,21 @@ func certificationExecutor(
 	submitHooks ...sdkhooks.SubmitHook,
 ) (*runtime.Executor, *atomic.Int32) {
 	t.Helper()
+	return certificationExecutorWithWorkspace(t, database, planes, certificationWorkspaceResolver{}, submitHooks...)
+}
+
+// certificationExecutorWithWorkspace is the shared executor factory. It exists so
+// an acceptance fixture whose workspace view is not the default one (the
+// cross-harness evidence matrix supplies per-row project markers) reuses this
+// durable topology instead of duplicating it.
+func certificationExecutorWithWorkspace(
+	t testing.TB,
+	database *bun.DB,
+	planes lipfeature.FrozenPlaneSet,
+	resolver lipworkspace.Resolver,
+	submitHooks ...sdkhooks.SubmitHook,
+) (*runtime.Executor, *atomic.Int32) {
+	t.Helper()
 	ctx := context.Background()
 	sessionStore, err := ssbunstore.NewWithContext(ctx, database)
 	if err != nil {
@@ -363,7 +378,7 @@ func certificationExecutor(
 		},
 	}
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		Workspace:     workspace.NewResolverChain([]lipworkspace.Resolver{certificationWorkspaceResolver{}}),
+		Workspace:     workspace.NewResolverChain([]lipworkspace.Resolver{resolver}),
 		FeaturePlanes: planes,
 	})
 	return ex, &opens
@@ -440,7 +455,17 @@ func certificationFingerprintKey() []byte {
 // classification outcome; no tools are carried, so the identity rule is the only
 // possible promotion path.
 func certificationCall(clientSessionID, resumeToken, userAgent string) *lipapi.Call {
-	return &lipapi.Call{
+	return certificationCallWith(clientSessionID, resumeToken, userAgent, "summarize the diff", "")
+}
+
+// certificationCallWith is certificationCall with the client prompt and route
+// model supplied. The cross-harness evidence matrix declares a weakPrompt and a
+// modelName per fixture, and those signals must actually reach the turn: a
+// technical-chat negative row delivered with a generic "summarize the diff"
+// prompt certifies nothing, because no classifier that promoted on the row's
+// declared signal could ever be observed promoting.
+func certificationCallWith(clientSessionID, resumeToken, userAgent, prompt, model string) *lipapi.Call {
+	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "only:model"},
 		Session: lipapi.SessionRef{
 			ClientSessionID: clientSessionID,
@@ -448,13 +473,16 @@ func certificationCall(clientSessionID, resumeToken, userAgent string) *lipapi.C
 		},
 		Messages: []lipapi.Message{{
 			Role:  lipapi.RoleUser,
-			Parts: []lipapi.Part{lipapi.TextPart("summarize the diff")},
+			Parts: []lipapi.Part{lipapi.TextPart(prompt)},
 		}},
 		Invocation: lipapi.Invocation{
 			Operation:       lipapi.OperationOpenAIResponses,
 			ClientUserAgent: userAgent,
 		},
 	}
+	_ = model // the canonical classifier input is deliberately model-free (requirement 3.4);
+	// the matrix carries a model name inside weakPrompt, which IS delivered above.
+	return call
 }
 
 // certificationServe runs one canonical client turn end to end.
