@@ -226,7 +226,7 @@
     - Confirm no implementation task changed routing/failover/B2BUA/billing/protocol semantics outside the specified secret-guard boundary.
     - _Requirements: 3.3, 3.4, 3.6, 6.7, 9.3, 9.5, 10.1, 10.2, 10.7, 10.8_
     - _Boundary: whole-feature certification_
-    - _Depends: 7.1, 7.2, 8.3, 8.4, 8.5, 8.6, 9.2, 9.3, 9.4_
+    - _Depends: 7.1, 7.2, 8.3, 8.4, 8.5, 8.6, 9.2, 9.3, 9.4, 9.5_
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
   - [x] 9.2 Repair upstream billing boundedness measurement
@@ -252,7 +252,16 @@
     - _Depends: 9.3_
     - _Validation: equivalent pre-change fixture check; focused worker and complete spool tests; unchanged file-backed durability tests; scoped vet and Linux race; comprehensive certification in 9.1_
 
+  - [x] 9.5 Remove the reasoning-preservation poller fixture data race
+    - Make shared test-poller job-ID recording safe for concurrent Poll calls. Keep the concurrent attach/clear scenario, recorded-ID assertions, and production feature behavior unchanged.
+    - _Requirements: 10.1; upstream reasoning-preservation concurrency/certification contract_
+    - _Boundary: reasoning-preservation poller test double and directly related test assertions only_
+    - _Depends: 9.4_
+    - _Validation: reproduce the concurrent Poll race before repair; focused concurrent adoption and complete package Linux race after repair; scoped lint/vet and diff checks_
+
 ## Implementation Notes
+
+- Task 9.5 makes recorded poller job IDs atomic and preserves all three ID assertions and concurrent adoption coverage. Independent current Linux package race, focused repeated race, lint, and vet pass; a fresh parent race probe also passes. The final broad race lane must be rerun after this fixture-only repair; the other four lanes passed at 22d7b25b with unchanged source.
 
 - Tasks 9.3 and 9.4 preserve the billing certification population and isolate two spool worker fixtures from disk synchronization. Independent package/durability checks and a fresh logged Linux worker race pass; observation limits and production billing remain unchanged. Original full-suite spool timeout attribution is unproven, and task 9.1 requires a new complete gate result.
 

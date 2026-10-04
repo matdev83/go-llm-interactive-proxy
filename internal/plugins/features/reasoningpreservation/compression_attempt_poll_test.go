@@ -21,13 +21,13 @@ type pollTestPoller struct {
 	pollCalls   atomic.Int32
 	result      auxiliary.PollResult
 	err         error
-	lastID      auxiliary.JobID
+	lastID      atomic.Value
 	forgetCalls atomic.Int32
 }
 
 func (f *pollTestPoller) Poll(_ context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
 	f.pollCalls.Add(1)
-	f.lastID = id
+	f.lastID.Store(id)
 	if f.err != nil {
 		return auxiliary.PollResult{}, f.err
 	}
@@ -44,6 +44,17 @@ func (f *pollTestPoller) Await(context.Context, auxiliary.JobID) (lipapi.Collect
 func (f *pollTestPoller) Forget(id auxiliary.JobID) { f.forgetCalls.Add(1) }
 func (f *pollTestPoller) PollCount() int            { return int(f.pollCalls.Load()) }
 func (f *pollTestPoller) ForgetCount() int          { return int(f.forgetCalls.Load()) }
+func (f *pollTestPoller) LastID() auxiliary.JobID {
+	value := f.lastID.Load()
+	if value == nil {
+		return ""
+	}
+	id, ok := value.(auxiliary.JobID)
+	if !ok {
+		return ""
+	}
+	return id
+}
 
 type pollTestEgress struct{}
 
@@ -292,7 +303,7 @@ func TestPollOnce_PreservedSkipped_SecondMissingPicked(t *testing.T) {
 	res := reasoningpreservation.PollOnceForMatchingArtifact(context.Background(), &call, cs, p, snap, pollTestSupport, svc)
 	require.Equal(t, reasoningpreservation.PollKindPending, res.Kind)
 	require.Equal(t, 1, poller.PollCount())
-	require.Equal(t, auxiliary.JobID("job-art-b"), poller.lastID, "must poll job-B, first is preserved not missing")
+	require.Equal(t, auxiliary.JobID("job-art-b"), poller.LastID(), "must poll job-B, first is preserved not missing")
 }
 
 func TestPollOnce_UnsupportedDialectSkipped(t *testing.T) {
@@ -324,7 +335,7 @@ func TestPollOnce_UnsupportedDialectSkipped(t *testing.T) {
 	res := reasoningpreservation.PollOnceForMatchingArtifact(context.Background(), &call, cs, p, snap, pollTestSupport, svc)
 	require.Equal(t, reasoningpreservation.PollKindPending, res.Kind)
 	require.Equal(t, 1, poller.PollCount())
-	require.Equal(t, auxiliary.JobID("job-art-b2"), poller.lastID, "must skip unsupported first missing, pick supported second")
+	require.Equal(t, auxiliary.JobID("job-art-b2"), poller.LastID(), "must skip unsupported first missing, pick supported second")
 }
 
 // Transform integration tests — verify chain without active replay.
