@@ -261,6 +261,10 @@ type algColumn struct {
 	// scripted origin, so a failover or parallel-race cell can script both sides of
 	// the race. Nil keeps the deployment's default single-backend route selector.
 	Candidates []Candidate
+	// AgentLoopGuardConfig appends extra YAML lines to the feature block the
+	// production registry composes (for example, protocol limits). Empty keeps
+	// the generation defaults, so every existing cell is unaffected.
+	AgentLoopGuardConfig string
 }
 
 // algDeployColumn composes one deployment whose executor carries the real ALG
@@ -297,7 +301,7 @@ func algDeployColumn(t *testing.T, col algColumn) (*Deployment, *algTrace) {
 	// Extend the generation Deploy installed with the observation factory through
 	// the same real plane merge, so the executor snapshot still comes from the
 	// production snapshot builder rather than a hand-assembled provider list.
-	planes, err := AgentLoopGuardFeaturePlanes(t, col.Strategy)
+	planes, err := AgentLoopGuardFeaturePlanesWithConfig(t, col.Strategy, col.AgentLoopGuardConfig)
 	if err != nil {
 		t.Fatalf("AgentLoopGuardFeaturePlanes: %v", err)
 	}

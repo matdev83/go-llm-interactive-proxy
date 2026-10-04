@@ -202,6 +202,9 @@ func (m *Mapper) FinishToolCallArguments(id, name, arguments string) error {
 		}); err != nil {
 			return err
 		}
+		// Record the fallback emission so a second final notification for the
+		// same call cannot re-emit arguments after the finish.
+		m.toolCallArgDeltas[id] = true
 	}
 	return m.EmitToolCallFinished(id)
 }
@@ -229,6 +232,9 @@ func (m *Mapper) EmitCompletedToolCall(id, name, arguments string) error {
 		}); err != nil {
 			return err
 		}
+		// Same idempotency as FinishToolCallArguments: a repeated completed
+		// snapshot must not re-emit arguments the first snapshot already sent.
+		m.toolCallArgDeltas[id] = true
 	}
 	return m.EmitToolCallFinished(id)
 }

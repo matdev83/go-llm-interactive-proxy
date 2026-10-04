@@ -82,6 +82,24 @@ fi
 
 declare -a PACKAGES=()
 declare -a ARCH_PACKAGES=()
+# staged_nested_module_root prints the slash-separated repo-relative directory
+# of the nearest nested Go module enclosing directory $1, or nothing when the
+# path belongs to the root module. A staged file under a nested module cannot
+# be tested with a root-relative ./... pattern (the root module does not
+# resolve it), so those files are grouped per module and scanned in their own
+# module context instead of failing the whole scan with [setup failed].
+staged_nested_module_root() {
+	local dir="$1"
+	while [[ "$dir" != "." && -n "$dir" ]]; do
+		if [[ -f "$repo_root/$dir/go.mod" ]]; then
+			printf '%s' "$dir"
+			return 0
+		fi
+		[[ "$dir" == */* ]] || break
+		dir="${dir%/*}"
+	done
+	return 0
+}
 if [[ "$STAGED" == true ]]; then
 	mapfile -t STAGED_GO_FILES < <(git diff --cached --name-only --diff-filter=ACMRD | sed 's#\\#/#g' | grep -E '\.go$' || true)
 	if [[ ${#STAGED_GO_FILES[@]} -eq 0 ]]; then
@@ -89,12 +107,22 @@ if [[ "$STAGED" == true ]]; then
 		exit 0
 	fi
 	declare -A PACKAGE_SET=()
+	declare -a NESTED_SCOPES=()
 	for file in "${STAGED_GO_FILES[@]}"; do
 		dir="$(dirname "$file")"
 		if [[ "$dir" == "." || -z "$dir" ]]; then
 			PACKAGE_SET["./"]=1
 		else
-			PACKAGE_SET["./${dir}/..."]=1
+			modroot="$(staged_nested_module_root "$dir")"
+			if [[ -n "$modroot" ]]; then
+				if [[ "$dir" == "$modroot" ]]; then
+					NESTED_SCOPES+=("$modroot|./...")
+				else
+					NESTED_SCOPES+=("$modroot|./${dir#"$modroot"/}/...")
+				fi
+			else
+				PACKAGE_SET["./${dir}/..."]=1
+			fi
 		fi
 	done
 	mapfile -t STAGED_SCOPES < <(printf '%s\n' "${!PACKAGE_SET[@]}" | sort)
@@ -141,7 +169,7 @@ declare -a GO_ARGS
 # both layers to consume the full CPU count at the same time.
 GO_ARGS=("test" "-race" "-tags=precommit,integration" "-count=1" "-p=4" "-parallel=4")
 
-LOG_FILE=".tmp/race-check.log"
+LOG_FILE="$repo_root/.tmp/race-check.log"
 : >"$LOG_FILE"
 
 STATUS=0
@@ -162,6 +190,18 @@ fi
 if [[ "$STAGED" == true && ${#ARCH_PACKAGES[@]} -gt 0 ]]; then
 	echo "Running staged archtest race scan separately: go ${GO_ARGS[*]} ${ARCH_PACKAGES[*]}"
 	run_race_scan "${ARCH_PACKAGES[@]}"
+fi
+if [[ "$STAGED" == true && ${#NESTED_SCOPES[@]} -gt 0 ]]; then
+	while IFS='|' read -r modroot pattern; do
+		[[ -n "$modroot" && -n "$pattern" ]] || continue
+		echo "Running staged nested-module race scan in $modroot: go ${GO_ARGS[*]} $pattern"
+		(
+			cd "$repo_root/$modroot" || exit 1
+			go "${GO_ARGS[@]}" "$pattern"
+		) 2>&1 | tee -a "$LOG_FILE"
+		scan_status=${PIPESTATUS[0]}
+		[[ $scan_status -ne 0 ]] && STATUS=$scan_status
+	done < <(printf '%s\n' "${NESTED_SCOPES[@]}" | sort -u)
 fi
 if [[ "$STAGED" != true ]]; then
 	if [[ "$LANE" == all || "$LANE" == billing ]]; then

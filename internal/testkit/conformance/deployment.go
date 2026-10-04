@@ -577,14 +577,24 @@ func harnessExecutor(tb testing.TB, backends map[string]execbackend.Backend, def
 // that error into a test failure.
 func AgentLoopGuardFeaturePlanes(tb testing.TB, strategy string) (lipfeature.FrozenPlaneSet, error) {
 	tb.Helper()
+	return AgentLoopGuardFeaturePlanesWithConfig(tb, strategy, "")
+}
+
+// AgentLoopGuardFeaturePlanesWithConfig compiles one real Agent Loop Guard
+// feature generation exactly like AgentLoopGuardFeaturePlanes, with extraConfig
+// appended as additional YAML lines of the feature block (for example, protocol
+// limits). An empty extraConfig composes the generation defaults.
+func AgentLoopGuardFeaturePlanesWithConfig(tb testing.TB, strategy, extraConfig string) (lipfeature.FrozenPlaneSet, error) {
+	tb.Helper()
 
 	switch strategy {
 	case AgentLoopGuardStrategyAttemptCompletion, AgentLoopGuardStrategySemanticVerifier:
 	default:
 		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("harness: unknown agent loop guard strategy %q", strategy)
 	}
+	raw := "enabled: true\nstrategy: " + strategy + "\n" + extraConfig
 	var node yaml.Node
-	if err := yaml.Unmarshal([]byte("enabled: true\nstrategy: "+strategy+"\n"), &node); err != nil {
+	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		return lipfeature.FrozenPlaneSet{}, fmt.Errorf("harness: agent loop guard config: %w", err)
 	}
 	registry := pluginreg.NewRegistry()

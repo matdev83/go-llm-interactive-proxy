@@ -209,6 +209,12 @@ func (m *Mapper) FinishToolCallArguments(id, name, arguments string) error {
 		}); err != nil {
 			return err
 		}
+		// The fallback carries the complete arguments without any incremental
+		// delta behind it. Record the emission so a second final notification
+		// for the same call (function_call_arguments.done followed by the
+		// output_item.done snapshot) cannot emit the arguments again after the
+		// finish and invalidate a completed private capture.
+		m.toolCallArgDeltas[id] = true
 	}
 	return m.EmitToolCallFinished(id)
 }
@@ -240,6 +246,9 @@ func (m *Mapper) EmitCompletedToolCall(id, name, arguments string) error {
 		}); err != nil {
 			return err
 		}
+		// Same idempotency as FinishToolCallArguments: a repeated completed
+		// snapshot must not re-emit arguments the first snapshot already sent.
+		m.toolCallArgDeltas[id] = true
 	}
 	return m.EmitToolCallFinished(id)
 }

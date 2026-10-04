@@ -813,6 +813,30 @@ func algControlIneligibleMatrix() []algControlIneligibleCase {
 			wantControlTool: 0,
 			wantControlText: 1,
 		},
+		{
+			// Finding 4 (PR #724 review): a JSON-object output contract stays
+			// inactive even when the backend declares the necessary tool AND
+			// structured-output capabilities. The proxy synthesizes the
+			// published text from a tool argument, so publishing it would
+			// break the client's expected payload; the protocol abstains
+			// instead.
+			name: "json_object_response_format_with_backend_tools",
+			build: func() *lipapi.Call {
+				call := weather(algControlBackendID + ":" + algControlBackendModel)
+				call.Options.ResponseMIMEType = "application/json"
+				return call
+			},
+			backendCaps: lipapi.NewBackendCaps(
+				lipapi.CapabilityStreaming,
+				lipapi.CapabilityTools,
+				lipapi.CapabilityOrderedItems,
+				lipapi.CapabilityStructuredOutputs,
+			),
+			wantReason:      controltool.ReasonOutputFormatUnsupported,
+			wantToolNames:   []string{algWeatherToolName},
+			wantControlTool: 0,
+			wantControlText: 0,
+		},
 	}
 }
 
