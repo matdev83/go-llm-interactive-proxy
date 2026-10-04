@@ -88,6 +88,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	corehooks "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/expansion"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/outbound"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/rewrite"
@@ -146,6 +147,17 @@ const (
 	expControlLabel  = "without_the_expansion_pass"
 	expGuardedLabel  = "with_the_expansion_pass"
 	expInertOrderOff = 5
+
+	// expReservedMarker is the frozen V1 reserved namespace marker, byte for byte, and
+	// expWorkspaceTagPrefix the frozen tag prefix that introduces the workspace
+	// identity inside an alias root. Both are spelled as LITERALS rather than
+	// imported from the feature, for two reasons. The namespace is a fixed
+	// implementation contract (requirements.md 7.4) and not an operator value, so
+	// exporting it would make it configurable-looking. And a leak detector that
+	// called the production recognizer would be unable to detect a leak that
+	// recognizer itself fails to see. The feature's own tests pin the spelling.
+	expReservedMarker     = ".__lip_v1__"
+	expWorkspaceTagPrefix = "w_"
 )
 
 // expFixture is the ordered pair of strings one argument document is built from:
@@ -158,24 +170,56 @@ type expFixture struct {
 	suffix string
 }
 
-// joined is the selected path value: the root prefix and the path-bearing suffix
-// separated by exactly ONE segment separator. The alias root already ends with one
-// (it is the frozen V1 spelling) and the real root does not, so joining them
-// unconditionally would either drop the separator or double it, and both would
-// produce a value that is legitimately not under its root.
-func (f expFixture) joined() string {
-	if strings.HasSuffix(f.root, "/") {
-		return f.root + f.suffix
-	}
-	return f.root + "/" + f.suffix
+// expSeparatorBefore reports whether a root prefix already spells the segment
+// separator that joins it to its suffix.
+//
+// It is derived from the prefix bytes and never from the running host. The fixed V1
+// alias root always ends with its flavor's own separator - a POSIX alias ends with
+// `/`, every Windows flavor with `\` - so a Windows root change must not gain a
+// second forward slash either, which would produce a value that is legitimately not
+// under its root.
+func expSeparatorBefore(prefix string) bool {
+	return strings.HasSuffix(prefix, "/") || strings.HasSuffix(prefix, `\`)
 }
+
+// under spells the path-bearing suffix beneath an arbitrary root prefix, which is
+// what lets one fixture serve both the alias form (what the backend-bound request
+// carries and what the model emits back) and the real-root form (ingress history,
+// expanded client release).
+func (f expFixture) under(prefix string) string {
+	if expSeparatorBefore(prefix) {
+		return prefix + f.suffix
+	}
+	return prefix + "/" + f.suffix
+}
+
+// joined is the selected path value under the fixture's own root prefix.
+func (f expFixture) joined() string { return f.under(f.root) }
+
+// expEscaped renders a path value the way it appears INSIDE a JSON string literal.
+//
+// A Windows flavor root spells backslashes, and a document that embedded them raw
+// would not parse, which would make a Windows flavor case fail at JSON parsing
+// rather than at the property under test. For the POSIX fixture every value contains
+// no character JSON escapes, so the rendering is byte-identical to the raw spelling
+// and every pre-existing expectation in this harness is unchanged.
+func expEscaped(value string) string {
+	quoted := strconv.Quote(value)
+	return quoted[1 : len(quoted)-1]
+}
+
+// aliasInDocument is the fixture's root prefix as it is spelled inside the argument
+// document, which is what locating an alias in a STREAMED document requires: a
+// Windows alias root is spelled with backslashes, so the document carries the
+// escaped form rather than the raw one.
+func (f expFixture) aliasInDocument() string { return expEscaped(f.root) }
 
 // modelArgsDocument is the complete argument document the backend's model emits on
 // its tool call: the ALIAS form of the selected path member, plus a non-path
 // sibling and a payload-concept sibling expansion must not touch.
 func (f expFixture) modelArgsDocument() string {
-	return `{"` + expPathField + `":"` + f.joined() + `",` +
-		`"` + expPayloadField + `":"/` + f.joined() + `",` +
+	return `{"` + expPathField + `":"` + expEscaped(f.joined()) + `",` +
+		`"` + expPayloadField + `":"/` + expEscaped(f.joined()) + `",` +
 		`"` + expSiblingField + `":` + strconv.Itoa(expSiblingValue) + `}`
 }
 
@@ -185,13 +229,14 @@ func (f expFixture) modelArgsDocument() string {
 // to what the model emitted - including the payload-concept member, which keeps the
 // alias bytes it arrived with because requirement 4.9 forbids expanding it.
 //
-// TwoPassRealRoot, not the authoritative view the runtime publishes, is spelled
-// here on purpose: a finalizer that expanded against some OTHER root would produce
-// a different document and fail the byte comparison, which is what makes this the
-// assertion that the expansion used the authoritative root.
-func (f expFixture) expExpandedModelArgsDocument() string {
-	return `{"` + expPathField + `":"` + twoPassRealRoot + "/" + f.suffix + `",` +
-		`"` + expPayloadField + `":"/` + f.joined() + `",` +
+// The real root is a parameter rather than a literal so a scenario that changes the
+// AUTHORITATIVE root compares against that root: a finalizer that expanded against
+// some OTHER root would produce a different document and fail the byte comparison,
+// which is what makes this the assertion that the expansion used the authoritative
+// root.
+func (f expFixture) expExpandedModelArgsDocument(realRoot string) string {
+	return `{"` + expPathField + `":"` + expEscaped(f.under(realRoot)) + `",` +
+		`"` + expPayloadField + `":"/` + expEscaped(f.joined()) + `",` +
 		`"` + expSiblingField + `":` + strconv.Itoa(expSiblingValue) + `}`
 }
 
@@ -230,7 +275,11 @@ type expMeasure struct {
 // one backend-bound surface, walking both canonical authorities so the result is a
 // statement about the request rather than about whichever representation
 // adaptation happened to choose.
-func expMeasureDocuments(call lipapi.Call, alias string) expMeasure {
+// realRoot is a parameter rather than a literal so a scenario whose authoritative
+// root differs from the shared fixture root still recognizes its own real root on
+// the measured surface; a literal would read every changed-root run as carrying no
+// real root at all.
+func expMeasureDocuments(call lipapi.Call, alias, realRoot string) expMeasure {
 	out := expMeasure{shapeKept: true}
 	documents := make([][]byte, 0, 4)
 	for _, msg := range call.Messages {
@@ -268,7 +317,7 @@ func expMeasureDocuments(call lipapi.Call, alias string) expMeasure {
 		switch {
 		case strings.Contains(selected, alias):
 			out.aliasHits++
-		case strings.Contains(selected, twoPassRealRoot):
+		case strings.Contains(selected, realRoot):
 			out.realHits++
 		default:
 			out.shapeKept = false
@@ -284,7 +333,7 @@ func expMeasureDocuments(call lipapi.Call, alias string) expMeasure {
 			out.shapeKept = false
 			continue
 		}
-		if strings.Contains(payload, twoPassRealRoot) {
+		if strings.Contains(payload, realRoot) {
 			out.realRootInPayload++
 		}
 	}
@@ -644,19 +693,35 @@ func expReleasedArgs(events []lipapi.Event) (string, int) {
 // claimed: what is asserted is that the alias's own byte span is cut by a boundary,
 // which is the property 4.2 is about. The payload sibling's alias is what makes the
 // positive requirement-4.9 assertion in the test body non-trivial.
+// alias must be the root prefix as the document spells it, which for a Windows
+// flavor is the backslash-escaped form; expFixture.aliasInDocument returns exactly
+// that spelling.
 func expArgsFragments(t *testing.T, doc, alias string) []string {
 	t.Helper()
 	aliasAt := strings.Index(doc, alias)
 	if aliasAt < 0 {
 		t.Fatal("fixture: the model-emitted document must carry the reserved alias")
 	}
+	// The cut lands a fixed number of bytes INTO the frozen tag segment, whose start
+	// is located relative to the alias's own tag prefix rather than spelled as an
+	// absolute offset from the alias start. Every supported flavor places that prefix
+	// at a different distance from the start of its alias root - a UNC alias and an
+	// extended-drive alias both carry a longer prefix than a POSIX one - so a fixed
+	// absolute offset would cut inside the namespace marker for some flavors rather
+	// than inside the tag. For the POSIX fixture the located offset is exactly the
+	// value the previous absolute constant held, so no existing expectation moves.
+	tagAt := strings.Index(alias, expWorkspaceTagPrefix)
+	if tagAt < 0 {
+		t.Fatal("fixture: the alias must carry the frozen workspace tag prefix")
+	}
 	const (
-		intoTag    = len("/.__lip_v1__/w_") + 4
-		intoSuffix = len("src/la")
+		intoTagBytes = 4
+		intoSuffix   = len("src/la")
 	)
-	if intoTag <= 0 || intoTag >= len(alias) {
-		t.Fatalf("fixture: the cut offset must fall strictly inside the alias span: offset=%d alias_span=%d",
-			intoTag, len(alias))
+	intoTag := tagAt + intoTagBytes
+	if intoTag <= tagAt || intoTag >= len(alias) {
+		t.Fatalf("fixture: the cut offset must fall strictly inside the frozen tag: offset=%d tag_at=%d alias_span=%d",
+			intoTag, tagAt, len(alias))
 	}
 	fragments := []string{
 		doc[:aliasAt+intoTag],
@@ -683,7 +748,7 @@ func expBackendEvents(t *testing.T, fixture expFixture) []lipapi.Event {
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventToolCallStarted, ToolCallID: expToolCallID, ToolName: expToolName},
 	}
-	for _, fragment := range expArgsFragments(t, fixture.modelArgsDocument(), fixture.root) {
+	for _, fragment := range expArgsFragments(t, fixture.modelArgsDocument(), fixture.aliasInDocument()) {
 		events = append(events, lipapi.Event{
 			Kind:       lipapi.EventToolCallArgsDelta,
 			ToolCallID: expToolCallID,
@@ -707,7 +772,7 @@ func expBackendEvents(t *testing.T, fixture expFixture) []lipapi.Event {
 // are spelled exactly as everywhere else in this file.
 func expOversizedDocument(t *testing.T, fixture expFixture, total int) string {
 	t.Helper()
-	prefix := `{"` + expPathField + `":"` + fixture.joined() + `",` +
+	prefix := `{"` + expPathField + `":"` + expEscaped(fixture.joined()) + `",` +
 		`"` + expPayloadField + `":"",` +
 		`"` + expSiblingField + `":` + strconv.Itoa(expSiblingValue) + `,` +
 		`"filler":"`
@@ -723,7 +788,7 @@ func expOversizedDocument(t *testing.T, fixture expFixture, total int) string {
 	if !json.Valid([]byte(doc)) {
 		t.Fatal("fixture: the oversized document must still be one complete JSON value")
 	}
-	if !strings.Contains(doc, fixture.joined()) {
+	if !strings.Contains(doc, fixture.aliasInDocument()) {
 		t.Fatal("fixture: the oversized document must carry the reserved alias")
 	}
 	return doc
@@ -760,9 +825,14 @@ func expOversizedBackendEvents(t *testing.T, fixture expFixture, total int) []li
 // expIngressCall is the canonical client request: one path-bearing historical tool
 // call spelled against the REAL project root, exactly as a coding-agent client
 // replays it, plus a first user message and a terminal forwardable one.
-func expIngressCall(t *testing.T) *lipapi.Call {
+//
+// realRoot is a parameter because a scenario that pins a different authoritative
+// root must spell its replayed history against that same root; the request-side
+// scaffolding guard reads exactly one selected path field out of the backend-bound
+// request, and a history spelled against some other root would not produce one.
+func expIngressCall(t *testing.T, realRoot string) *lipapi.Call {
 	t.Helper()
-	history := expFixture{root: twoPassRealRoot, suffix: expHistorySuffix}
+	history := expFixture{root: realRoot, suffix: expHistorySuffix}
 	document := history.modelArgsDocument()
 	if !json.Valid([]byte(document)) {
 		t.Fatalf("fixture: the ingress history argument document must be one complete JSON value: bytes=%d", len(document))
@@ -814,13 +884,46 @@ type expScenario struct {
 	// opposite of the property. The request-side guards stay unconditional for every
 	// scenario, because a refused tool call does not change how the request was built.
 	observersExpected bool
+
+	// ingress overrides the client request the run submits. Nil selects the shared
+	// historical-tool-call fixture, which is what every pre-existing scenario wants.
+	// It is the one seam a scenario that changes the AUTHORITATIVE root needs: the
+	// replayed history must be spelled against the same root the runtime pins, or the
+	// request-side guard below would be measuring a different workspace than the one
+	// under test.
+	ingress func(*testing.T) *lipapi.Call
+
+	// workspaceRoot overrides the authoritative root the runtime pins for the turn.
+	// Empty selects the shared fixture root. It is a parameter rather than a constant
+	// because requirement 6.5's property is about what happens when the AUTHORITATIVE
+	// root changes, and only a harness that can pin an arbitrary root can stage that.
+	workspaceRoot string
+}
+
+// effectiveRoot is the root this scenario's runtime pins for the turn.
+func (tc expScenario) effectiveRoot() string {
+	if tc.workspaceRoot == "" {
+		return twoPassRealRoot
+	}
+	return tc.workspaceRoot
+}
+
+// ingressCall builds the client request, applying the default when the scenario did
+// not override it.
+func (tc expScenario) ingressCall(t *testing.T) *lipapi.Call {
+	t.Helper()
+	if tc.ingress != nil {
+		return tc.ingress(t)
+	}
+	return expIngressCall(t, tc.effectiveRoot())
 }
 
 // expRun drives one scenario end to end.
 func expRun(t *testing.T, scenario expScenario) expRunResult {
 	t.Helper()
 
-	alias := hookRegAliasOf(t)
+	realRoot := scenario.effectiveRoot()
+	alias := expAliasOf(t, realRoot)
 	fixture := expFixture{root: scenario.aliasRoot, suffix: expModelSuffix}
 
 	stage := &expStage{}
@@ -846,7 +949,7 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	// the public SDK context projection. Neither is handed a workspace authority, which
 	// is what makes one run a proof that the two request planes and the response plane
 	// agree on one workspace rather than on two independently spelled roots.
-	authority := twoPassWorkspaceResolver{root: twoPassRealRoot}
+	authority := twoPassWorkspaceResolver{root: realRoot}
 	resolver := hookRegResolver(t)
 	early := outbound.NewAttemptTransform(
 		rewrite.ModeRewrite,
@@ -889,7 +992,7 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 		}),
 	})
 
-	stream, err := ex.Execute(principalCtx("path-virtualization-expansion-order"), expIngressCall(t))
+	stream, err := ex.Execute(principalCtx("path-virtualization-expansion-order"), scenario.ingressCall(t))
 	if err != nil {
 		// The error TYPE only. A pre-backend denial reason can carry anchor identities
 		// and overlay IDs, which requirements.md 7.7 keeps out of any observable
@@ -906,7 +1009,11 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	}
 	result.released, result.lifecycle = expReleasedArgs(events)
 	raw := rec.observation(true, 0)
-	result.openMeasure = expMeasureDocuments(raw.backendOpenCall, alias)
+	result.openMeasure = expMeasureDocuments(raw.backendOpenCall, alias, realRoot)
+	result.openSelected = expFirstSelectedPath(raw.backendOpenCall)
+	result.realRoot = realRoot
+	result.alias = alias
+	result.previousResponseID = raw.backendOpenCall.PreviousResponseID
 	result.expCalls, result.expSeen, result.expResult = marker.observation()
 	result.expReports = reports.expansion()
 	result.policyCalls, result.policyArg, result.policyJoined, result.policyRoot = policy.observation()
@@ -921,6 +1028,11 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	if attemptAt == 0 || partAt == 0 {
 		t.Fatalf("%s: fixture: both real outbound stages must be reached: %s", scenario.label, result.stages)
 	}
+	// The backend-bound request must carry EXACTLY the one path-bearing history tool
+	// call every ingress in this package supplies, so a scaffolding guard can never be
+	// satisfied by a fixture that never virtualized anything. It stays exactly one
+	// because a scenario that changed the ingress to carry none would be measuring a
+	// different property, and this guard would then fail loudly rather than pass quietly.
 	if result.openMeasure.documents != 1 || result.openMeasure.selectedFields != 1 {
 		t.Fatalf("%s: fixture: the backend-bound request must carry exactly the one path-bearing history tool call: documents=%d selected_fields=%d",
 			scenario.label, result.openMeasure.documents, result.openMeasure.selectedFields)
@@ -936,6 +1048,67 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 		}
 	}
 	return result
+}
+
+// expFirstSelectedPath returns the FIRST selected path value on a canonical call, in
+// document order, or the empty string when there is none.
+//
+// It exists so a scenario can compare the exact bytes the provider was handed across
+// two turns. A count of alias hits cannot do that: two different aliases both count as
+// one hit, so a continuation path that derived a DIFFERENT alias from the replay path
+// would pass every counter in this file. The value is returned for comparison only and
+// is never formatted.
+func expFirstSelectedPath(call lipapi.Call) string {
+	for _, msg := range call.Messages {
+		for _, part := range msg.Parts {
+			if part.Kind != lipapi.PartJSON || part.ToolCallID == "" || len(part.Content) == 0 {
+				continue
+			}
+			if selected, ok := expSelectedPathOf(part.Content); ok {
+				return selected
+			}
+		}
+	}
+	for _, item := range call.Items {
+		if item.ToolCall == nil || len(item.ToolCall.Arguments) == 0 {
+			continue
+		}
+		if selected, ok := expSelectedPathOf(item.ToolCall.Arguments); ok {
+			return selected
+		}
+	}
+	return ""
+}
+
+// expSelectedPathOf reads the fixture's selected path member out of one argument
+// document.
+func expSelectedPathOf(document []byte) (string, bool) {
+	if !json.Valid(document) {
+		return "", false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(document, &fields) != nil {
+		return "", false
+	}
+	var selected string
+	if json.Unmarshal(fields[expPathField], &selected) != nil {
+		return "", false
+	}
+	return selected, true
+}
+
+// expAliasOf derives the alias this feature publishes for root.
+//
+// The value is returned for COMPARISON only. Nothing in this package formats it and no
+// failure message contains it: requirement 7.7 keeps the workspace identity tag out of
+// every observable dimension, so a tag-bearing message would be the violation itself.
+func expAliasOf(t *testing.T, root string) string {
+	t.Helper()
+	mapping, reason := pathvirtualization.DeriveMapping(root)
+	if reason != pathvirtualization.SkipReasonNone || mapping.VirtualRoot == "" {
+		t.Fatalf("fixture: the pinned project root must derive an active mapping; its refusal reason is bounded and content-free")
+	}
+	return mapping.VirtualRoot
 }
 
 // newExpansionFin builds the REAL shipped expansion finalizer with the REAL shipped
@@ -992,6 +1165,22 @@ type expRunResult struct {
 	lifecycle int
 
 	openMeasure expMeasure
+	// openSelected is the FIRST selected path value the backend-bound request carried.
+	// It is held so a scenario can compare the alias the provider was actually handed
+	// across two turns byte for byte, which counts alone cannot do. Like realRoot and
+	// alias it is never formatted into a failure message.
+	openSelected string
+
+	// realRoot is the root the runtime pinned for this run and alias the mapping it
+	// derived. Both are held for COMPARISON only; no assertion in this package formats
+	// either one, because the workspace identity tag is not an observable dimension
+	// (requirements.md 7.7).
+	realRoot string
+	alias    string
+	// previousResponseID is the continuation parent the backend-bound request carried,
+	// captured so a continuation scenario can assert the parent reached the provider
+	// unchanged.
+	previousResponseID string
 
 	expCalls   int
 	expSeen    []byte
@@ -1092,13 +1281,13 @@ func TestStreamToolCall_RealExpansionReachesPolicyReactorAndClientAsTheRealPath(
 	t.Run("tool_policy_observes_the_full_real_path", func(t *testing.T) {
 		assertObserverSeesExpandedDocument(t, "tool_policy", got.stages,
 			got.policyCalls, got.policyArg, got.policyJoined,
-			resolvable.expExpandedModelArgsDocument(), resolvable.root)
+			resolvable.expExpandedModelArgsDocument(twoPassRealRoot), resolvable.root)
 	})
 
 	t.Run("tool_reactor_observes_the_full_real_path", func(t *testing.T) {
 		assertObserverSeesExpandedDocument(t, "tool_reactor", got.stages,
 			got.reactorCalls, got.reactorArg, got.reactorJoined,
-			resolvable.expExpandedModelArgsDocument(), resolvable.root)
+			resolvable.expExpandedModelArgsDocument(twoPassRealRoot), resolvable.root)
 	})
 
 	// requirements.md 5.1: policy evaluation runs ONLY AFTER expansion produced the
@@ -1126,7 +1315,7 @@ func TestStreamToolCall_RealExpansionReachesPolicyReactorAndClientAsTheRealPath(
 			t.Fatalf("fixture: the assembler must synthesize the canonical rewritten lifecycle: lifecycle_events=%d want 3",
 				got.lifecycle)
 		}
-		want := resolvable.expExpandedModelArgsDocument()
+		want := resolvable.expExpandedModelArgsDocument(twoPassRealRoot)
 		if got.released != want {
 			// The single assertion that matters: byte equality against the exact
 			// expected document. It reports valid_json too, so a truncated, partially

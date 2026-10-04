@@ -448,16 +448,14 @@ func hookRegResolver(t *testing.T) *pathvirtualization.Resolver {
 
 // hookRegAliasOf derives the alias this feature publishes for the fixture root.
 //
-// The value is returned for comparison only. Nothing in this file formats it and no
-// failure message contains it: requirement 7.7 forbids the workspace identity tag from
-// reaching any observable dimension.
+// It is the fixture-root specialization of the shared expAliasOf helper rather than a
+// second derivation, so both harnesses in this package answer "the alias for a root"
+// from one implementation. The value is returned for comparison only. Nothing in this
+// file formats it and no failure message contains it: requirement 7.7 forbids the
+// workspace identity tag from reaching any observable dimension.
 func hookRegAliasOf(t *testing.T) string {
 	t.Helper()
-	mapping, reason := pathvirtualization.DeriveMapping(twoPassRealRoot)
-	if reason != pathvirtualization.SkipReasonNone || mapping.VirtualRoot == "" {
-		t.Fatalf("fixture: the fixture project root must derive an active mapping; refusal reason is bounded and content-free")
-	}
-	return mapping.VirtualRoot
+	return expAliasOf(t, twoPassRealRoot)
 }
 
 // hookRegEligibility observes the candidate sizing / context eligibility port and

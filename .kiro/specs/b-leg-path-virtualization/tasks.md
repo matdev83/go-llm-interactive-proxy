@@ -274,7 +274,7 @@
   - _Validation: metrics/inventory tests_
 
 - [ ] 10. Certify continuity, protocol neutrality, and failure behavior (P)
-- [ ] 10.1 Add restart/reload, stale-workspace, and provider-continuation characterization
+- [x] 10.1 Add restart/reload, stale-workspace, and provider-continuation characterization
   - Prove the same root derives the same fixed-V1 workspace tag/alias without stored mapping after feature object/process recreation.
   - Cover provider-side continuation shape (`PreviousResponseID`) with consistent alias derivation.
   - Derive alias A under root A, change the authoritative root to B, then inject a model tool call containing alias A and prove it is rejected as `workspace_mismatch`, never expanded to root B.

@@ -82,16 +82,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
-// expReservedMarker is the frozen V1 reserved namespace marker, byte for byte.
-//
-// It is spelled as a literal here rather than imported from the feature, which keeps
-// it unexported on purpose: the namespace is a fixed implementation contract
-// (requirements.md 7.4) and not an operator value. The feature's own tests pin the
-// spelling. Using a LITERAL is also deliberate: a leak detector that called the
-// production recognizer would be unable to detect a leak that recognizer itself
-// fails to see.
-const expReservedMarker = ".__lip_v1__"
-
 // expFailingOrder is the absolute order of the unrelated optional finalizer used by
 // the "unrelated failure" case.
 //
@@ -139,9 +129,23 @@ type expClientScan struct {
 	reservedSelected int
 	// realSelected is how many carry the authoritative real root.
 	realSelected int
+	// newRootFields is how many carry the NEW authoritative root's bytes, where that
+	// root is not the shared fixture root. It is the requirement 6.5 rebinding oracle:
+	// a stale alias EXPANDED against the new root would show up here while every
+	// other zero in this struct still held, because the tool lifecycle would still be
+	// withheld. Empty disables it.
+	newRootFields int
+	// staleTagFields is how many carry the PRIOR workspace's identity tag. It is the
+	// same oracle from the other side: the stale alias must not be handed back to the
+	// client as an ordinary path either. Empty disables it.
+	staleTagFields int
 }
 
 // expScanClientEvents measures the whole emitted stream.
+//
+// newRoot and staleTag are the two requirement 6.5 rebinding oracles, read off the
+// same selected path values. Both are empty for every pre-existing case, which leaves
+// their counters at zero by construction rather than by an assertion being skipped.
 //
 // Every event is rendered to JSON with HTML escaping DISABLED and scanned for the
 // marker bytes, and every released argument document is reassembled PER TOOL CALL
@@ -153,7 +157,7 @@ type expClientScan struct {
 // marker byte it had itself rewritten. An event the encoder cannot render is counted
 // rather than skipped silently, so a scan that quietly examined less than it claims
 // is visible.
-func expScanClientEvents(events []lipapi.Event) expClientScan {
+func expScanClientEvents(events []lipapi.Event, newRoot, staleTag string) expClientScan {
 	var out expClientScan
 	var buf bytes.Buffer
 	joined := map[string]string{}
@@ -208,6 +212,12 @@ func expScanClientEvents(events []lipapi.Event) expClientScan {
 		}
 		if strings.Contains(selected, twoPassRealRoot) {
 			out.realSelected++
+		}
+		if newRoot != "" && strings.Contains(selected, newRoot) {
+			out.newRootFields++
+		}
+		if staleTag != "" && strings.Contains(selected, staleTag) {
+			out.staleTagFields++
 		}
 	}
 	return out
@@ -271,6 +281,21 @@ type expRefusalCase struct {
 	// wantRejectError requires the refusal to be the shipped pass's own typed
 	// [toolcall.RejectError].
 	wantRejectError bool
+	// workspaceRoot overrides the authoritative root the runtime pins for the turn.
+	// Empty selects the shared fixture root. It exists so a requirement 6.5 case can
+	// pin a root that is NOT the one aliasRoot's alias was minted under, which is the
+	// only shape in which a stale alias exists at all.
+	workspaceRoot string
+	// newRoot is the authoritative root this case pins. It is read by the REBINDING
+	// oracle, which counts how many released selected path fields carry it: a stale
+	// alias that was expanded against the new root would show up there, and a
+	// workspace_mismatch refusal must leave it at zero. Empty disables that counter,
+	// which is only correct for a case whose pinned root IS the shared fixture root.
+	newRoot string
+	// staleTag is the prior workspace's identity tag, read by the SAME oracle to
+	// prove the stale alias is not handed back to the client as an ordinary path
+	// either. Empty disables it.
+	staleTag string
 }
 
 // effectiveRoot is the root prefix the model-emitted alias is actually built on for
@@ -281,6 +306,15 @@ func (tc expRefusalCase) effectiveRoot() string {
 		return tc.malformedAlias
 	}
 	return tc.aliasRoot
+}
+
+// effectiveWorkspaceRoot is the authoritative root this case's run pins. It is
+// derived the same way so the case cannot declare a root change the harness ignores.
+func (tc expRefusalCase) effectiveWorkspaceRoot() string {
+	if tc.workspaceRoot == "" {
+		return twoPassRealRoot
+	}
+	return tc.workspaceRoot
 }
 
 // expRunRefusal drives one fail-closed case and returns the whole released stream
@@ -294,10 +328,11 @@ func expRunRefusal(t *testing.T, tc expRefusalCase) (expRunResult, expClientScan
 		assembleBody:      tc.assembleBody,
 		extraFinalizers:   tc.extraFinalizers,
 		observersExpected: false,
+		workspaceRoot:     tc.workspaceRoot,
 		// The request-side path is identical for every case, so the guards in expRun
 		// that cover it are unconditional and already reported a clean fixture.
 	})
-	return result, expScanClientEvents(result.events)
+	return result, expScanClientEvents(result.events, tc.newRoot, tc.staleTag)
 }
 
 // assertNoAliasReachedTheClient is the shared body of every fail-closed assertion.
@@ -347,6 +382,20 @@ func assertNoAliasReachedTheClient(t *testing.T, tc expRefusalCase, result expRu
 	if result.expResult.ArgsJSON != nil {
 		t.Fatalf("requirements.md 4.4/8.3 - %s: a refusal must publish no document at all: published_bytes=%d",
 			tc.label, len(result.expResult.ArgsJSON))
+	}
+	// The REBINDING oracle. Every zero above would still hold if the stale alias had
+	// been EXPANDED against the new authoritative root rather than refused: the tool
+	// lifecycle would be withheld either way, so only a direct count of released
+	// selected path fields carrying the new root's bytes separates those two outcomes.
+	// It reports counts only, and is disabled - by leaving the case's fields empty -
+	// for every case that does not change the authoritative root.
+	if scan.newRootFields != 0 {
+		t.Fatalf("requirements.md 6.5 - %s: a released selected path field carries the NEW authoritative root's bytes: selected_fields=%d new_root_fields=%d documents=%d",
+			tc.label, scan.selectedFields, scan.newRootFields, scan.documents)
+	}
+	if scan.staleTagFields != 0 {
+		t.Fatalf("requirements.md 6.5 - %s: a released selected path field still carries the PRIOR workspace identity: selected_fields=%d stale_tag_fields=%d documents=%d",
+			tc.label, scan.selectedFields, scan.staleTagFields, scan.documents)
 	}
 	if result.expCalls != tc.wantPassInvocations {
 		t.Fatalf("fixture: %s: the shipped pass invocation count: got %d want %d",
@@ -524,7 +573,7 @@ func TestStreamToolCall_UnresolvedAliasAndMandatoryOverflowNeverReachClientEvent
 			expansionDecides:  true,
 			observersExpected: true,
 		})
-		scan := expScanClientEvents(result.events)
+		scan := expScanClientEvents(result.events, "", "")
 		if result.recvErr != nil {
 			t.Fatalf("fixture: the resolvable alias must not fail the turn: %T", result.recvErr)
 		}
@@ -559,6 +608,10 @@ func TestStreamToolCall_UnresolvedAliasAndMandatoryOverflowNeverReachClientEvent
 	for _, tc := range cases {
 		t.Run(tc.label, func(t *testing.T) {
 			result, scan := expRunRefusal(t, tc)
+			if result.realRoot != tc.effectiveWorkspaceRoot() {
+				t.Fatalf("fixture: %s: the run must pin the case's own authoritative root: root_changed=%t",
+					tc.label, result.realRoot != twoPassRealRoot)
+			}
 			// design.md "Existing Architecture and Placement" steps 11 and 12 put tool-call
 			// assembly/finalization before the tool policy and reactor planes, so a call
 			// refused during finalization must never reach either observer. This is the
