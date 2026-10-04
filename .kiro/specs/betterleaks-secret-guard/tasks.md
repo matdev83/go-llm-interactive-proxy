@@ -200,7 +200,7 @@
     - _Depends: 8.3_
     - _Validation: focused feature/runtime tests; scoped lint; git diff --check_
 
-  - [ ] 8.5 Restore architecture convergence through genuine simplification
+  - [x] 8.5 Restore architecture convergence through genuine simplification
     - Simplify feature-owned credential acceptance and diagnostic/composition duplication until the unchanged architecture ratchet passes. Main passes at -801; this feature adds 55 measured production lines and currently measures -746.
     - Preserve accepted-credential attribution, request isolation, no-environment guarantees, frozen generation diagnostics, and zero-valued policy facts.
     - Do not change budgets, broaden exclusions, compress formatting, or relocate unchanged logic to alter the measurement.
@@ -230,6 +230,8 @@
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
 ## Implementation Notes
+
+- Task 8.5 removes 54 measured production lines through reviewed feature-owned deduplication; the unchanged architecture convergence ratchet now passes at -800 with accepted-credential and diagnostic-isolation regressions green.
 
 - Debug verification establishes the shrinkage failure as branch-local: current main passes at -801 and this feature adds 55 measured lines. Final Linux gates should use an isolated native clone through the existing UbuntuOld/ciuser runner, avoiding root execution and Windows worktree metadata.
 

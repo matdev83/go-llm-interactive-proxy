@@ -76,24 +76,14 @@ func mountDiagnostics(in mountDiagnosticsInput) error {
 }
 
 func mergeInventoryExtrasForDiagnostics(reg *pluginreg.Registry, registrations []lipsdk.Registration, secretGuard *diag.InventoryExtras) *diag.InventoryExtras {
-	out := &diag.InventoryExtras{Reg: reg, Registrations: registrations}
-	if secretGuard == nil {
-		return out
+	out := diag.InventoryExtras{Reg: reg, Registrations: registrations}
+	if secretGuard != nil {
+		out = *secretGuard
+		out.Reg = reg
+		out.Registrations = registrations
+		out.SecretGuardSourceCategories = append([]string(nil), secretGuard.SecretGuardSourceCategories...)
 	}
-	out.SecretGuardCatalogEntryCount = secretGuard.SecretGuardCatalogEntryCount
-	out.SecretGuardSourceCategories = append([]string(nil), secretGuard.SecretGuardSourceCategories...)
-	out.SecretGuardAccessMode = secretGuard.SecretGuardAccessMode
-	out.SecretGuardAction = secretGuard.SecretGuardAction
-	out.SecretGuardLocalAutoDiscovery = secretGuard.SecretGuardLocalAutoDiscovery
-	out.SecretGuardBetterLeaksEnabled = secretGuard.SecretGuardBetterLeaksEnabled
-	out.SecretGuardBetterLeaksVersion = secretGuard.SecretGuardBetterLeaksVersion
-	out.SecretGuardBetterLeaksConfigHash = secretGuard.SecretGuardBetterLeaksConfigHash
-	out.SecretGuardBetterLeaksRuleCount = secretGuard.SecretGuardBetterLeaksRuleCount
-	out.SecretGuardBetterLeaksConfidence = secretGuard.SecretGuardBetterLeaksConfidence
-	out.SecretGuardBetterLeaksDecodeDepth = secretGuard.SecretGuardBetterLeaksDecodeDepth
-	out.SecretGuardBetterLeaksWorkers = secretGuard.SecretGuardBetterLeaksWorkers
-	out.SecretGuardDiscoveryDetectorCount = secretGuard.SecretGuardDiscoveryDetectorCount
-	return out
+	return &out
 }
 
 // diagnosticsMount carries non-context inputs for model diagnostics mounts.

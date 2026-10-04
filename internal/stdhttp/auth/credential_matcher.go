@@ -16,19 +16,24 @@ type exactCredentialMatcher struct {
 	refName string
 }
 
-func newExactCredentialMatcher(presented, keyID string) *exactCredentialMatcher {
+func newExactCredentialMatcher(presented, keyID string) secretguard.Matcher {
 	presented = strings.TrimSpace(presented)
 	if presented == "" {
 		return nil
 	}
 	ref := cmp.Or(strings.TrimSpace(keyID), "request_credential")
-	sec := make([]byte, len(presented))
-	copy(sec, presented)
-	return &exactCredentialMatcher{secret: sec, refName: ref}
+	return &exactCredentialMatcher{secret: bytes.Clone([]byte(presented)), refName: ref}
 }
 
-func (m *exactCredentialMatcher) ScanBytes(ctx context.Context, input []byte) ([]secretguard.Finding, error) {
-	_ = ctx
+func (m *exactCredentialMatcher) finding(n int) secretguard.Finding {
+	return secretguard.Finding{
+		SecretRefName:   m.refName,
+		SourceCategory:  secretguard.SourceCategoryRequestCred,
+		OccurrenceCount: n,
+	}
+}
+
+func (m *exactCredentialMatcher) ScanBytes(_ context.Context, input []byte) ([]secretguard.Finding, error) {
 	if m == nil || len(m.secret) == 0 {
 		return nil, nil
 	}
@@ -36,19 +41,14 @@ func (m *exactCredentialMatcher) ScanBytes(ctx context.Context, input []byte) ([
 	if n == 0 {
 		return nil, nil
 	}
-	return []secretguard.Finding{{
-		SecretRefName:   m.refName,
-		SourceCategory:  secretguard.SourceCategoryRequestCred,
-		OccurrenceCount: n,
-	}}, nil
+	return []secretguard.Finding{m.finding(n)}, nil
 }
 
 func (m *exactCredentialMatcher) ScanString(ctx context.Context, input string) ([]secretguard.Finding, error) {
 	return m.ScanBytes(ctx, []byte(input))
 }
 
-func (m *exactCredentialMatcher) RedactBytes(ctx context.Context, input []byte) ([]byte, []secretguard.Finding, error) {
-	_ = ctx
+func (m *exactCredentialMatcher) RedactBytes(_ context.Context, input []byte) ([]byte, []secretguard.Finding, error) {
 	if m == nil || len(m.secret) == 0 || len(input) == 0 {
 		return append([]byte(nil), input...), nil, nil
 	}
@@ -58,11 +58,7 @@ func (m *exactCredentialMatcher) RedactBytes(ctx context.Context, input []byte) 
 	}
 	mask := bytes.Repeat([]byte("*"), len(m.secret))
 	out := bytes.ReplaceAll(input, m.secret, mask)
-	return out, []secretguard.Finding{{
-		SecretRefName:   m.refName,
-		SourceCategory:  secretguard.SourceCategoryRequestCred,
-		OccurrenceCount: n,
-	}}, nil
+	return out, []secretguard.Finding{m.finding(n)}, nil
 }
 
 func (m *exactCredentialMatcher) RedactString(ctx context.Context, input string) (string, []secretguard.Finding, error) {
@@ -85,9 +81,6 @@ func countExactOccurrences(haystack, needle []byte) int {
 		}
 		n++
 		i += j + len(needle)
-		if i > len(haystack) {
-			return n
-		}
 	}
 }
 

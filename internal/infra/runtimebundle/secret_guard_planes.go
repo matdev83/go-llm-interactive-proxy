@@ -1,6 +1,8 @@
 package runtimebundle
 
 import (
+	"slices"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -19,10 +21,6 @@ func secretGuardFromPlanes(frozen lipfeature.FrozenPlaneSet) (extensions.SecretG
 	if execCfg == nil || execCfg.IsZero() {
 		return extensions.SecretGuardPlane{}, nil
 	}
-	var categories []string
-	if len(execCfg.SourceCategories) > 0 {
-		categories = append([]string(nil), execCfg.SourceCategories...)
-	}
 	return extensions.SecretGuardPlane{
 			MatcherResolver:    execCfg.MatcherResolver,
 			Capability:         execCfg.Capability,
@@ -32,7 +30,7 @@ func secretGuardFromPlanes(frozen lipfeature.FrozenPlaneSet) (extensions.SecretG
 			ConfigVersion:      execCfg.ConfigVersion,
 		}, &diag.InventoryExtras{
 			SecretGuardCatalogEntryCount:      execCfg.CatalogEntryCount,
-			SecretGuardSourceCategories:       categories,
+			SecretGuardSourceCategories:       slices.Clone(execCfg.SourceCategories),
 			SecretGuardAccessMode:             execCfg.AccessMode,
 			SecretGuardAction:                 execCfg.CatalogAction,
 			SecretGuardLocalAutoDiscovery:     execCfg.LocalAutoDiscoveryEnabled,
