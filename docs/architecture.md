@@ -12,6 +12,7 @@ The durable source of truth is split by purpose:
 - `docs/runtime-config-reload.md` - explicit SIGHUP/management-API runtime config reload (no watcher; atomic source replace; generation publication).
 - `docs/proxy-identity.md` - A-leg/B-leg identity carriers, modes, allowlist/exclusions, OpenRouter attribution.
 - `docs/conversation-view.md` - A-leg/B-leg conversation-view projection (client-visible/backend-hidden vs backend-visible/client-hidden, whole-message granularity, semantic identity, fixed anchors, cache-prefix invariants).
+- `docs/session-classification.md` - optional session classification (`unknown`/`coding_agent`, proxy-owned authoritative keying, local heuristic rules, optional TypeSafe/Jev remote modes, fail-open behavior, bounded diagnostics).
 - `docs/architecture.md` - this current-state runtime map.
 
 ## Product shape
