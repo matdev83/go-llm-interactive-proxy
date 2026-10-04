@@ -21,6 +21,60 @@ type toolCallBuffer struct {
 	messageIndex int
 	originals    []lipapi.Event
 	args         []byte
+
+	// mandatorySafe is the document a finalizer that published a declared mandatory
+	// completeness requirement was shown, and returned a usable result for. It is
+	// retained so a LATER finalizer's unusable result can never fall back on the
+	// original fragments over a decision that was already made on it.
+	//
+	// It is nil until such a requirement has actually been satisfied for this call,
+	// so the retention is exactly ONE bounded reference per active tool call and
+	// never a growing store: it is written at most once, by the declaring finalizer,
+	// and it dies with the buffer. See [toolCallAssembler.unusableResult] for the
+	// decision it drives.
+	mandatorySafe *toolCallDocument
+}
+
+// toolCallDocument is one complete tool-call document: the arguments the assembler
+// is carrying for a call plus the tool name they belong to.
+type toolCallDocument struct {
+	name string
+	args []byte
+	// rewrote records whether this document already differs from the original
+	// fragments, which is exactly the condition under which the release synthesizes
+	// a new canonical lifecycle instead of replaying those fragments unchanged.
+	rewrote bool
+}
+
+// retainMandatorySafe records the document the assembler is carrying as this call's
+// mandatory-safe result.
+//
+// It is called only on the declaring finalizer's own usable result, so it is called
+// at most once per call. The arguments it stores are the private copy the assembler
+// already hands to the next finalizer, so nothing is copied here and nothing the
+// stored slice aliases can still be mutated: every later rewrite REPLACES the
+// assembler's arguments with a fresh copy rather than editing them in place.
+func (b *toolCallBuffer) retainMandatorySafe(name string, args []byte, rewrote bool) {
+	b.mandatorySafe = &toolCallDocument{name: name, args: args, rewrote: rewrote}
+}
+
+// mandatorySafeRelease is the release lifecycle for this call's retained
+// mandatory-safe result: the synthesized canonical lifecycle when the document
+// already differs from the original fragments, and the untouched fragments when it
+// does not.
+//
+// The second branch is byte-identical to the pre-existing replay, which is what
+// keeps a call whose declaring finalizer changed nothing - or a call with no
+// earlier rewrite in front of it - behaving precisely as it did before, including
+// the fragment boundaries a client already saw.
+func (b *toolCallBuffer) mandatorySafeRelease() []lipapi.Event {
+	if b.mandatorySafe == nil {
+		return nil
+	}
+	if b.mandatorySafe.rewrote {
+		return synthesizeRewriteLifecycle(b, b.mandatorySafe.name, b.mandatorySafe.args)
+	}
+	return slices.Clone(b.originals)
 }
 
 // toolCallAssembler is owned by a single retryRecvStream and driven only from
@@ -224,11 +278,18 @@ func (a *toolCallAssembler) ingestFinished(ctx context.Context, ev lipapi.Event,
 	delete(a.active, id)
 	a.completed[id] = struct{}{}
 
+	// Whatever finalizeCall decided to release is queued BEFORE its error is
+	// returned, so the assembler never silently discards a document it decided to
+	// keep in favour of the originals. A refusal returns no events at all, so this
+	// changes nothing for the closed-answer cases; only the preserved
+	// mandatory-safe result is both released and failed, and what the client ends
+	// up observing for that turn stays the pre-existing terminal error path's
+	// decision rather than the assembler's.
 	emit, err := a.finalizeCall(ctx, buf, meta)
+	a.enqueue(emit...)
 	if err != nil {
 		return true, err
 	}
-	a.enqueue(emit...)
 	return true, nil
 }
 
@@ -251,8 +312,9 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 	// finalizer that fails first must not silently skip it, because replaying the
 	// original fragments is exactly what releases possibly alias-bearing
 	// arguments no declaring finalizer ever decided on. The flag is cleared as
-	// soon as the declaring finalizer is invoked, so from that point its own
-	// error keeps the pre-existing replay semantics.
+	// soon as the declaring finalizer is invoked; from that point the requirement
+	// is satisfied by that finalizer's own usable result and the decision belongs
+	// to [toolCallAssembler.unusableResult].
 	mandatoryPending := a.mandatory.mandatoryBoundDeclared
 
 	for _, fin := range a.finalizers {
@@ -267,7 +329,11 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 			ToolName:   name,
 			ArgsJSON:   append([]byte(nil), args...),
 		}
-		if mandatoryPending && declaresMandatoryBound(fin) {
+		// declares is this finalizer's own capability answer, read once and used for
+		// both halves of the requirement: clearing the pending flag before it runs,
+		// and retaining its result as the call's mandatory-safe document afterwards.
+		declares := declaresMandatoryBound(fin)
+		if mandatoryPending && declares {
 			mandatoryPending = false
 		}
 		op := "tool_call_finalizer:" + fin.ID()
@@ -275,22 +341,35 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 			return fin.Finalize(ctx, call, tool, catalogCopy, meta)
 		})
 		if err != nil {
-			return a.undecidedMandatoryReplay(buf, mandatoryPending)
+			return a.unusableResult(buf, mandatoryPending, err)
 		}
 		switch res.Action {
 		case toolcall.ActionPass:
+			if declares {
+				// The declaring finalizer saw these arguments and accepted them, so
+				// they are this call's mandatory-safe document whatever happens to a
+				// later finalizer.
+				buf.retainMandatorySafe(name, args, rewrote)
+			}
 			continue
 		case toolcall.ActionReject:
 			return nil, &toolcall.RejectError{ReasonCode: res.ReasonCode, ToolCallID: buf.id}
 		case toolcall.ActionRewrite:
 			if !rewriteEnvelopeValid(res) {
-				return a.undecidedMandatoryReplay(buf, mandatoryPending)
+				// No error: the finalizer returned a well-formed Result the assembler
+				// cannot use, so there is no failure of its own to surface.
+				return a.unusableResult(buf, mandatoryPending, nil)
 			}
 			name = strings.TrimSpace(res.ToolName)
 			args = append([]byte(nil), res.ArgsJSON...)
 			rewrote = true
+			if declares {
+				buf.retainMandatorySafe(name, args, true)
+			}
 		default:
-			return a.undecidedMandatoryReplay(buf, mandatoryPending)
+			// Likewise for an action outside the closed vocabulary: unusable, but not
+			// reported as an error by the finalizer that produced it.
+			return a.unusableResult(buf, mandatoryPending, nil)
 		}
 	}
 	if !rewrote {
@@ -299,19 +378,38 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 	return synthesizeRewriteLifecycle(buf, name, args), nil
 }
 
-// undecidedMandatoryReplay is the assembler fallback for an ordinary finalizer
-// that failed or produced an unusable result: pre-existing behavior replays the
-// original fragments unchanged, but that silently skips path expansion whenever
-// a mandatory completeness requirement is still undecided (requirement 4.6), so
-// the call is refused closed instead.
+// unusableResult is the assembler's single fallback for a finalizer that failed,
+// panicked, or returned a result it cannot use. It has exactly three answers, and
+// the pre-existing replay is the last of them:
 //
-// This does not reorder finalizers and does not change the fallback for any
-// finalizer without a declared requirement.
-func (a *toolCallAssembler) undecidedMandatoryReplay(buf *toolCallBuffer, mandatoryPending bool) ([]lipapi.Event, error) {
+//  1. an UNDECIDED mandatory completeness requirement refuses closed. The declaring
+//     finalizer has not decided on these arguments, so releasing them is exactly
+//     the bypass the capability exists to prevent (requirement 4.6);
+//  2. a SATISFIED requirement releases the document the declaring finalizer was
+//     shown and accepted, PRESERVING the mandatory-safe result rather than
+//     discarding it and replaying the original - possibly alias-bearing - fragments
+//     over it. cause is the later finalizer's own failure and still surfaces;
+//  3. anything else - no declared requirement, or a declaring finalizer that itself
+//     failed and therefore produced no decision to preserve - replays the original
+//     fragments unchanged. For a call with no declared requirement that is the
+//     pre-existing assembler behavior, byte for byte.
+//
+// WHY THIS IS NOT AN ORDERING RULE. It reads no finalizer's position, reorders
+// nothing, and changes nothing about how the chain is materialized: answer 2 is
+// decided entirely from the document a declaring finalizer produced, so it holds
+// for a later finalizer at any order above the declaring one, and answer 3 is
+// unchanged for every call that published no such requirement. Refusing instead of
+// preserving was considered and is worse: it converts a correctly expanded call
+// into a hard client reject because of a failure that has nothing to do with the
+// decision already made.
+func (a *toolCallAssembler) unusableResult(buf *toolCallBuffer, mandatoryPending bool, cause error) ([]lipapi.Event, error) {
 	if mandatoryPending {
 		return nil, a.refusalIncomplete(buf.id)
 	}
-	return slices.Clone(buf.originals), nil
+	if buf.mandatorySafe == nil {
+		return slices.Clone(buf.originals), nil
+	}
+	return buf.mandatorySafeRelease(), cause
 }
 
 func cloneToolCatalog(catalog []lipapi.ToolDef) []lipapi.ToolDef {

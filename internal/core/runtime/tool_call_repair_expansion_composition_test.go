@@ -723,11 +723,15 @@ func TestToolCallRepairSizePolicyCannotSkipMandatoryExpansion(t *testing.T) {
 // requirements.md 8.5 for this composition: every mutation a finalizer performs
 // is validated before the next finalizer sees it and before anything is
 // released. The assembler has exactly three unusable-result fallbacks (a Go
-// error, an invalid rewrite envelope, and an unknown action) and Task 7.2 added
-// one chokepoint, undecidedMandatoryReplay, on top of the pre-existing
-// behavior. Both boundaries are characterized here relative to the shipped
-// repair finalizer, which is what makes them composition facts rather than
-// assembler-internal ones.
+// error, an invalid rewrite envelope, and an unknown action) and they all reach
+// one chokepoint, toolCallAssembler.unusableResult. Both of its boundaries are
+// characterized here relative to the shipped repair finalizer, which is what makes
+// them composition facts rather than assembler-internal ones.
+//
+// The chokepoint has three answers, and this file pins all of them: an UNDECIDED
+// declared requirement refuses closed (the subtest below), a SATISFIED one
+// preserves the document the declaring pass produced (the subtest after it), and a
+// call with no declared requirement keeps the pre-existing replay unconditionally.
 func TestToolCallRepairComposesWithInvalidFinalizerRewriteSemantics(t *testing.T) {
 	t.Parallel()
 
@@ -855,16 +859,37 @@ func TestToolCallRepairComposesWithInvalidFinalizerRewriteSemantics(t *testing.T
 		}
 	})
 
-	t.Run("residual_after_the_declaring_finalizer_ran_the_replay_fallback_still_applies", func(t *testing.T) {
+	t.Run("after_the_declaring_finalizer_ran_the_mandatory_safe_result_is_preserved", func(t *testing.T) {
 		t.Parallel()
-		// ACCEPTED TASK 7.2 RESIDUAL, owned by Task 8.2 / 12.2 review. Once the
-		// declaring finalizer has been invoked, an unusable result from a
-		// LATER finalizer keeps the pre-existing assembler fallback: replay the
-		// original fragments, error-free. That is not asserted here as fixed and
-		// must not be "fixed" by reordering finalizers; it is characterized so
-		// the residual is visible at composition level. This is also why an
-		// expansion finalizer must not merely declare a high order and rely on
-		// ordering alone.
+		// DELIBERATE CHANGE OF AN ACCEPTED CHARACTERIZATION, and the reason is
+		// recorded here because the previous assertion was the opposite of this one.
+		//
+		// This subtest used to be named
+		// "residual_after_the_declaring_finalizer_ran_the_replay_fallback_still_applies"
+		// and asserted, for all five unusable-result shapes, that the assembler
+		// replayed the ORIGINAL fragments so the reserved alias reached the client
+		// error-free. It was a faithful characterization of Task 7.2's accepted
+		// residual, and the post-certification review later WITHDREW that acceptance:
+		// it found the third option the earlier note had not considered, namely
+		// PRESERVING the document the declaring finalizer produced instead of choosing
+		// between refusing and replaying.
+		//
+		// So the assertion is now the fixed behaviour. The expansion the declaring pass
+		// already performed is what this call releases, the reserved alias never reaches
+		// the client, and the later finalizer's own failure still surfaces. The
+		// composition fact this file exists for - every mutation a finalizer performs
+		// is validated before the next finalizer sees it and before anything is
+		// released - is unchanged and is what the "before_the_declaring_finalizer"
+		// subtest above still pins. What changed is only the POST-declaration fallback,
+		// and it is emphatically NOT a reordering of finalizers: the later participant's
+		// order is still an absolute constant above the declaring one, and nothing
+		// about MaterializeSorted or Finalizer.Order() moved.
+		//
+		// Two shapes behave differently from the other three, and the difference is the
+		// pre-existing one rather than a new asymmetry: an unusable RESULT (an invalid
+		// rewrite envelope, an unknown action) is not a failure the finalizer reported,
+		// so there is no error of its own to surface and the assembler does not invent
+		// one. A returned Go error does surface, as itself.
 		for _, shape := range unusableShapes {
 			t.Run(shape.name, func(t *testing.T) {
 				t.Parallel()
@@ -880,24 +905,40 @@ func TestToolCallRepairComposesWithInvalidFinalizerRewriteSemantics(t *testing.T
 				}
 
 				args := mandatoryArgsJSON(8 * 1024)
-				released, err := streamMandatoryToolCall(t, a, "residual-"+shape.name, args)
-				if err != nil {
-					t.Fatalf("a post-declaration failure keeps the pre-existing error-free replay: %v", err)
-				}
+				expanded := mandatoryExpandedArgsJSON(8 * 1024)
+				released, err := streamMandatoryToolCall(t, a, "preserved-"+shape.name, args)
+
+				// The declaring pass really ran before the failure, so there was a
+				// mandatory-safe result to preserve and the case is not vacuous.
 				if expansion.calls != 1 {
 					t.Fatalf("the declaring finalizer must have been invoked first: invocations=%d", expansion.calls)
 				}
 				if repairFin.calls != 1 {
 					t.Fatalf("the shipped repair finalizer must have been invoked first: invocations=%d", repairFin.calls)
 				}
-				// The expansion that already happened is discarded, so the
-				// reserved alias reaches the client. This is the accepted
-				// residual, named here on purpose.
-				if len(released) != len(args) {
-					t.Fatalf("released %d bytes want the %d replayed originals", len(released), len(args))
+				// Requirements 4.1 and 4.4: the expansion the declaring pass already made
+				// is what this call releases, and the reserved alias reaches nobody.
+				if strings.Contains(released, mandatoryVirtualRoot) {
+					t.Fatalf("requirements.md 4.1/4.4 - the reserved alias was released: %d bytes", len(released))
 				}
-				if !strings.Contains(released, mandatoryVirtualRoot) {
-					t.Fatal("accepted Task 7.2 residual: the post-declaration replay releases the original fragments")
+				if released != expanded {
+					t.Fatalf("released %d bytes, want the %d bytes the declaring pass produced", len(released), len(expanded))
+				}
+				if released == args {
+					t.Fatalf("requirements.md 4.4 - the original %d alias-bearing bytes were replayed", len(released))
+				}
+				// The later failure surfaces as itself, and a satisfied requirement is
+				// never reported as an undecided one.
+				if shape.err != nil {
+					if !errors.Is(err, shape.err) {
+						t.Fatalf("requirements.md 4.6 - the surfaced failure must be the later finalizer's own error: got %T", err)
+					}
+				} else if err != nil {
+					t.Fatalf("an unusable result carries no error to surface, so none may be invented: got %T", err)
+				}
+				if IsMandatoryBufferingError(err) {
+					t.Fatalf("requirements.md 4.6 - a SATISFIED requirement must not be refused as undecided: reason=%q",
+						err.Error())
 				}
 			})
 		}

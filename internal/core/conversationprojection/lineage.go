@@ -46,6 +46,18 @@ import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 // change, or a cardinality change all fail the proof, so the existing
 // exact-resolution / anchor-missing-policy outcome stays authoritative and no
 // placement is ever relocated by ordinal.
+//
+// EXCLUDING PAYLOAD IS ALSO WHAT LEAVES A RESIDUAL AMBIGUITY, and it is closed
+// separately, per placement, in [trajectoryLineage.slotDistinguishable]: two
+// legacy messages that share a structural descriptor are interchangeable under
+// every comparison above, so the slot identity alone cannot say which of them a
+// frozen anchor's slot stands for. The ambiguity is undecidable from the
+// descriptors - any same-shaped pair is compatible under SOME correspondence,
+// because payload is exactly what a rewrite may change - so the answer is to
+// decline that placement rather than to guess. It is a per-placement refusal and
+// NOT a further condition on the proof: a trajectory may legitimately hold many
+// same-shaped messages as long as the ANCHORED slot is distinguishable, and
+// demanding global uniqueness would refuse requirement 5.9's own carry-forward.
 // ---------------------------------------------------------------------------
 
 // carriedAnchors maps an overlay ID to the request-local anchor that a proven
@@ -112,11 +124,17 @@ func proveTrajectoryLineage(frozen, cleaned lipapi.Call) (trajectoryLineage, boo
 
 // frozenSlot resolves a frozen after-message anchor to its slot in the frozen
 // filtered baseline. An anchor the baseline does not resolve has no frozen
-// position, so there is nothing to carry forward.
+// position, so there is nothing to carry forward; neither has one whose frozen
+// slot the structural descriptors cannot single out (see
+// [trajectoryLineage.slotDistinguishable]), because a placement carried onto an
+// interchangeable slot is a relocation, not a lineage.
 func (l trajectoryLineage) frozenSlot(frozen lipapi.Call, anchor MessageAnchor) (int, bool) {
 	if l.itemAuthority {
 		idx, found, err := resolveAnchorInItems(frozen.Items, anchor)
 		if err != nil || !found {
+			return 0, false
+		}
+		if !l.slotDistinguishable(frozen, idx) {
 			return 0, false
 		}
 		return idx, true
@@ -125,10 +143,74 @@ func (l trajectoryLineage) frozenSlot(frozen lipapi.Call, anchor MessageAnchor) 
 	if err != nil || !found {
 		return 0, false
 	}
-	if isInstr {
-		return idx, true
+	slot := idx
+	if !isInstr {
+		slot = len(frozen.Instructions) + idx
 	}
-	return len(frozen.Instructions) + idx, true
+	if !l.slotDistinguishable(frozen, slot) {
+		return 0, false
+	}
+	return slot, true
+}
+
+// slotDistinguishable reports whether one canonical trajectory slot is the ONLY
+// slot of its own region whose structural descriptor matches it, which is what
+// makes the slot identity a usable correspondence rather than a guess.
+//
+// WHY THIS IS NEEDED. [proveTrajectoryLineage] establishes the correspondence as
+// the identity on slot order and deliberately excludes payload bytes, because a
+// backend-only content rewrite is allowed to change them. Two legacy messages
+// that share a structural descriptor are therefore interchangeable: exchanging
+// them leaves every slot-wise comparison satisfied while moving the logical
+// message each slot stands for, so a frozen anchor naming one of them would be
+// carried onto the other and the steering overlay would silently follow the
+// ordinal instead of the anchored message.
+//
+// WHY PAYLOAD CANNOT SETTLE IT. Any same-shaped pair is compatible under SOME
+// correspondence, because a difference in payload is exactly what a rewrite is
+// permitted to produce and is therefore never evidence against a pairing. The
+// tie is genuinely undecidable from the descriptors, and declining is the
+// required answer rather than a loss: the placement falls back to the untouched
+// exact-resolution / anchor-missing-policy path, which for an anchored message
+// whose identity drifted is the configured AnchorFailClosed denial.
+//
+// WHY IT IS PER PLACEMENT, NOT PER TRAJECTORY. A trajectory may legitimately
+// contain many same-shaped messages; requirement 5.9's carry-forward only needs
+// the ANCHORED slot to be pinned. Refusing every trajectory that holds a pair
+// would refuse legitimate rewrites, so the check runs once per placement, over
+// the frozen baseline, in the region that placement's slot belongs to.
+//
+// Instructions and messages are compared within their own region because the
+// proof already established the partition, so a message can never be the
+// counterpart of an instruction. Item authority is answered true because an item
+// descriptor carries the stable item ID and canonical validation rejects a
+// duplicate one, so no two item slots can share a descriptor in a validated
+// call and the item correspondence is already pinned by the proof.
+func (l trajectoryLineage) slotDistinguishable(frozen lipapi.Call, slot int) bool {
+	if l.itemAuthority {
+		return true
+	}
+	if slot < 0 {
+		return false
+	}
+	if slot < len(frozen.Instructions) {
+		for j := range frozen.Instructions {
+			if j != slot && messageLineageCompatible(frozen.Instructions[slot], frozen.Instructions[j]) {
+				return false
+			}
+		}
+		return true
+	}
+	msg := slot - len(frozen.Instructions)
+	if msg >= len(frozen.Messages) {
+		return false
+	}
+	for j := range frozen.Messages {
+		if j != msg && messageLineageCompatible(frozen.Messages[msg], frozen.Messages[j]) {
+			return false
+		}
+	}
+	return true
 }
 
 // currentAnchorAt derives the anchor that names the cleaned trajectory message
@@ -251,6 +333,11 @@ func deriveCarriedAnchors(snap Snapshot, provenance []OverlayProvenance, frozen,
 
 // messageLineageCompatible reports whether two legacy complete messages occupy the
 // same logical trajectory slot.
+//
+// Like every comparator in this section it is an equivalence relation over the
+// fields it compares, so two messages it accepts are interchangeable for
+// [trajectoryLineage.slotDistinguishable]'s purposes - which is precisely why an
+// accepted pair there means "ambiguous" and not "corresponds".
 func messageLineageCompatible(frozen, current lipapi.Message) bool {
 	if frozen.Role != current.Role || len(frozen.Parts) != len(current.Parts) {
 		return false
@@ -265,7 +352,15 @@ func messageLineageCompatible(frozen, current lipapi.Message) bool {
 
 // partLineageCompatible compares one ordered part's kind, cardinality-compatible
 // reference fields, and tool identities. Text and the JSON Content document are
-// payload and are not compared.
+// payload and are not compared, because a backend-only rewrite may change them.
+//
+// Excluding them is what leaves a part indistinguishable from another part of
+// the same shape, and [trajectoryLineage.slotDistinguishable] is where that
+// residual ambiguity is turned into a refusal instead of a carried placement.
+// Note also that this comparator is an equivalence relation over exactly these
+// fields - every clause is an equality - which is why slotDistinguishable can
+// reuse it directly to ask "does any other slot share this descriptor?" without
+// introducing a second, drift-prone descriptor definition.
 func partLineageCompatible(frozen, current lipapi.Part) bool {
 	return frozen.Kind == current.Kind &&
 		frozen.ToolCallID == current.ToolCallID &&
