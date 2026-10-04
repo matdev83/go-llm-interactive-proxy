@@ -220,6 +220,7 @@
 
 - [ ] 9. Run final cross-boundary security certification
   - [ ] 9.1 Verify all architecture, config, security, and regression gates together
+    - _Blocked: two debug rounds exhausted; independent canonical QA reproduces unchanged billing stack-growth spread 131,072 B versus 65,536 B slack. Route the measurement harness to extensible-usage-economics-reconciliation / billing-uncertain-component-overlap ownership; preserve the gate and revalidate after the owning repair or adjudication._
     - Re-run zero-env-read multi-user tests with BetterLeaks on/off, local-discovery invalid/absent, reload failures, and normal request traffic.
     - Re-run allow-marker, no-network, no-CLI, no-raw-finding, scan-failure, decoded-redact, quarantine/no-dispatch, deterministic merge, and default-policy-hash ratchets.
     - Run the repository's applicable quality, unit, race, parity, and QA gates for a wide security-sensitive feature change.
@@ -230,6 +231,8 @@
     - _Validation: make test-unit; make quality-checks; applicable parity/qa/race gates_
 
 ## Implementation Notes
+
+- Final integration review maps all 73 criteria across 10 requirement sections with no implementation gap and accepts the bounded performance assessment. Unit, parity, full Linux race, and CLI smoke pass; independent QA fails the unchanged billing stack measurement. Task 9.1 remains blocked and feature verdict is NO-GO.
 
 - Task 8.6 removes avoidable no-hit text copies: independently measured 2 MiB scans allocate 1,221 B exact-only, 11,048 B BetterLeaks-only, and 17,816 B hybrid. Positive/JSON costs require the final performance assessment; setup allocations are not steady-request costs.
 
