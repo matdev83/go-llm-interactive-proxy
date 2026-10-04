@@ -122,29 +122,32 @@ func (m *betterLeaksLocationIndex) lineBounds(line int) (int, int, bool) {
 }
 
 func (m *betterLeaksLocationIndex) spanForLocation(location report.Location) (betterLeaksSpan, int, int, error) {
-	span := betterLeaksSpan{
+	return m.spanForSpan(betterLeaksSpan{
 		StartLine:   location.StartLine,
 		EndLine:     location.EndLine,
 		StartColumn: location.StartColumn,
 		EndColumn:   location.EndColumn,
-	}
-	if m == nil || location.StartLine < 1 || location.EndLine < location.StartLine || location.StartColumn < 1 || location.EndColumn < 1 {
+	})
+}
+
+func (m *betterLeaksLocationIndex) spanForSpan(span betterLeaksSpan) (betterLeaksSpan, int, int, error) {
+	if m == nil || span.StartLine < 1 || span.EndLine < span.StartLine || span.StartColumn < 1 || span.EndColumn < 1 {
 		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
 	}
-	startLineStart, startLineEnd, ok := m.lineBounds(location.StartLine)
+	startLineStart, startLineEnd, ok := m.lineBounds(span.StartLine)
 	if !ok {
 		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
 	}
-	endLineStart, endLineEnd, ok := m.lineBounds(location.EndLine)
+	endLineStart, endLineEnd, ok := m.lineBounds(span.EndLine)
 	if !ok {
 		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
 	}
-	if location.StartColumn > startLineEnd-startLineStart || location.EndColumn > endLineEnd-endLineStart {
+	if span.StartColumn > startLineEnd-startLineStart || span.EndColumn > endLineEnd-endLineStart {
 		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
 	}
-	start := startLineStart + location.StartColumn - 1
-	end := endLineStart + location.EndColumn
-	if location.StartLine == location.EndLine && location.EndColumn < location.StartColumn {
+	start := startLineStart + span.StartColumn - 1
+	end := endLineStart + span.EndColumn
+	if span.StartLine == span.EndLine && span.EndColumn < span.StartColumn {
 		return betterLeaksSpan{}, 0, 0, errBetterLeaksProjection
 	}
 	if start < 0 || end <= start || end > m.rawLength {

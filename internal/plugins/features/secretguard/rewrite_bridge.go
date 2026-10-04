@@ -6,7 +6,6 @@ import (
 	"errors"
 	"sort"
 
-	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
@@ -122,12 +121,7 @@ func betterLeaksOccurrenceByteRange(raw []byte, occurrence betterLeaksOccurrence
 		return occurrence.start, occurrence.end, true
 	}
 	if locationIndex != nil {
-		if _, start, end, err := locationIndex.spanForLocation(report.Location{
-			StartLine:   occurrence.span.StartLine,
-			EndLine:     occurrence.span.EndLine,
-			StartColumn: occurrence.span.StartColumn,
-			EndColumn:   occurrence.span.EndColumn,
-		}); err == nil {
+		if _, start, end, err := locationIndex.spanForSpan(occurrence.span); err == nil {
 			return start, end, true
 		}
 	}
