@@ -133,12 +133,17 @@ if [[ "$STAGED" == true ]]; then
 	# This is a scheduling partition only; both groups use the identical GO_ARGS
 	# and the caller's environment, so no budget, tag, or coverage changes.
 	for scope in "${STAGED_SCOPES[@]}"; do
+		# Skip the empty scope: with no ordinary entries, the printf above
+		# still emits one newline, which mapfile reads as a single empty
+		# scope. Running `go test` with it would scan the current directory
+		# instead of nothing.
+		[[ -z "$scope" ]] && continue
 		case "$scope" in
 		./internal/archtest | ./internal/archtest/*) ARCH_PACKAGES+=("$scope") ;;
 		*) PACKAGES+=("$scope") ;;
 		esac
 	done
-	if [[ ${#PACKAGES[@]} -eq 0 && ${#ARCH_PACKAGES[@]} -eq 0 ]]; then
+	if [[ ${#PACKAGES[@]} -eq 0 && ${#ARCH_PACKAGES[@]} -eq 0 && ${#NESTED_SCOPES[@]} -eq 0 ]]; then
 		echo "ERROR: race scan package set is empty; refusing to run go test with no package args" >&2
 		exit 1
 	fi
