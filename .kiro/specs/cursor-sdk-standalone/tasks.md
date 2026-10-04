@@ -94,7 +94,7 @@
   - _Depends: 3.2_
   - _Validation: archive content audit, unprovisioned and provisioned verification on native OS/arch_
 
-- [ ] 3.4 (P) Narrow manifest template, relocate stranded host scripts, inspect required CI checks
+- [x] 3.4 (P) Narrow manifest template, relocate stranded host scripts, inspect required CI checks
   - Narrow `manifest/template.backendplugin.json` to platforms the pipeline can natively assemble, so an unvalidated platform cannot be claimed.
   - Relocate the remaining host-only `scripts/test-cursor-sdk-{comparison-report,live,platform}.{sh,ps1}` to the plugin repository, so the cutover batches can delete them with an owner in place.
   - Inspect branch protection and required status contexts for the Cursor lane; replace the host-relevant invariant with the generic no-Node guard before any required check is retired.
@@ -105,6 +105,7 @@
   - _Validation: manifest/template platform audit, script inventory, gh required-check inspection_
 
 - [ ] 3.5 Record packaging evaluation and release compatibility metadata
+  - _Blocked: Downloadable host-artifact certification awaits separate maintainer release authorization. The user deferred host binary releases and release tags; continue metadata, packaging evaluation, installation/provisioning documentation, and other release-independent work without claiming certified host artifacts._
   - Generate `compatibility.json` from validated release inputs with plugin/build/source identity, exact host/root/ACP/runtime versions and the REQUIRED (not bundled) SDK version, protocol range, platform evidence, tested host hashes, package verification results, external-Node requirement flag, SDK provisioning command, and an explicit non-redistribution statement.
   - Document the SEA versus private-runtime evaluation, including SDK loading, imports, metadata lookup, native assets, sandbox behavior, signatures, and platform limits, without widening the closed host manifest.
   - Publish tested per-OS installation instructions stating explicitly whether system Node is required and exactly how to provision the SDK with the shipped runtime.
@@ -135,6 +136,7 @@
   - _Validation: plugin Go tests, bridge tests, and public conformance suite_
 
 - [ ] 4.2 Certify real host install, trust, and optional activation
+  - _Blocked: No downloadable host binary release exists; publication and release tags are deferred pending separate maintainer authorization. Prepare certification without publishing or fabricating artifact evidence._
   - Verify trusted discovery, manifest identity, secure negotiation, inventory listing, canonical execution, explicit capability errors, inactive discovery, and default-deny multi-user behavior against a versioned host artifact without recompiling the host.
   - Verify missing plugin/runtime resources fail explicitly without automatic installation or provider fallback.
   - Observable completion is a certified plugin release installable through the existing mechanism with unchanged host binary.
@@ -192,6 +194,8 @@
   - _Validation: migration/rollback rehearsal and final no-Node plus installed-plugin gates_
 
 ## Implementation Notes
+
+- **Platform/script scope (task 3.4):** plugin PR #11 merged `5face2cfa0dc7db7a9960265196965572f3d783a` after independent re-review. Required-check disposition reconciled all 45 swept host files; shared `makefile-scope.sh` remains UPDATE, and host script deletion must wait for batch-1 test transfer. All five CI lanes passed on `7f5a5a0`, including Linux race and native Linux/Windows packaging. Merged plugin tree passed `go test ./...` and `go build ./...` locally.
 
 - **Module baselines (task 1.2):** published `v0.1.0-rc.1` for both `github.com/matdev83/go-llm-interactive-proxy` and `github.com/matdev83/go-llm-interactive-proxy/connector-support/acp`. A final `vX.Y.Z` root tag still triggers `.github/workflows/release.yml` (`on.push.tags: v[0-9]+.[0-9]+.[0-9]+`) and publishes the first public `lipstd` release via GoReleaser; that needs separate maintainer authorization.
 - **Root tag causes repo-wide MVS drift (task 1.2):** publishing the root tag made every module that path-replaces ACP select `v0.1.0-rc.1`. `scripts/check-all-modules.sh` asserts `go mod tidy -diff`, so any module whose committed require line still says `v0.0.0` fails CI (6 connectors here). After changing a nested module's published require, expect a repo-wide require bump in every dependent module in the same PR.
