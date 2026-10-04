@@ -190,9 +190,11 @@ func TestPoll_Hardening_NilSchedulerAndBoundClientClosed(t *testing.T) {
 			return finishedStream(), nil
 		})
 	}, auxreq.SchedulerConfig{})
-	client := s.BindRunner(backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
-		return finishedStream(), nil
-	}))
+	// The bound runner stays non-terminal until release closes or the scheduler
+	// cancels the worker context, so the pending assertion below cannot race the
+	// worker's terminal result.
+	release := make(chan struct{})
+	client := s.BindRunner(pollGatedRunner(release))
 	id, err := client.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "bound-nil-check"})
 	require.NoError(t, err)
 	poller := client.(auxiliary.BackgroundPoller)
@@ -252,10 +254,11 @@ func TestPoll_Hardening_CloseRaceNoPanic(t *testing.T) {
 // are unchanged after introducing Poll.
 func TestPoll_Hardening_AwaitForgetUnchangedRegression(t *testing.T) {
 	t.Parallel()
+	// Gate the worker so the first Poll deterministically observes pending;
+	// release unblocks completion before Await.
+	release := make(chan struct{})
 	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
-		return backgroundRunner(func(context.Context, *lipapi.Call) (lipapi.EventStream, error) {
-			return finishedStream(), nil
-		})
+		return pollGatedRunner(release)
 	}, auxreq.SchedulerConfig{})
 
 	id, err := s.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "await-forget-regression"})
@@ -265,6 +268,7 @@ func TestPoll_Hardening_AwaitForgetUnchangedRegression(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, auxiliary.PollPending, res.State)
 
+	close(release)
 	collected, err := s.Await(context.Background(), id)
 	require.NoError(t, err)
 	assert.True(t, collected.FinishReceived)
