@@ -260,7 +260,7 @@
     - _Depends: 5.2,8.2_
     - _Validation: fake decider call-count + concurrent/multi-store lease acceptance suite_
 
-- [ ] 9. Certify persistence, reload, concurrency, and performance behavior
+- [x] 9. Certify persistence, reload, concurrency, and performance behavior
   - [x] 9.1 Prove durable resume and generation reload semantics
     - New session -> promote -> close/reopen durable store -> resume authoritative SessionID -> classification available before downstream consumer.
     - Reload heuristic/remote rules without erasing process state; disable withdraws plane without deleting durable row; re-enable restores.
@@ -279,7 +279,7 @@
     - _Depends: 4.3,6.1_
     - _Validation: concurrency barriers + race detector where supported_
 
-  - [ ] 9.3 (P) Add hot-path allocation/latency and store-call ratchets
+  - [x] 9.3 (P) Add hot-path allocation/latency and store-call ratchets
     - Warm coding_agent benchmark asserts zero remote calls, zero DB writes and zero transcript scan; count durable store calls explicitly.
     - Unknown local path benchmark covers bounded UA/tool/marker evaluation.
     - Remote benchmark/fake latency proves no lock/transaction held during decision I/O and unrelated session progress.
@@ -400,6 +400,11 @@
 - Task 8.3 wires the adapter by DEPENDENCY INJECTION, not a delegate: ClassifierDeps.Remote is the frozen 8.1 RemoteDecider port, filled by bindSessionClassifier from hostclassification.NewRemoteDecider(cfg), which returns (nil, nil) for heuristic BEFORE touching the adapter. The feature package never imports the adapter package, so there is no import cycle and generic core stays untouched.
 - Task 9.1 certification tests live in the INTERNAL featurehost package (not featurehost_test) because the reload-must-not-erase-process-state claim is only observable as coordinator pointer identity through the unexported rt.sessionClassification field; process_lifecycle_internal_test.go sets the precedent. The reload test must stop EVERY live generation (baseline, heuristic, remote) before asserting, so the owner count actually reaches zero - otherwise a coordinator disposed only on the LAST Release slips past the composed layer entirely and is caught only by the lower-level holder unit test.
 - classification_revision is NOT a per-promotion counter: both stores unconditionally rewrite proposal.Revision = 1 and only the FIRST accepted proposal becomes the stored positive (design.md:557 'normally moves from revision 0 to revision 1 once'). Requirement 2.6 requires replay NOT to advance it. Do not 'fix' this into a monotonic counter.
+- Allocation ratchets MUST use fixtures whose normalization actually allocates. strings.ToLower has an allocation-free fast path for already-lowercase ASCII, so an all-lowercase padded sentinel let a size-proportional transcript scan allocate LESS than the small fixture and the size-invariance ratchet passed on a scanning implementation. Use mixed-case fixtures (uppercase on even indices) everywhere an allocation bound is the instrument, and say why in a comment.
+- A SQL-verb census that only counts SELECT/INSERT/UPDATE/DELETE silently reads a CTE form (WITH ... INSERT) as zero work. Record any classification-table statement whose verb is not counted into an `unclassified` ledger and assert it is empty, so a future dialect change fails loudly instead of weakening the zero-write result.
+- Two warm-cache ratchets are layered and BOTH are needed: one pre-sets the projection so it short-circuits at the classifier seam, the other leaves the classification empty so it falls through to store.Load -> coordinator.load -> cachedPositiveLocked. Disabling only the coordinator Load short-circuit does NOT fire the classifier-seam test, and vice versa.
+- measurement traps in hot-path work: (a) a reused *lipapi.Call across Execute calls is NOT a client turn (the executor mutates it), so later reuses resolve against a different authoritative session and legitimately read the store - build a fresh call per turn; (b) runtime.NumGoroutine is unusable at the composed layer because database/sql churns pool goroutines, so use a production-frame stack census attributed by spawning frame (it catches a leak whose own stack carries no classification frame).
+- make test-cost is Windows-only and fails closed on POSIX by design. 9.3 added ~1.06s across four packages, inside the scripts/test-cost-budget.json budget (existing_delta_seconds 3,15s floor; internal/core/runtime has a 45s override).
 - Convergence must be proven by CENSUSING EVERY RECORD THE STORE RETURNED TO ANY CALLER, not by checking final state: a last-write-wins store that ends at exactly one positive can still hand two callers two different snapshots, and only the census catches it.
 - BunStore.CompleteRemote's AND kind = '' guard is UNREACHABLE through the Store API - claimRemoteSQL requires kind = '' and promoteSQL clears the lease token, so the token guard always rejects first. Verified by exhaustively enumerating 6250 op-orderings: the positive-and-leased row was reached 0 times. KEEP the guard as multi-writer table-boundary defense, and pin it with a raw-SQL construction because no API sequence can reach it. Without 9.2 that guard (and the neutral token guard) SURVIVED the entire pre-existing suite.
 - A concurrency test that releases N positives and 1 negative from one barrier lets the positives win every time and measures nothing. The below-threshold negative must complete FIRST (genuinely accepted, writing into the row) and only then does the positive race start - deterministic, and it makes the negative's acceptance a fact rather than a coin flip. Reusing an exhausted attempt budget across phases silently makes phase 2 vacuous.
