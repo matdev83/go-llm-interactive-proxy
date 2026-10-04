@@ -25,9 +25,10 @@ func TestSessionClassificationBaseline_CanonicalAndWireInputs(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("User-Agent", userAgent)
 
-	// This bounded-valid identity avoids pinning the current OpenResponses
-	// decoder's trim-only acceptance; Task 7.2 should use the shared acceptance
-	// helper before asserting canonical/wire evidence parity.
+	// This bounded-valid identity is accepted identically by the canonical
+	// decoder and by the shared acceptance helper the wire proof compiler uses,
+	// so the evidence-parity assertion below is about the carrier rather than
+	// about two different acceptance policies.
 	decoded, err := openresponses.AuthenticateAndDecodeCreate(context.Background(), body, openresponses.DecodeCreateOptions{
 		RouteSelector: routeSelector,
 		Headers:       headers,
@@ -84,18 +85,24 @@ func TestSessionClassificationBaseline_CanonicalAndWireInputs(t *testing.T) {
 			"no loose tool-bits field may sit beside the bounded carrier")
 	}
 
+	// Task 1.3 documented that no certified profile compiled the carrier. Task
+	// 7.2 compiles it, so the absence assertion becomes parity: the wire proof
+	// and the canonical call must now derive bit-for-bit identical bounded
+	// evidence for this one client turn (requirements 5.3, 12.7). The bit-for-bit
+	// lane matrix, the field-order/absent-UA/invalid-UA/unknown-tool cases and the
+	// streamed-body case live in session_classification_evidence_test.go.
 	stamp, err := largebody.BindAssessmentStamp("gen-session-classification-baseline", proof)
 	require.NoError(t, err)
 	facts, err := largebody.NewWireTurnFactsFromProof(proof, stamp, "req-baseline", "trace-baseline", "bill-baseline")
 	require.NoError(t, err)
 	require.NoError(t, facts.AssertNoShadowCall())
 
-	// Task 7.1 must not assert proof-to-wire carrier propagation here: no
-	// certified profile compiles the carrier until Task 7.2, so both sides of
-	// such a comparison would be the zero value and the assertion would pass
-	// vacuously. Task 7.2 owns the accepted User-Agent/tool evidence parity
-	// against the canonical call, and the in-boundary propagation proof lives in
-	// TestNewWireTurnFactsFromProof_CarriesPopulatedClassificationEvidence.
-	require.True(t, proof.ClassificationEvidence.IsZero(),
-		"no certified profile compiles classification evidence before Task 7.2")
+	require.Equal(t, sessionclassification.Evidence{
+		Operation:       lipapi.OperationOpenResponsesCreate,
+		ClientUserAgent: userAgent,
+		ToolCategories:  sessionclassification.ToolCategoryFileRead,
+	}, proof.ClassificationEvidence,
+		"the certified OpenResponses profile must compile canonical-equivalent bounded evidence")
+	require.Equal(t, proof.ClassificationEvidence, facts.Session.ClassificationEvidence,
+		"the provider-neutral wire carrier must observe the compiled evidence")
 }

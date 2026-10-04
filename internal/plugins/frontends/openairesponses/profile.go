@@ -1072,6 +1072,12 @@ func (p *Profile) CompileProof(ctx context.Context, in frontendpipe.ProofInput) 
 		CompactionFacts:      proofCompactionFacts,
 		CompactionComplete:   proofCompactionComplete,
 		RequiredCapabilities: requiredCaps,
+		// Bounded classification evidence for this turn, compiled from the tool
+		// definitions and the request headers already observed above. Only the
+		// accepted identity and fixed category bits survive; the ToolDef slice and
+		// the header map stay local to this compiler (requirements 5.2, 5.5, 12.7).
+		ClassificationEvidence: frontendpipe.CompileClassificationEvidence(
+			lipapi.OperationOpenAIResponses, in.Headers, tools),
 		Facts: largebody.ProtocolFacts{
 			RequirementsID: ProfileID,
 			ControlCount:   int64(len(tools)),
