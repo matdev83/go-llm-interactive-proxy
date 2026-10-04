@@ -195,6 +195,7 @@ func famLegacySnapshot(t *testing.T) conversationprojection.Snapshot {
 // both selected surfaces on its own, and an inserted complete message would additionally
 // break the one-to-one lineage the projection depends on.
 func famScenario(t *testing.T, label string, resolver func(*testing.T) *pathvirtualization.Resolver) hookRegScenario {
+	t.Helper()
 	return hookRegScenario{
 		label:    label,
 		call:     famLegacyCall,

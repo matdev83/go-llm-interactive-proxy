@@ -594,6 +594,7 @@ type hookRegScenario struct {
 // FIRST user message, which neither outbound pass mutates, and the late shaping
 // participant reintroduces one real-root tool call.
 func hookRegStandardScenario(t *testing.T, withLatePass bool) hookRegScenario {
+	t.Helper()
 	return hookRegScenario{
 		label:        "standard_late_shaped_history",
 		call:         hookRegCall,
@@ -609,6 +610,7 @@ func hookRegStandardScenario(t *testing.T, withLatePass bool) hookRegScenario {
 // harness. The anchored message is the one the real early pass rewrites, which is
 // exactly the shape requirements.md 5.9 and 5.10 are about.
 func hookRegDriftScenario(t *testing.T, label string, anchor lipapi.Message, resolver func(*testing.T) *pathvirtualization.Resolver, perturbation sdkhooks.RequestPartHook) hookRegScenario {
+	t.Helper()
 	return hookRegScenario{
 		label:        label,
 		call:         func() *lipapi.Call { return driftIngressCall(anchor) },

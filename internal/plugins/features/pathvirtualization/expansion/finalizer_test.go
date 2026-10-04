@@ -43,17 +43,17 @@ type expansionFixture struct {
 	aliasPath    string
 }
 
-func newExpansionFixture(t testing.TB) expansionFixture {
-	t.Helper()
+func newExpansionFixture(tb testing.TB) expansionFixture {
+	tb.Helper()
 	mapping, reason := pathvirtualization.DeriveMapping(expansionProjectRoot)
 	if reason != pathvirtualization.SkipReasonNone {
-		t.Fatalf("derive %q: reason %v", expansionProjectRoot, reason)
+		tb.Fatalf("derive %q: reason %v", expansionProjectRoot, reason)
 	}
 	if mapping.VirtualRoot == "" {
-		t.Fatal("the fixture root must derive an active alias (requirement 1.4)")
+		tb.Fatal("the fixture root must derive an active alias (requirement 1.4)")
 	}
 	if len(mapping.WorkspaceTag) != 20 {
-		t.Fatalf("the frozen V1 tag must be 20 characters, got %d", len(mapping.WorkspaceTag))
+		tb.Fatalf("the frozen V1 tag must be 20 characters, got %d", len(mapping.WorkspaceTag))
 	}
 	return expansionFixture{
 		mapping:      mapping,
@@ -67,18 +67,18 @@ func newExpansionFixture(t testing.TB) expansionFixture {
 // expansionResolver builds a resolver whose exact operator profile claims one tool
 // name with one argument selector. Nothing else is claimed, so every other tool name
 // resolves to no selector and proves the pass-through path.
-func expansionResolver(t testing.TB, toolName string, pointers ...string) *pathvirtualization.Resolver {
-	t.Helper()
+func expansionResolver(tb testing.TB, toolName string, pointers ...string) *pathvirtualization.Resolver {
+	tb.Helper()
 	compiled, reject := pathvirtualization.CompileProfiles([]pathvirtualization.ProfileInput{{
 		Names:       []string{toolName},
 		ArgPointers: pointers,
 	}})
 	if reject != pathvirtualization.SelectorRejectNone {
-		t.Fatalf("compile profiles: reject %v", reject)
+		tb.Fatalf("compile profiles: reject %v", reject)
 	}
 	resolver, reject := pathvirtualization.NewResolver(compiled, nil, nil)
 	if reject != pathvirtualization.SelectorRejectNone {
-		t.Fatalf("new resolver: reject %v", reject)
+		tb.Fatalf("new resolver: reject %v", reject)
 	}
 	return resolver
 }
@@ -96,21 +96,21 @@ func expansionCall(toolName, argsJSON string) toolcall.CompletedCall {
 }
 
 // newFinalizer builds the shipped finalizer with the default mandatory bound.
-func newFinalizer(t testing.TB, resolver *pathvirtualization.Resolver) *expansion.Finalizer {
-	t.Helper()
+func newFinalizer(tb testing.TB, resolver *pathvirtualization.Resolver) *expansion.Finalizer {
+	tb.Helper()
 	fin, err := expansion.NewFinalizer(resolver, rewrite.ModeRewrite, expansion.Policy{})
 	if err != nil {
-		t.Fatalf("NewFinalizer: %v", err)
+		tb.Fatalf("NewFinalizer: %v", err)
 	}
 	return fin
 }
 
 // expansionReason decodes the bounded reason code a finalizer published.
-func expansionReason(t testing.TB, code string) expansion.Reason {
-	t.Helper()
+func expansionReason(tb testing.TB, code string) expansion.Reason {
+	tb.Helper()
 	reason, ok := expansion.ParseReason(code)
 	if !ok {
-		t.Fatalf("reason code %q is outside the closed vocabulary", code)
+		tb.Fatalf("reason code %q is outside the closed vocabulary", code)
 	}
 	return reason
 }

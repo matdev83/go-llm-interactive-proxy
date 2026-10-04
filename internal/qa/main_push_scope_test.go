@@ -28,16 +28,16 @@ func TestQAFastPreflight_MainPushUsesActualDiff(t *testing.T) {
 		t.Fatal("main pushes must classify their actual before revision")
 	}
 	root := t.TempDir()
-	git := func(fixtureT *testing.T, args ...string) string {
-		fixtureT.Helper()
-		cmd := exec.CommandContext(fixtureT.Context(), "git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+	git := func(t *testing.T, args ...string) string {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
 		// root is a throwaway fixture repository. Git exports GIT_DIR to every hook
 		// it runs, so an inherited GIT_DIR would initialise and commit inside the
 		// real repository, destroying its index and refs.
 		cmd.Env = gitscope.Environ()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			fixtureT.Fatalf("git %v: %v\n%s", args, err, out)
+			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 		return strings.TrimSpace(string(out))
 	}

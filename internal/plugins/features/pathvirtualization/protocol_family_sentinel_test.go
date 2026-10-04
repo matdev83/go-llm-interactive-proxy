@@ -206,7 +206,10 @@ func famMapping(t *testing.T) pathvirtualization.Mapping {
 // famAlias returns the alias the feature derives for famRoot. It is compared, never
 // formatted: requirement 7.7 keeps the workspace identity tag out of every observable
 // dimension.
-func famAlias(t *testing.T) string { return famMapping(t).VirtualRoot }
+func famAlias(t *testing.T) string {
+	t.Helper()
+	return famMapping(t).VirtualRoot
+}
 
 // famRewrite applies the feature's REAL pure outbound rewriter to one canonical call.
 func famRewrite(t *testing.T, resolver *pathvirtualization.Resolver, call *lipapi.Call) (*lipapi.Call, rewrite.Stats) {

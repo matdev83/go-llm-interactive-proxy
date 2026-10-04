@@ -145,12 +145,14 @@ func TestTheStockGenerationComposes(t *testing.T) {
 		{
 			name: "this feature alone",
 			regs: func(t *testing.T) []lipsdk.Registration {
+				t.Helper()
 				return []lipsdk.Registration{pathVirtualizationRegistration(t)}
 			},
 		},
 		{
 			name: "this feature with repair at its shipped default",
 			regs: func(t *testing.T) []lipsdk.Registration {
+				t.Helper()
 				return []lipsdk.Registration{
 					pathVirtualizationRegistration(t),
 					// No `order` key: repair's own default applies, and that default
@@ -164,6 +166,7 @@ func TestTheStockGenerationComposes(t *testing.T) {
 		{
 			name: "this feature with repair at its shipped low order",
 			regs: func(t *testing.T) []lipsdk.Registration {
+				t.Helper()
 				return []lipsdk.Registration{
 					pathVirtualizationRegistration(t),
 					repairRegistrationWithOrder(t, "0"),

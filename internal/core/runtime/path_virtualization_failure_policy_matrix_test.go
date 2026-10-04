@@ -953,8 +953,8 @@ func pvMatrix() []pvCase {
 	// The two authorities the rewriter discriminates on. The legacy row is the control
 	// for the item row, and both are pinned by the same run shape, so a divergence
 	// between them is a fact about the authority rather than about the fixture.
-	rewriteLegacy := func(t *testing.T, tc pvCase) { pvDriveRewrite(t, tc, false) }
-	rewriteItem := func(t *testing.T, tc pvCase) { pvDriveRewrite(t, tc, true) }
+	rewriteLegacy := func(t *testing.T, tc pvCase) { t.Helper(); pvDriveRewrite(t, tc, false) }
+	rewriteItem := func(t *testing.T, tc pvCase) { t.Helper(); pvDriveRewrite(t, tc, true) }
 
 	return []pvCase{
 		{

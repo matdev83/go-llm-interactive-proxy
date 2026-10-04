@@ -31,27 +31,27 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 	// The immutable Git baseline is copied into each lane's private directory.
 	// Classifiers and lane commits still operate on independent real repositories.
 	baseline := t.TempDir()
-	gitFixture := func(fixtureT *testing.T, root string, args ...string) string {
-		fixtureT.Helper()
-		cmd := exec.CommandContext(fixtureT.Context(), "git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+	gitFixture := func(t *testing.T, root string, args ...string) string {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
 		// root is a throwaway fixture repository. Git exports GIT_DIR to every hook
 		// it runs, so an inherited GIT_DIR would initialise and commit inside the
 		// real repository, destroying its index and refs.
 		cmd.Env = gitscope.Environ()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			fixtureT.Fatalf("git %v: %v\n%s", args, err, out)
+			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 		return strings.TrimSpace(string(out))
 	}
-	writeFixture := func(fixtureT *testing.T, root, name, text string) {
-		fixtureT.Helper()
+	writeFixture := func(t *testing.T, root, name, text string) {
+		t.Helper()
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			fixtureT.Fatal(err)
+			t.Fatal(err)
 		}
 		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-			fixtureT.Fatal(err)
+			t.Fatal(err)
 		}
 	}
 	gitFixture(t, baseline, "init", "-q")
@@ -90,13 +90,13 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 			if err := os.CopyFS(root, os.DirFS(baseline)); err != nil {
 				t.Fatal(err)
 			}
-			git := func(fixtureT *testing.T, args ...string) string {
-				fixtureT.Helper()
-				return gitFixture(fixtureT, root, args...)
+			git := func(t *testing.T, args ...string) string {
+				t.Helper()
+				return gitFixture(t, root, args...)
 			}
-			write := func(fixtureT *testing.T, name, text string) {
-				fixtureT.Helper()
-				writeFixture(fixtureT, root, name, text)
+			write := func(t *testing.T, name, text string) {
+				t.Helper()
+				writeFixture(t, root, name, text)
 			}
 			scenarios := []string{"relevant", "documentation", "initial", "invalid", "manual"}
 			if lane.key == "select" {
