@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
@@ -28,45 +26,23 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 		{"backend-plugin-cross-platform.yml", "changes", "classify", "relevant", "connectors/nousportal/example.go", "true", "true"},
 		{"backend-plugin-cross-platform.yml", "changes", "select", "select", "connectors/nousportal/example.go", "nousportal", ""},
 	}
-	// The immutable Git baseline is copied into each lane's private directory.
-	// Classifiers and lane commits still operate on independent real repositories.
-	baseline := t.TempDir()
-	gitFixture := func(t *testing.T, root string, args ...string) string {
-		t.Helper()
-		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", root, "-c", "user.name=QA", "-c", "user.email=qa@example.com", "-c", "commit.gpgsign=false"}, args...)...)
-		// root is a throwaway fixture repository. Git exports GIT_DIR to every hook
-		// it runs, so an inherited GIT_DIR would initialise and commit inside the
-		// real repository, destroying its index and refs.
-		cmd.Env = gitscope.Environ()
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
-	writeFixture := func(t *testing.T, root, name, text string) {
-		t.Helper()
-		path := filepath.Join(root, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	gitFixture(t, baseline, "init", "-q")
+	// The immutable Git baseline is built once, serially, and copied into each
+	// lane's private directory. Classifiers and lane commits still operate on
+	// independent real repositories, and every clone inherits the baseline's
+	// repository configuration (maintenance pins and isolated hooks path).
+	baseline := newQAGitFixture(t)
 	for _, script := range []string{"ci-scope.sh", "makefile-scope.sh", "cross-platform-selection.sh", "openresponses-compliance-scope.sh"} {
-		writeFixture(t, baseline, "scripts/"+script, readRepositoryFile(t, "scripts", script))
+		baseline.write(t, "scripts/"+script, readRepositoryFile(t, "scripts", script))
 	}
-	writeFixture(t, baseline, "connectors/nousportal/release.yaml", "fixture\n")
+	baseline.write(t, "connectors/nousportal/release.yaml", "fixture\n")
 	for _, lane := range lanes {
-		writeFixture(t, baseline, lane.relevantPath, "base fixture\n")
+		baseline.write(t, lane.relevantPath, "base fixture\n")
 	}
 	for _, path := range []string{"docs/example.md", ".github/actions/go-cache/action.yml", "pkg/lipsdk/backendplugin/example.go"} {
-		writeFixture(t, baseline, path, "base fixture\n")
+		baseline.write(t, path, "base fixture\n")
 	}
-	gitFixture(t, baseline, "add", ".")
-	gitFixture(t, baseline, "commit", "-qm", "base")
+	baseline.git(t, "add", ".")
+	baseline.git(t, "commit", "-qm", "base")
 	for _, lane := range lanes {
 		t.Run(lane.workflow+"/"+lane.step, func(t *testing.T) {
 			t.Parallel()
@@ -86,18 +62,7 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 			// Scenarios within one lane run serially against successive real commits.
 			// The classifiers are read-only; recreating the same repository and script
 			// tree for every scenario only adds Git startup and filesystem cost.
-			root := t.TempDir()
-			if err := os.CopyFS(root, os.DirFS(baseline)); err != nil {
-				t.Fatal(err)
-			}
-			git := func(t *testing.T, args ...string) string {
-				t.Helper()
-				return gitFixture(t, root, args...)
-			}
-			write := func(t *testing.T, name, text string) {
-				t.Helper()
-				writeFixture(t, root, name, text)
-			}
+			fixture := baseline.cloneInto(t)
 			scenarios := []string{"relevant", "documentation", "initial", "invalid", "manual"}
 			if lane.key == "select" {
 				scenarios = append(scenarios, "shared cache", "shared SDK", "selector policy")
@@ -117,20 +82,20 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 						"shared SDK":      "pkg/lipsdk/backendplugin/example.go",
 						"selector policy": "scripts/cross-platform-selection.sh",
 					}
+					content := "fixture " + scenario + "\n"
 					if sharedPath := shared[scenario]; sharedPath != "" {
 						// A connector-specific edit must not hide a shared input.
-						write(t, lane.relevantPath, "fixture "+scenario+"\n")
+						fixture.write(t, lane.relevantPath, "fixture "+scenario+"\n")
 						path, want = sharedPath, ""
 					}
-					content := "fixture " + scenario + "\n"
 					if scenario == "selector policy" {
 						content = readRepositoryFile(t, "scripts", "cross-platform-selection.sh") + "\n# fixture change\n"
 					}
 					// Predecessor-policy scenarios reuse the documentation head.
 					// Only scenarios asserting changed paths need a new commit.
 					if scenario != "initial" && scenario != "invalid" && scenario != "manual" {
-						write(t, path, content)
-						git(t, "commit", "-qam", "head")
+						fixture.write(t, path, content)
+						fixture.git(t, "commit", "-qam", "head")
 					}
 					event := "push"
 					switch scenario {
@@ -143,10 +108,8 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 					}
 					output := filepath.Join(t.TempDir(), "outputs")
 					cmd := exec.CommandContext(t.Context(), "bash", "-c", step.Run)
-					cmd.Dir = root
-					// The classifiers run the scope scripts, whose self-test scenarios
-					// build throwaway repositories with `git -C "$tmp" init/commit`.
-					cmd.Env = append(gitscope.Environ(), "EVENT_NAME="+event, "BASE_SHA="+before, "HEAD_SHA=HEAD", "GITHUB_OUTPUT="+output)
+					cmd.Dir = fixture.root
+					cmd.Env = fixture.commandEnv("EVENT_NAME="+event, "BASE_SHA="+before, "HEAD_SHA=HEAD", "GITHUB_OUTPUT="+output)
 					out, err := cmd.CombinedOutput()
 					if scenario == "invalid" {
 						if err == nil {

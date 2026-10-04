@@ -1,0 +1,3 @@
+# Execution packets are shipped losslessly as execution-packets.tar.xz.
+# Materialize them locally with tools/materialize_execution.py.
+/execution/

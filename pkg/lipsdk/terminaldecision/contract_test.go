@@ -166,6 +166,75 @@ func TestInputValidateAcceptsBoundedEvidenceProjection(t *testing.T) {
 	}
 }
 
+// TestInputValidateAcceptsIndependentCompletionFlags is the additive contract
+// fixture for the completion expectation/observation pair (design Completion
+// Evidence and Pending Result; requirements 3.2-3.4, 6.1-6.2, 7.1, 7.6, 9.3).
+//
+// The two flags are separate facts, not a relation: an expected signal may be
+// absent, and a native observation needs no proxy expectation. The validator
+// therefore accepts all four combinations, the zero value stays the correct
+// projection for a response that never had a proxy-owned control protocol, and
+// both flags copy by value with the rest of Input.
+func TestInputValidateAcceptsIndependentCompletionFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		observed bool
+		expected bool
+	}{
+		{name: "neither observed nor expected"},
+		{name: "observed without expectation", observed: true},
+		{name: "expected without observation", expected: true},
+		{name: "observed while expected", observed: true, expected: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			in := validInput()
+			in.Evidence.ExplicitCompletion = tc.observed
+			in.Evidence.ExplicitCompletionExpected = tc.expected
+			if err := in.Validate(); err != nil {
+				t.Fatalf("observed=%t expected=%t rejected: %v", tc.observed, tc.expected, err)
+			}
+
+			copied := in
+			if copied.Evidence.ExplicitCompletion != tc.observed || copied.Evidence.ExplicitCompletionExpected != tc.expected {
+				t.Fatalf("value copy changed the completion flags: observed=%t expected=%t",
+					copied.Evidence.ExplicitCompletion, copied.Evidence.ExplicitCompletionExpected)
+			}
+
+			// Flipping both flags on the copy must not reach the original, which
+			// is what proves the flags are value data rather than shared state.
+			copied.Evidence.ExplicitCompletion = !tc.observed
+			copied.Evidence.ExplicitCompletionExpected = !tc.expected
+			if in.Evidence.ExplicitCompletion != tc.observed || in.Evidence.ExplicitCompletionExpected != tc.expected {
+				t.Fatal("input copy shares completion flag state")
+			}
+		})
+	}
+}
+
+// TestEvidenceZeroValueKeepsLegacyProjection pins backward compatibility: an
+// evidence value that predates the expectation flag, and a provider that never
+// sets it, remain a valid bounded canonical projection.
+func TestEvidenceZeroValueKeepsLegacyProjection(t *testing.T) {
+	t.Parallel()
+
+	in := validInput()
+	in.Evidence = Evidence{
+		Objective:     "finish the requested change",
+		RecentText:    "run the focused tests",
+		CandidateText: "the implementation is ready",
+	}
+	if in.Evidence.ExplicitCompletion || in.Evidence.ExplicitCompletionExpected {
+		t.Fatal("the zero evidence value must project neither an observation nor an expectation")
+	}
+	if err := in.Validate(); err != nil {
+		t.Fatalf("zero-value evidence rejected: %v", err)
+	}
+}
+
 func TestInputValidateRejectsUnboundedOrMalformedEvidence(t *testing.T) {
 	t.Parallel()
 	cases := map[string]func(*Input){

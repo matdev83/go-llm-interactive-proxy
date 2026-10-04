@@ -17,10 +17,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
-// largePayload19ExpectedPlaneCount pins the Task 1.9 census with the
-// metadata-only session classifier plane added. Any added, removed, or renamed
-// plane fails this ratchet until the census table is updated alongside it.
-const largePayload19ExpectedPlaneCount = 27
+// largePayload19ExpectedPlaneCount pins the Task 1.9 census with both the
+// metadata-only session classifier plane and the canonical-required control
+// tool provider plane added. Any added, removed, or renamed plane fails this
+// ratchet until the census table below and evidence/1.9-plane-census.md are
+// updated together.
+const largePayload19ExpectedPlaneCount = 28
 
 // largePayload19Posture pins the Task 1.9 initial V1 wire posture per plane.
 // Labels mirror requirement 5.2 access classes (CanonicalRequired,
@@ -56,6 +58,7 @@ var largePayload19Posture = map[string]string{
 	"local_turn_handlers":                   "canonical-required-when-occupied",
 	"terminal_decision_provider":            "canonical-required-when-occupied",
 	"session_classifier":                    "metadata-only",
+	"control_tool_provider":                 "canonical-required-when-occupied",
 }
 
 // TestLargePayload19_PlaneCensusFrozen27 enumerates the census
@@ -97,6 +100,7 @@ func TestLargePayload19_PlaneCensusFrozen27(t *testing.T) {
 		feature.PlaneSecretGuardExecution.PlaneID(),
 		feature.PlaneLocalTurnHandlers.PlaneID(),
 		feature.PlaneTerminalDecisionProvider.PlaneID(),
+		feature.PlaneControlToolProvider.PlaneID(),
 	} {
 		_, ok := seen[id]
 		require.True(t, ok, "required plane %s missing from StandardPlanes", id)
@@ -104,6 +108,7 @@ func TestLargePayload19_PlaneCensusFrozen27(t *testing.T) {
 	require.Equal(t, "secret_guard_execution", feature.PlaneSecretGuardExecution.PlaneID())
 	require.Equal(t, "local_turn_handlers", feature.PlaneLocalTurnHandlers.PlaneID())
 	require.Equal(t, "terminal_decision_provider", feature.PlaneTerminalDecisionProvider.PlaneID())
+	require.Equal(t, "control_tool_provider", feature.PlaneControlToolProvider.PlaneID())
 }
 
 // TestLargePayload19_NamedPlanesOccupiedSemantics pins the requirement 5.4

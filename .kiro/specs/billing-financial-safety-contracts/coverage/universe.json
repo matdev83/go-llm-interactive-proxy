@@ -1,0 +1,609 @@
+{
+  "version": 2,
+  "baseline_sha": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+  "evidence_kind": "source_inventory_not_runtime_support_certificate",
+  "frontends": [
+    {
+      "id": "frontend:openairesponses",
+      "display_name": "OpenAI Responses",
+      "source_path": "internal/plugins/frontends/openairesponses/",
+      "registry_symbol": "openairesponses.ID",
+      "baseline_operation": "openai.responses",
+      "task": "12.2",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "frontend:openailegacy",
+      "display_name": "OpenAI Chat Completions",
+      "source_path": "internal/plugins/frontends/openailegacy/",
+      "registry_symbol": "openailegacy.ID",
+      "baseline_operation": "openai.chat_completions",
+      "task": "12.1",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "frontend:anthropic",
+      "display_name": "Anthropic Messages",
+      "source_path": "internal/plugins/frontends/anthropic/",
+      "registry_symbol": "anthropic.ID",
+      "baseline_operation": "anthropic.messages",
+      "task": "12.3",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "frontend:gemini",
+      "display_name": "Gemini generateContent",
+      "source_path": "internal/plugins/frontends/gemini/",
+      "registry_symbol": "gemini.ID",
+      "baseline_operation": "gemini.generate_content",
+      "task": "12.4",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "frontend:openresponses",
+      "display_name": "Generic OpenResponses",
+      "source_path": "internal/plugins/frontends/openresponses/",
+      "registry_symbol": "openresponses.ID",
+      "baseline_operation": "openresponses.create",
+      "task": "12.5",
+      "support_status": "implementation_not_verified"
+    }
+  ],
+  "backends": [
+    {
+      "id": "builtin:openairesponses",
+      "kind": "builtin_contribution",
+      "source_path": "internal/plugins/backends/openairesponses/",
+      "registry_symbol": "openairesponses.ID",
+      "task": "5.2",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "builtin:openailegacy",
+      "kind": "builtin_contribution",
+      "source_path": "internal/plugins/backends/openailegacy/",
+      "registry_symbol": "openailegacy.ID",
+      "task": "5.1",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "builtin:anthropic",
+      "kind": "builtin_contribution",
+      "source_path": "internal/plugins/backends/anthropic/",
+      "registry_symbol": "anthropic.ID",
+      "task": "5.3",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "builtin:alibabatokenplanintl",
+      "kind": "builtin_contribution",
+      "source_path": "internal/plugins/backends/alibabatokenplanintl/",
+      "registry_symbol": "alibabatokenplanintl.ID",
+      "task": "13.2",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "builtin:gemini",
+      "kind": "builtin_contribution",
+      "source_path": "internal/plugins/backends/gemini/",
+      "registry_symbol": "gemini.ID",
+      "task": "5.4",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "builtin:bedrock",
+      "kind": "builtin_contribution",
+      "source_path": "internal/plugins/backends/bedrock/",
+      "registry_symbol": "bedrock.ID",
+      "task": "13.1",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "builtin:custom-openai-responses-compatible",
+      "kind": "builtin_contribution",
+      "source_path": "internal/standardplugins/standard_contributions.go",
+      "registry_symbol": "custom-openai-responses-compatible",
+      "task": "5.5",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "builtin:custom-openai-legacy-compatible",
+      "kind": "builtin_contribution",
+      "source_path": "internal/standardplugins/standard_contributions.go",
+      "registry_symbol": "custom-openai-legacy-compatible",
+      "task": "5.5",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "builtin:custom-anthropic-compatible",
+      "kind": "builtin_contribution",
+      "source_path": "internal/standardplugins/standard_contributions.go",
+      "registry_symbol": "custom-anthropic-compatible",
+      "task": "5.5",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "builtin:custom-openresponses-compatible",
+      "kind": "builtin_contribution",
+      "source_path": "internal/standardplugins/standard_contributions.go",
+      "registry_symbol": "custom-openresponses-compatible",
+      "task": "13.3",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:acp",
+      "kind": "connector_module",
+      "source_path": "connectors/acp/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.2",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:agycliacp",
+      "kind": "connector_module",
+      "source_path": "connectors/agycliacp/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.3",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:azure",
+      "kind": "connector_module",
+      "source_path": "connectors/azure/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.4",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:cloudflare",
+      "kind": "connector_module",
+      "source_path": "connectors/cloudflare/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.5",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:codex",
+      "kind": "connector_module",
+      "source_path": "connectors/codex/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.6",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:cohere",
+      "kind": "connector_module",
+      "source_path": "connectors/cohere/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.7",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:commandcode-anthropic",
+      "kind": "connector_module",
+      "source_path": "connectors/commandcode-anthropic/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.8",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:commandcode-openai",
+      "kind": "connector_module",
+      "source_path": "connectors/commandcode-openai/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.9",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:cursorcliacp",
+      "kind": "connector_module",
+      "source_path": "connectors/cursorcliacp/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.10",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:cursorsdk",
+      "kind": "connector_module",
+      "source_path": "connectors/cursorsdk/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.11",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:databricks",
+      "kind": "connector_module",
+      "source_path": "connectors/databricks/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.12",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:geminicliacp",
+      "kind": "connector_module",
+      "source_path": "connectors/geminicliacp/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.13",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:gitlabduo",
+      "kind": "connector_module",
+      "source_path": "connectors/gitlabduo/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.14",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:huggingface",
+      "kind": "connector_module",
+      "source_path": "connectors/huggingface/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.15",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:infomaniak",
+      "kind": "connector_module",
+      "source_path": "connectors/infomaniak/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.16",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:llamacpp",
+      "kind": "connector_module",
+      "source_path": "connectors/llamacpp/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.17",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:lmstudio",
+      "kind": "connector_module",
+      "source_path": "connectors/lmstudio/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.18",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:localstub",
+      "kind": "connector_module",
+      "source_path": "connectors/localstub/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.19",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:minimexoauth",
+      "kind": "connector_module",
+      "source_path": "connectors/minimexoauth/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.20",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:nousportal",
+      "kind": "connector_module",
+      "source_path": "connectors/nousportal/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.21",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:nvidia",
+      "kind": "connector_module",
+      "source_path": "connectors/nvidia/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.22",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:oci",
+      "kind": "connector_module",
+      "source_path": "connectors/oci/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.23",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:ollama",
+      "kind": "connector_module",
+      "source_path": "connectors/ollama/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.24",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:opencode",
+      "kind": "connector_module",
+      "source_path": "connectors/opencode/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.25",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:openrouter",
+      "kind": "connector_module",
+      "source_path": "connectors/openrouter/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.26",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:qwenoauth",
+      "kind": "connector_module",
+      "source_path": "connectors/qwenoauth/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.27",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:replicate",
+      "kind": "connector_module",
+      "source_path": "connectors/replicate/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.28",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:sagemaker",
+      "kind": "connector_module",
+      "source_path": "connectors/sagemaker/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.29",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:sapaicore",
+      "kind": "connector_module",
+      "source_path": "connectors/sapaicore/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.30",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:snowflake",
+      "kind": "connector_module",
+      "source_path": "connectors/snowflake/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.31",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:vertex",
+      "kind": "connector_module",
+      "source_path": "connectors/vertex/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.32",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:vllm",
+      "kind": "connector_module",
+      "source_path": "connectors/vllm/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.33",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:watsonx",
+      "kind": "connector_module",
+      "source_path": "connectors/watsonx/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.34",
+      "support_status": "implementation_not_verified"
+    },
+    {
+      "id": "connector:xaioauth",
+      "kind": "connector_module",
+      "source_path": "connectors/xaioauth/",
+      "registry_symbol": "resolve_from_actual_module_manifest",
+      "task": "14.35",
+      "support_status": "implementation_not_verified"
+    }
+  ],
+  "content_atoms": [
+    {
+      "id": "text",
+      "bit": 1
+    },
+    {
+      "id": "image",
+      "bit": 2
+    },
+    {
+      "id": "audio",
+      "bit": 4
+    },
+    {
+      "id": "video",
+      "bit": 8
+    },
+    {
+      "id": "document",
+      "bit": 16
+    },
+    {
+      "id": "binary",
+      "bit": 32
+    }
+  ],
+  "base_input_masks": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63
+  ],
+  "base_output_masks": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63
+  ],
+  "baseline_pair_count": 220,
+  "baseline_signature_count": 901120,
+  "operation_symbols": [
+    "openai.chat_completions",
+    "openai.responses",
+    "openresponses.create",
+    "anthropic.messages",
+    "gemini.generate_content",
+    "context.compaction"
+  ],
+  "additional_driving_surfaces": [
+    "direct_sdk_execute",
+    "execute_large_body",
+    "auxiliary_sync",
+    "auxiliary_detached"
+  ],
+  "expansion_sources": {
+    "frontend_routes": "StandardContributions / StandardFrontendRouteClaims and concrete RouteClaims",
+    "backend_profiles": "standardBackendContributions / providerprofiles.EmbeddedCatalog / actual model capability snapshots",
+    "connectors": "all connectors/* manifests and go.mod module entrypoints, including module-native upstream operation/carrier descriptors",
+    "operations": "pkg/lipapi/invocation.go plus actual registered custom contributions",
+    "transport": "actual frontend mount configuration, BackendTransportCaps, connector host and module-native transports"
+  },
+  "expansion_policy": "Enumerate before billing filtering. Every actual profile, operation, carrier and independent delivery/mode pair is a required subcoordinate. Unknown or missing descriptor fails completeness; it never shrinks the denominator.",
+  "orthogonal_modifiers": [
+    "candidate_count",
+    "reasoning",
+    "prediction",
+    "cache_read",
+    "cache_write_ttl",
+    "tool_call",
+    "nested_tool_result",
+    "retained_history",
+    "items_authority",
+    "resource_lifetime",
+    "image_quality_resolution",
+    "audio_codec_channels",
+    "video_sampling_audio_track",
+    "binary_processing",
+    "sparse_usage",
+    "response_status",
+    "async_job",
+    "compaction"
+  ],
+  "implementation_verified": false
+}

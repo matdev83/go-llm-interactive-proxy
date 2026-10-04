@@ -487,7 +487,7 @@ bench:
 	$(GO) test -bench=. -benchmem -run=Benchmark ./internal/testkit/... ./internal/core/stream/... \
 		./internal/core/securesession/... \
 		./internal/core/runtime/... ./internal/core/routing/... ./internal/core/diag/... \
-		./internal/core/toolcallrepair/... \
+		./internal/plugins/features/toolcallrepair/... \
 		./internal/infra/concurrencyauthority/leasestore/... \
 		./internal/infra/metering/journalstore/... \
 		./internal/infra/usageauthority/authoritystore/... \

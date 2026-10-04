@@ -12,6 +12,18 @@ if ! grep -qE '\.go$' <<< "$staged_files"; then
 	if grep -qE '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
 		echo "No staged Go source files detected; checking module metadata."
 	else
+		# Spec bookkeeping can still break a repository invariant on its own:
+		# marking a spec completed without archiving it fails the Kiro
+		# lifecycle contract, and no Go test would notice. Always validate the
+		# cheap spec/ownership contracts here rather than letting a
+		# docs-only commit bypass every gate.
+		if grep -qE '^\.kiro/specs/' <<< "$staged_files"; then
+			echo "No staged Go files; validating Kiro spec and ownership contracts."
+			echo ""
+			go test -count=1 -tags=precommit ./internal/qa/ -run '^TestQAFastPreflight_Kiro'
+			go test -count=1 ./tools/kiro/speccheck/
+			exit 0
+		fi
 		echo "No staged Go files or module metadata detected; skipping quality gate checks."
 		exit 0
 	fi

@@ -1,6 +1,6 @@
 ---
 name: golang-testing
-description: Write, structure, review, and optimize Go tests and benchmarks: table-driven unit tests, testify assertions and mocks, integration testing, concurrency testing, fuzzing, and benchmark profiling with b.Loop and benchstat.
+description: "Write, structure, review, and optimize Go tests and benchmarks: table-driven unit tests, testify assertions and mocks, integration testing, concurrency testing, fuzzing, and benchmark profiling with b.Loop and benchstat."
 ---
 
 # Go Testing & Benchmarking Guide

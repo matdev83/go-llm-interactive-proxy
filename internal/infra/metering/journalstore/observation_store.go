@@ -333,27 +333,27 @@ func (s *DurableStore) AppendObservationInTx(ctx context.Context, tx bun.Tx, obs
 		return fmt.Errorf("metering/journalstore: observation identity exceeds database integer range")
 	}
 
-	if existing, found, lookupErr := lookupObservationRow(ctx, tx, s.cfg.StoreID, identity, canonical.ID, int64(canonical.Revision)); lookupErr != nil {
-		return lookupErr
-	} else if found {
-		return resolveObservationReplay(existing, canonical)
-	}
-	if err := s.insertObservationRow(ctx, tx, canonical, payload, identity, fingerprint); err != nil {
+	inserted, err := s.insertObservationRow(ctx, tx, canonical, payload, identity, fingerprint)
+	if err != nil {
 		if !isUniqueViolation(err) {
 			return err
 		}
 		// A concurrent writer may have won either source identity, observation
 		// identity, or the inherited V1 stream/fact unique index. The same tx
 		// is unusable on PostgreSQL after a conflict, so callers should retry;
-		// ordinary replay is resolved before insert and does not take this path.
+		// ordinary replay is resolved after insert and does not take this path.
 		return fmt.Errorf("metering/journalstore: observation unique race: %w", err)
 	}
+	// Resolve the durable identity after the conflict-suppressed insert.
+	// Fresh observations avoid two pre-insert lookups; a replay reads and
+	// validates the existing owner before deciding whether this call owns
+	// the component projections.
 	var row observationRow
 	lookupErr := tx.NewRaw(`
 SELECT id, payload_json, payload_kind, observation_fingerprint, observation_id, observation_revision
 FROM metering_facts
-WHERE store_id = ? AND payload_kind = 'observation' AND source_event_key = ?
-	LIMIT 1`, s.cfg.StoreID, identity).Scan(ctx, &row)
+WHERE store_id = ? AND source_event_key = ?
+LIMIT 1`, s.cfg.StoreID, identity).Scan(ctx, &row)
 	if errors.Is(lookupErr, sql.ErrNoRows) {
 		// A different source identity can still collide with the durable
 		// observation ID/revision uniqueness fence. Resolve that case as the
@@ -368,18 +368,20 @@ LIMIT 1`, s.cfg.StoreID, canonical.ID, int64(canonical.Revision)).Scan(ctx, &row
 	if lookupErr != nil {
 		return fmt.Errorf("metering/journalstore: observation row lookup after insert: %w", lookupErr)
 	}
-	if row.PayloadKind != "observation" {
-		return fmt.Errorf("%w: source identity is occupied by a V1 fact", ErrIdentityCollision)
-	}
-	// The concurrent winner may hold an equivalent envelope with a different
-	// representation or receipt metadata. Canonical semantic fingerprints
-	// decide replay vs collision, exactly as the pre-insert replay path does.
-	if row.ObservationID != canonical.ID || row.ObservationRevision != int64(canonical.Revision) {
-		return fmt.Errorf("%w: observation_id=%q revision=%d: stored observation identity drift", ErrIdentityCollision, canonical.ID, canonical.Revision)
-	}
-	detail := fmt.Sprintf("observation_id=%q revision=%d", canonical.ID, canonical.Revision)
-	if err := validateCanonicalObservationReplay(detail, row.Payload, row.ObservationFingerprint, canonical); err != nil {
+	// The unfiltered source-identity read lets an occupied legacy V1 identity be
+	// classified as a typed collision rather than a missing row.
+	if err := resolveObservationReplay(row, canonical); err != nil {
 		return err
+	}
+	wroteRow, err := observationInsertEffect(inserted)
+	if err != nil {
+		return err
+	}
+	if !wroteRow {
+		// Nothing was written, so a durable row already owns this observation
+		// and its component projections. Reprojecting would violate the
+		// projection identity, so a validated replay stays a no-op.
+		return nil
 	}
 	if err := s.observationFault("after_canonical"); err != nil {
 		return err
@@ -391,6 +393,32 @@ LIMIT 1`, s.cfg.StoreID, canonical.ID, int64(canonical.Revision)).Scan(ctx, &row
 		return err
 	}
 	return nil
+}
+
+// observationInsertEffect reports whether the conflict-suppressed observation
+// insert wrote a new durable row.
+//
+// The durable facts are decided by the row read back and validated above, never
+// by this count: the count only decides whether this call owns the component
+// projections. An unreadable or implausible count is therefore not a reason to
+// guess, and fails the append closed so a replay can never be projected twice
+// and a fresh row can never be left unprojected.
+func observationInsertEffect(result sql.Result) (bool, error) {
+	if result == nil {
+		return false, fmt.Errorf("metering/journalstore: observation insert returned no result")
+	}
+	wrote, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("metering/journalstore: observation insert row count: %w", err)
+	}
+	switch wrote {
+	case 0:
+		return false, nil
+	case 1:
+		return true, nil
+	default:
+		return false, fmt.Errorf("metering/journalstore: observation insert row count: %d rows, want 0 or 1", wrote)
+	}
 }
 
 // WriteObservationTx is a compatibility spelling for infra composition code.
@@ -405,33 +433,6 @@ type observationRow struct {
 	ObservationFingerprint string `bun:"observation_fingerprint"`
 	ObservationID          string `bun:"observation_id"`
 	ObservationRevision    int64  `bun:"observation_revision"`
-}
-
-func lookupObservationRow(ctx context.Context, q bun.IDB, storeID, identity, observationID string, revision int64) (observationRow, bool, error) {
-	var row observationRow
-	err := q.NewRaw(`
-SELECT id, payload_json, payload_kind, observation_fingerprint, observation_id, observation_revision
-FROM metering_facts
-WHERE store_id = ? AND source_event_key = ?
-LIMIT 1`, storeID, identity).Scan(ctx, &row)
-	if err == nil {
-		return row, true, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return observationRow{}, false, fmt.Errorf("metering/journalstore: observation identity lookup: %w", err)
-	}
-	err = q.NewRaw(`
-SELECT id, payload_json, payload_kind, observation_fingerprint, observation_id, observation_revision
-FROM metering_facts
-WHERE store_id = ? AND payload_kind = 'observation' AND observation_id = ? AND observation_revision = ?
-LIMIT 1`, storeID, observationID, revision).Scan(ctx, &row)
-	if err == nil {
-		return row, true, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return observationRow{}, false, fmt.Errorf("metering/journalstore: observation revision lookup: %w", err)
-	}
-	return observationRow{}, false, nil
 }
 
 func resolveObservationReplay(existing observationRow, observation metering.Observation) error {
@@ -453,14 +454,18 @@ func resolveObservationReplay(existing observationRow, observation metering.Obse
 	return validateCanonicalObservationReplay(detail, existing.Payload, existing.ObservationFingerprint, observation)
 }
 
-func (s *DurableStore) insertObservationRow(ctx context.Context, tx bun.Tx, observation metering.Observation, payload []byte, identity, fingerprint string) error {
+// insertObservationRow writes the canonical observation row with a
+// conflict-suppressed insert. The returned result reports how many rows this
+// statement actually wrote, which is how the caller tells a fresh row from a
+// durable row that already existed and already owns its projections.
+func (s *DurableStore) insertObservationRow(ctx context.Context, tx bun.Tx, observation metering.Observation, payload []byte, identity, fingerprint string) (sql.Result, error) {
 	// The legacy V2 schema keeps a unique (store_id, stream_id, fact_id)
 	// constraint. Observation ID is the replay identity, but a new observation
 	// revision must still append a distinct canonical row, so keep the public
 	// observation_id in its additive column and use a revision-qualified
 	// internal fact ID for the inherited column.
 	factID := fmt.Sprintf("observation:%s:%d", observation.ID, observation.Revision)
-	if _, err := tx.NewRaw(`
+	result, err := tx.NewRaw(`
 INSERT INTO metering_facts(
 	store_id, fact_id, stream_id, sequence, source_event_key, fact_kind,
 	perspective, boundary, lifecycle_scope,
@@ -510,10 +515,11 @@ ON CONFLICT DO NOTHING
 		observation.Subject.ResetAt.UTC().UnixNano(),
 		observation.ObservedAt.UTC().UnixNano(),
 		observation.ReceivedAt.UTC().UnixNano(),
-	).Exec(ctx); err != nil {
-		return fmt.Errorf("metering/journalstore: insert observation: %w", err)
+	).Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("metering/journalstore: insert observation: %w", err)
 	}
-	return nil
+	return result, nil
 }
 
 func subjectID(subject metering.SubjectRef) string {

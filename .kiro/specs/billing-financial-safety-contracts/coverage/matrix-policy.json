@@ -1,0 +1,137 @@
+{
+  "version": 3,
+  "spec_revision": 3,
+  "baseline_sha": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
+  "input_output_mask_product": "complete",
+  "mask_count_each_direction": 64,
+  "require_empty_masks": true,
+  "require_dense_mixtures": true,
+  "filter_before_enumeration": false,
+  "pairwise_is_release_sufficient": false,
+  "required_transport_mode_pairs": [
+    [
+      "streaming",
+      "streaming"
+    ],
+    [
+      "streaming",
+      "non_streaming"
+    ],
+    [
+      "non_streaming",
+      "streaming"
+    ],
+    [
+      "non_streaming",
+      "non_streaming"
+    ]
+  ],
+  "dispositions": {
+    "REQUIRED_SUPPORTED": "Complete factored proof chain plus qualifying real-stack witness required; a unique full-stack execution for every coordinate is not required.",
+    "NATIVE_UNREPRESENTABLE": "Versioned independent native predicate and zero payable sends required.",
+    "STRICT_UNBOUNDED": "Specific provider-enforced-bound limitation and zero payable sends; never current proxy implementation absence.",
+    "BILLING_IMPLEMENTATION_GAP": "Release blocker; safe runtime refusal does not complete the task.",
+    "RUNTIME_PREREQUISITE_UNAVAILABLE": "Release blocker; missing price, service, model evidence or test topology is not native incompatibility."
+  },
+  "native_support_oracle": "Independent locked native API/model fixtures and source-backed joint contracts, never production supports()/billing-ready flags.",
+  "required_positive_rules": [
+    {
+      "id": "P01",
+      "rule": "Every native text-capable backend/profile has successful text billing through every frontend with a natively representable text request/response.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P02",
+      "rule": "Every natively representable finite-priced input/output mask pair is positive-required, not only pairs already implemented by the proxy.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P03",
+      "rule": "Native image/document input pairs include mixed text+image+document positives, all relevant history/tool placements and inline/reference encodings.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P04",
+      "rule": "Native audio profiles include audio input, audio-only output and each valid text+audio joint output; chunking and transcript inclusion are tested.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P05",
+      "rule": "Gemini native mixed input and response modality sets receive positive fixtures, including candidate/thought/modality usage and fileData configuration preservation.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P06",
+      "rule": "Every native image-output profile includes image-only and each native-valid mixed output set, qualified count/resolution/quality and late final usage.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P07",
+      "rule": "Video, document and binary outputs/inputs have positive real-stack cases where the actual native operation supports them; canonical finite reference fixtures cover all six content atoms and dense mixtures independently.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P08",
+      "rule": "Each connector runs its actual entrypoint/module codec, not just generic host transport. Inherently unbounded agents retain explicit limitations and still pass finite synthetic ABI/evidence/fence tests.",
+      "removable_by_executor": false
+    },
+    {
+      "id": "P09",
+      "rule": "Every legal independent frontend-delivery/backend-transport and physical carrier combination expands every required-positive mask cell.",
+      "removable_by_executor": false
+    }
+  ],
+  "receipt_requirements": [
+    "actual_code_sha",
+    "universe_digest",
+    "native_contract_digest",
+    "expanded_coordinate_id",
+    "expected_disposition",
+    "actual_result",
+    "frontend_evidence_id",
+    "backend_profile_evidence_id",
+    "financial_kernel_evidence_id",
+    "real_stack_witness_id",
+    "evidence_digest_root",
+    "native_limitation_reference_when_negative"
+  ],
+  "release_fails_on": [
+    "missing_coordinate",
+    "duplicate_coordinate",
+    "missing_profile_expansion",
+    "missing_transport_expansion",
+    "missing_connector",
+    "skipped_case",
+    "not_run_case",
+    "implementation_gap",
+    "prerequisite_unavailable",
+    "all_deny",
+    "stale_digest",
+    "native_negative_without_proof",
+    "missing_frontend_contract_evidence",
+    "missing_backend_profile_evidence",
+    "missing_financial_kernel_evidence",
+    "missing_required_real_stack_witness",
+    "missing_connector_entrypoint_witness",
+    "unproven_evidence_composition"
+  ],
+  "finite_scope_note": "The mask product is exhaustive for this vocabulary and every expanded coordinate must be classified. Factored conformance avoids redundant full-stack execution, while mandatory real-stack witnesses and property/fault tests cover composition boundaries. No certificate claims all possible bytes or future APIs.",
+  "implementation_verified": false,
+  "coordinate_classification": "complete_before_capability_filtering",
+  "evidence_model": "factored_conformance",
+  "full_stack_coordinate_execution_required": false,
+  "required_real_stack_witnesses": [
+    "every_baseline_frontend_backend_pair_with_positive_intersection",
+    "every_distinct_backend_profile_api_transport_implementation",
+    "every_connector_actual_module_entrypoint",
+    "every_frontend_delivery_and_carrier_family",
+    "targeted_cross_boundary_mixed_and_financial_fault_schedules"
+  ],
+  "proof_components": [
+    "frontend_contract_evidence",
+    "backend_profile_contract_evidence",
+    "common_financial_kernel_evidence",
+    "qualifying_real_stack_witness_evidence"
+  ],
+  "coordinate_receipt_rule": "Every expanded coordinate maps to immutable evidence IDs/digests for all required proof components or to a justified native/unbounded negative. Shared evidence is allowed only under identical frozen contract identity."
+}

@@ -208,6 +208,11 @@ foreach ($name in $actualNames) {
     }
     else {
         $description = $fields.description.Value.Trim()
+        # A colon followed by whitespace starts a YAML mapping unless the
+        # description is quoted or uses a block scalar.
+        if ($description -notmatch '^["''>|]' -and $description -match ':\s') {
+            $errors.Add("unquoted YAML mapping separator in description: $name (quote the description or use a block scalar)")
+        }
         $hasFoldedBody = $description -match '^[>|][+-]?$' -and
             ($fields.description.Index + 1) -lt $closingMarker -and
             $lines[$fields.description.Index + 1] -match '^\s+\S'
