@@ -215,13 +215,19 @@ func tsIngressCall(anchor lipapi.Message) lipapi.Call {
 // tsItemIngressCall is the item-authority ingress call around one anchored message item.
 func tsItemIngressCall(anchor []byte) lipapi.Call {
 	return lipapi.Call{Items: []lipapi.Item{
-		{Kind: lipapi.ItemKindMessage, ID: tsItemFirstID, Status: lipapi.ItemStatusCompleted,
-			Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: tsFirstUserText}}},
+		{
+			Kind: lipapi.ItemKindMessage, ID: tsItemFirstID, Status: lipapi.ItemStatusCompleted,
+			Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: tsFirstUserText}},
+		},
 		tsItemAnchor(anchor),
-		{Kind: lipapi.ItemKindMessage, ID: "item-local-1", Status: lipapi.ItemStatusCompleted,
-			Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: tsLocalText}}},
-		{Kind: lipapi.ItemKindMessage, ID: tsItemTailID, Status: lipapi.ItemStatusCompleted,
-			Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: tsTailText}}},
+		{
+			Kind: lipapi.ItemKindMessage, ID: "item-local-1", Status: lipapi.ItemStatusCompleted,
+			Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: tsLocalText}},
+		},
+		{
+			Kind: lipapi.ItemKindMessage, ID: tsItemTailID, Status: lipapi.ItemStatusCompleted,
+			Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: tsTailText}},
+		},
 	}}
 }
 
