@@ -124,10 +124,30 @@ func selectedLeafKeys(leaves []pathvirtualization.Leaf) map[string]struct{} {
 	return keys
 }
 
+// maxSelectableLeafDepth is the deepest reference-token count at which a selected
+// string literal can sit.
+//
+// It is DERIVED from the selector layer's own bound rather than chosen here, and the
+// derivation is two steps because a leaf is one token below the pointer that chose it
+// only in the array case. A compiled pointer holds at most
+// [pathvirtualization.MaxPointerDepth] tokens and names the selected LOCATION; a
+// location that resolves to an array of strings contributes one leaf per element,
+// and every such element sits one reference token below the pointer. So the deepest
+// selectable leaf is MaxPointerDepth+1 tokens deep, and no literal below that depth
+// can carry a key of the selected set. Off-by-one here would silently stop visiting a
+// real selected leaf, so the boundary is asserted from the selector layer's own
+// constants in TestSelectedLeavesAreVisitedAtEverySelectableDepth.
+const maxSelectableLeafDepth = pathvirtualization.MaxPointerDepth + 1
+
 // spanFrame is one open container while the payload is walked.
 type spanFrame struct {
-	// path is the canonical pointer text of this container.
+	// path is the canonical pointer text of this container, or the empty string
+	// once this container sits below [maxSelectableLeafDepth]. See childPointerText
+	// for why no leaf below that depth can be selected.
 	path string
+	// depth is this container's own reference-token count: 0 for the document root,
+	// one more than its parent's for every container below it.
+	depth int
 	// index is the next array element position, for an array container.
 	index int
 	// object reports whether members are named rather than positional.
@@ -181,7 +201,7 @@ func findSelectedStringSpans(document []byte, keys map[string]struct{}) ([]strin
 			rootSeen = true
 			if delim, isDelim := token.(json.Delim); isDelim {
 				if delim == '{' || delim == '[' {
-					frames = append(frames, newSpanFrame("", delim == '{'))
+					frames = append(frames, newSpanFrame("", 0, delim == '{'))
 				}
 			}
 			// A top-level scalar names the whole document, which no compiled pointer
@@ -206,17 +226,17 @@ func findSelectedStringSpans(document []byte, keys map[string]struct{}) ([]strin
 			continue
 		}
 
-		child := top.path + "/" + childReference(top)
+		child, selectable := childPointerText(top)
 		if top.object {
 			// This member's value is complete, so the container expects the next
 			// member name rather than another value.
 			top.expectKey = true
 		}
 		if delim, isDelim := token.(json.Delim); isDelim {
-			frames = append(frames, newSpanFrame(child, delim == '{'))
+			frames = append(frames, newSpanFrame(child, top.depth+1, delim == '{'))
 			continue
 		}
-		if value, isString := token.(string); isString {
+		if value, isString := token.(string); isString && selectable {
 			if _, selected := keys[child]; selected {
 				spans = append(spans, stringSpan{start: start, end: end, value: value})
 			}
@@ -228,14 +248,53 @@ func findSelectedStringSpans(document []byte, keys map[string]struct{}) ([]strin
 	return spans, nil
 }
 
-// newSpanFrame opens one container at a canonical pointer.
-func newSpanFrame(path string, object bool) spanFrame {
-	return spanFrame{path: path, object: object, expectKey: object}
+// newSpanFrame opens one container at depth reference tokens below the document root.
+//
+// The depth is passed rather than derived from the frame stack because a frame is a
+// value in a slice whose earlier entries may be reallocated: the depth is the one
+// fact that decides whether this container's pointer text is ever needed, so it must
+// travel with the frame rather than be looked up again.
+func newSpanFrame(path string, depth int, object bool) spanFrame {
+	return spanFrame{path: path, depth: depth, object: object, expectKey: object}
 }
 
-// childReference returns the reference token of the value the innermost container
-// is about to read, advancing an array container past the position it just named.
-func childReference(frame *spanFrame) string {
+// childPointerText returns the canonical pointer text of the value the innermost
+// container is about to read, together with whether any compiled pointer can name that
+// value at all.
+//
+// The container's own accounting always advances - an array position moves on and an
+// object member name is consumed - because that is what keeps the walk's view of the
+// payload correct regardless of which values are selectable.
+//
+// The pointer TEXT is built only at a depth a selection can reach, and that is the
+// whole cost property of this walk. The text of a container at depth d names a leaf at
+// depth d, and no compiled pointer reaches past maxSelectableLeafDepth, so for a deeper
+// value the text cannot equal any key in the selected set. Rebuilding it anyway would
+// be quadratic in nesting depth: a payload that nests one unselected container inside
+// the next would allocate and RETAIN a string per level, each as long as every
+// reference token above it, so a valid document well inside the argument bound could
+// cost hundreds of megabytes and grow faster than the document it came from. Skipping
+// the text below the selectable depth leaves the answer provably identical - the same
+// keys, the same literals, the same byte ranges, in the same order - because no key
+// that could match is ever dropped from consideration.
+//
+// This is a depth bound, not a depth shortcut: every depth a pointer can name, up to
+// and including maxSelectableLeafDepth, is still materialised and still matched.
+func childPointerText(frame *spanFrame) (string, bool) {
+	if frame.depth >= maxSelectableLeafDepth {
+		advanceSpanFrame(frame)
+		return "", false
+	}
+	return frame.path + "/" + advanceSpanFrame(frame), true
+}
+
+// advanceSpanFrame returns the reference token of the value the innermost container is
+// about to read and advances an array container past the position it just named.
+//
+// It is the unconditional half of childPointerText: the reference itself is one member
+// name or one array index, so producing it costs nothing that grows with the depth
+// above it.
+func advanceSpanFrame(frame *spanFrame) string {
 	if frame.object {
 		name := canonicalPointerText(frame.pending)
 		frame.pending = ""

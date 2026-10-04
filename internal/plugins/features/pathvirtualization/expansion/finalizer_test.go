@@ -1015,6 +1015,7 @@ func TestExpansionFinalizerReasonVocabularyIsClosedAndContentFree(t *testing.T) 
 		{reason: expansion.ReasonArgsUnparseable, want: "args_unparseable"},
 		{reason: expansion.ReasonMalformedReservedAlias, want: "malformed_reserved_alias"},
 		{reason: expansion.ReasonWorkspaceMismatch, want: "workspace_mismatch"},
+		{reason: expansion.ReasonExpandedTooLarge, want: "expanded_too_large"},
 		{reason: expansion.ReasonInvalidRewrite, want: "invalid_rewrite"},
 	}
 	for _, tc := range known {
@@ -1109,5 +1110,330 @@ func TestExpansionFinalizerIsDeterministic(t *testing.T) {
 			again.ToolName != first.ToolName || !bytes.Equal(again.ArgsJSON, first.ArgsJSON) {
 			t.Fatalf("a repeated decision differed:\nfirst  %+v\nsecond %+v", first, again)
 		}
+	}
+}
+
+// expansionCaseMarkerForms enumerates the case spellings of the reserved marker an
+// unreadable argument document may carry.
+//
+// The set is the observable half of one rule: the lexical core recognizes an alias-root
+// marker under a Windows flavor's ASCII-case-insensitive comparison, so an argument
+// document may spell this build's own reserved root in any of these spellings. A finalizer
+// whose byte scan matched the marker exactly reported such a document as carrying no
+// reserved namespace and answered ActionPass with no_alias, which released the very
+// namespace requirements.md 4.4 and 8.3 forbid from reaching the client.
+var expansionCaseMarkerForms = map[string]string{
+	"canonical":   ".__lip_v1__",
+	"all_upper":   ".__LIP_V1__",
+	"first":       ".__Lip_v1__",
+	"trailing":    ".__lip_V1__",
+	"alternating": ".__LiP_V1__",
+}
+
+// expansionUnreadableTag is a syntactically valid workspace tag segment. It never has to
+// name a real workspace: the scan decides only whether the bytes spell the namespace.
+const expansionUnreadableTag = "0123456789abcdefghij"
+
+// TestExpansionFinalizerRefusesCaseVariedReservedNamespaceInUnreadableArguments is the
+// end-to-end half of the case-folding requirement.
+//
+// Every fixture is an UNREADABLE argument document for a tool whose policy names an
+// argument location, which is the one state where no parseable recognizer runs and the
+// byte scan is the only recognizer there is. The document is deliberately truncated after
+// the alias so repair declining it is a normal outcome rather than a contrivance.
+func TestExpansionFinalizerRefusesCaseVariedReservedNamespaceInUnreadableArguments(t *testing.T) {
+	t.Parallel()
+
+	fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/file_path"))
+	for name, marker := range expansionCaseMarkerForms {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for _, tc := range []struct {
+				form   string
+				layout string
+			}{
+				{form: "posix_alias_root", layout: `{"file_path":"/%s/w_` + expansionUnreadableTag + `/src/main.go","content":"unterminated`},
+				{form: "windows_drive_alias", layout: `{"file_path":"C:\home\dev\%s\w_` + expansionUnreadableTag + `\src\main.go","content":"unterminated`},
+				{form: "malformed_tag", layout: `{"file_path":"/%s/w_short/src/main.go","content":"unterminated`},
+				{form: "escaped_case_folded_marker", layout: `{"file_path":"/.\u005f\u005f\u004c\u0049\u0050\u005f\u0056\u0031\u005f\u005f/w_` + expansionUnreadableTag + `/src/main.go","content":"unterminated`},
+			} {
+				if name != "canonical" && tc.form != "escaped_case_folded_marker" {
+					// The escaped fixture spells one fixed folding; folding it again
+					// would spell bytes the core never emits.
+					tc.layout = strings.ReplaceAll(tc.layout, ".__lip_v1__", marker)
+				}
+				args := fmt.Sprintf(tc.layout, marker)
+				if json.Valid([]byte(args)) {
+					t.Fatal("the fixture must be unparseable JSON")
+				}
+				res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, args),
+					lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(expansionProjectRoot))
+				if err != nil {
+					t.Fatalf("form %q: Finalize returned a Go error: %v", tc.form, err)
+				}
+				if res.Action != toolcall.ActionReject {
+					t.Errorf("form %q: action=%v want reject (reason %q)",
+						tc.form, res.Action, res.ReasonCode)
+					continue
+				}
+				if expansionReason(t, res.ReasonCode) != expansion.ReasonArgsUnparseable {
+					t.Errorf("form %q: reason=%q want %q", tc.form, res.ReasonCode, expansion.ReasonArgsUnparseable)
+				}
+				if res.ArgsJSON != nil {
+					t.Errorf("form %q: a refusal must publish nothing", tc.form)
+				}
+			}
+		})
+	}
+}
+
+// TestExpansionFinalizerPassesCaseVariedOrdinaryNamesInUnreadableArguments is the
+// near-miss half, and it is what keeps the fold from becoming a blanket refusal of any
+// unreadable document whose text resembles the namespace.
+//
+// A real directory can be named after the namespace and a real file can begin with it, so
+// each fixture here spells the marker inside or before a longer ordinary NAME. Recognition
+// requires the marker to occupy a complete segment, so every one of them stays an ordinary
+// path in every case spelling and requirement 4.7's pass-through is preserved.
+func TestExpansionFinalizerPassesCaseVariedOrdinaryNamesInUnreadableArguments(t *testing.T) {
+	t.Parallel()
+
+	fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/file_path"))
+	for name, marker := range expansionCaseMarkerForms {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for _, tc := range []struct {
+				form   string
+				layout string
+			}{
+				{form: "directory_named_by_a_prefix", layout: `{"file_path":"/home/dev/my%s/src/main.go","content":"unterminated`},
+				{form: "member_extended_by_a_suffix", layout: `{"file_path":"/home/dev%sw_` + expansionUnreadableTag + `/src/main.go","content":"unterminated`},
+				{form: "prose_mention_inside_content", layout: `{"file_path":"/home/dev/other/a.go","content":"see /home/dev/my%s/ for details`},
+				{form: "sibling_with_a_folded_name", layout: `{"file_path":"/home/dev/%s_other/src/main.go","content":"unterminated`},
+			} {
+				args := fmt.Sprintf(tc.layout, marker)
+				if json.Valid([]byte(args)) {
+					t.Fatal("the fixture must be unparseable JSON")
+				}
+				res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, args),
+					lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(expansionProjectRoot))
+				if err != nil {
+					t.Fatalf("form %q: Finalize returned a Go error: %v", tc.form, err)
+				}
+				if res.Action != toolcall.ActionPass {
+					t.Errorf("form %q: action=%v want pass (reason %q)", tc.form, res.Action, res.ReasonCode)
+					continue
+				}
+				if expansionReason(t, res.ReasonCode) != expansion.ReasonNoAlias {
+					t.Errorf("form %q: reason=%q want %q", tc.form, res.ReasonCode, expansion.ReasonNoAlias)
+				}
+				if res.ArgsJSON != nil {
+					t.Errorf("form %q: a pass-through must publish nothing", tc.form)
+				}
+			}
+		})
+	}
+}
+
+// overLimitProjectRoot is a LONG synthetic workspace root, built so its derived alias is
+// far SHORTER than the root it replaces.
+//
+// The direction of the inequality is the whole point of this fixture. Expansion substitutes
+// the alias for the root, so a document grows past any bound only when the root it is
+// expanded INTO is longer than the alias it came from - a short root would make expansion
+// shrink every selected value and the case could never be built.
+var overLimitProjectRoot = "/synthetic/build-agent/workspaces/" +
+	strings.Repeat("deeply-nested-workspace-directory/", 16) + "worktree"
+
+// overLimitAliases is how many selected aliases the over-limit fixture carries.
+//
+// It is chosen from the measured sizes rather than from a round number: at this count the
+// expansion lands above the canonical delta bound while the INPUT document stays below the
+// default mandatory argument bound, which is the only shape in which the defect is
+// reachable at all. The test asserts both sides of that pair rather than trusting the
+// arithmetic, so a fixture that stopped demonstrating the case fails loudly.
+const overLimitAliases = 16000
+
+// overLimitDocument builds one readable argument document carrying overLimitAliases
+// selected aliases under a single array-of-strings location, plus a short sibling
+// location, and returns it with the fixture's derived facts.
+func overLimitDocument(tb testing.TB) (string, pathvirtualization.Mapping) {
+	tb.Helper()
+	mapping, reason := pathvirtualization.DeriveMapping(overLimitProjectRoot)
+	if reason != pathvirtualization.SkipReasonNone {
+		tb.Fatalf("derive: reason %v", reason)
+	}
+	if mapping.VirtualRoot == "" {
+		tb.Fatal("the over-limit fixture root must derive an active alias (requirement 1.4)")
+	}
+	var doc strings.Builder
+	doc.Grow(overLimitAliases * (len(mapping.VirtualRoot) + 4))
+	doc.WriteString(`{"file_path":"`)
+	doc.WriteString(mapping.VirtualRoot)
+	doc.WriteString(`src/main.go","paths":[`)
+	for i := range overLimitAliases {
+		if i > 0 {
+			doc.WriteByte(',')
+		}
+		doc.WriteByte('"')
+		doc.WriteString(mapping.VirtualRoot)
+		doc.WriteString(`pkg/module_`)
+		doc.WriteString(strconv.Itoa(i))
+		doc.WriteString(`.go"`)
+	}
+	doc.WriteString(`]}`)
+	return doc.String(), mapping
+}
+
+// TestExpansionFinalizerRefusesAnExpansionPastTheCanonicalEnvelopeBound is the guard for
+// the one thing the publication step was missing.
+//
+// The assembler publishes a finalizer's rewritten arguments as ONE canonical tool-call
+// args delta, and canonical event validation bounds that delta. Syntax validity is not
+// enough: a document of selected aliases can be entirely valid JSON and still expand past
+// the bound, because expansion substitutes a long real root for a short alias in every
+// selected element at once. Publishing that document hands the assembler a lifecycle the
+// runtime itself will reject, and the call fails downstream of the feature that produced it.
+//
+// So the output is bounded before it is published. The bound is the canonical one the
+// runtime enforces rather than a number chosen here, and the answer is a bounded refusal:
+// the call fails closed under its own closed reason vocabulary, never a partially expanded
+// document and never an over-limit delta.
+func TestExpansionFinalizerRefusesAnExpansionPastTheCanonicalEnvelopeBound(t *testing.T) {
+	t.Parallel()
+
+	document, mapping := overLimitDocument(t)
+	if !json.Valid([]byte(document)) {
+		t.Fatal("the fixture must be a readable argument document")
+	}
+	if len(document) >= toolcall.DefaultMandatoryMaxArgsBytes {
+		t.Fatalf("fixture input is %d bytes, which must stay under the %d-byte default "+
+			"mandatory bound for this case to be reachable",
+			len(document), toolcall.DefaultMandatoryMaxArgsBytes)
+	}
+	// NON-VACUITY: the fixture must actually expand past the bound, or this test would
+	// pass against a pass that never expanded anything.
+	expandedSize := len(document) - len(mapping.VirtualRoot)*overLimitAliases +
+		(len(mapping.RealRoot)-len(mapping.VirtualRoot))*overLimitAliases
+	if expandedSize <= lipapi.MaxEventDeltaBytes {
+		t.Fatalf("fixture expansion is about %d bytes, which must exceed the %d-byte canonical "+
+			"delta bound for this case to be reachable", expandedSize, lipapi.MaxEventDeltaBytes)
+	}
+
+	fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/file_path", "/paths"))
+	res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, document),
+		lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(overLimitProjectRoot))
+	if err != nil {
+		t.Fatalf("Finalize returned a Go error: %v", err)
+	}
+	if res.Action != toolcall.ActionReject {
+		t.Fatalf("action=%v want reject for an over-limit expansion (reason %q)", res.Action, res.ReasonCode)
+	}
+	if expansionReason(t, res.ReasonCode) != expansion.ReasonExpandedTooLarge {
+		t.Fatalf("reason=%q want %q", res.ReasonCode, expansion.ReasonExpandedTooLarge)
+	}
+	if res.ArgsJSON != nil {
+		t.Fatal("an over-limit expansion must publish nothing")
+	}
+	// The refusal the runtime builds from the reason code must itself be publishable,
+	// which is what keeps the bounded label off the oversized path.
+	if res.ReasonCode != expansion.ReasonExpandedTooLarge.String() {
+		t.Fatal("the published reason code must be the bounded label")
+	}
+	if len(res.ReasonCode) > lipapi.MaxEventCodeFieldBytes {
+		t.Fatal("the bounded reason code exceeds the canonical code-field bound")
+	}
+}
+
+// TestExpansionFinalizerPublishesAnExpansionInsideTheCanonicalEnvelopeBound is the
+// control that keeps the bound from refusing everything: a document that expands within
+// the canonical bound is still published, with the expanded bytes, exactly as before.
+//
+// A guard that only ever sees refusals is satisfied by a pass that refuses all expansions,
+// so the positive case has to be pinned next to the negative one on the same fixture
+// family and the same tool.
+func TestExpansionFinalizerPublishesAnExpansionInsideTheCanonicalEnvelopeBound(t *testing.T) {
+	t.Parallel()
+
+	mapping, reason := pathvirtualization.DeriveMapping(overLimitProjectRoot)
+	if reason != pathvirtualization.SkipReasonNone {
+		t.Fatalf("derive: reason %v", reason)
+	}
+	// One hundredth of the over-limit fixture: the same shape, the same alias, and an
+	// expansion far inside the bound.
+	const aliases = overLimitAliases / 100
+	var doc strings.Builder
+	doc.WriteString(`{"paths":[`)
+	for i := range aliases {
+		if i > 0 {
+			doc.WriteByte(',')
+		}
+		doc.WriteByte('"')
+		doc.WriteString(mapping.VirtualRoot)
+		doc.WriteString(`pkg/module_`)
+		doc.WriteString(strconv.Itoa(i))
+		doc.WriteString(`.go"`)
+	}
+	doc.WriteString(`]}`)
+	document := doc.String()
+
+	fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/paths"))
+	res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, document),
+		lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(overLimitProjectRoot))
+	if err != nil {
+		t.Fatalf("Finalize returned a Go error: %v", err)
+	}
+	if res.Action != toolcall.ActionRewrite {
+		t.Fatalf("action=%v want rewrite for an in-bound expansion (reason %q)", res.Action, res.ReasonCode)
+	}
+	if expansionReason(t, res.ReasonCode) != expansion.ReasonExpanded {
+		t.Fatalf("reason=%q want %q", res.ReasonCode, expansion.ReasonExpanded)
+	}
+	if len(res.ArgsJSON) > lipapi.MaxEventDeltaBytes {
+		t.Fatalf("the published document is %d bytes, which must stay inside the %d-byte "+
+			"canonical delta bound", len(res.ArgsJSON), lipapi.MaxEventDeltaBytes)
+	}
+	if !bytes.Contains(res.ArgsJSON, []byte(mapping.RealRoot)) {
+		t.Fatal("the published document must hold the expanded real root")
+	}
+	if bytes.Contains(res.ArgsJSON, []byte(mapping.VirtualRoot)) {
+		t.Fatal("the published document must hold no unexpanded alias")
+	}
+	if !rewrite.PublishedJSONValid(res.ArgsJSON) {
+		t.Fatal("the published document must be exactly one complete JSON value")
+	}
+}
+
+// TestExpansionFinalizerAuditModeReportsTheOverLimitConditionWithoutRefusing keeps the
+// bound inside the pass's own publication rule.
+//
+// Requirement 7.3 asks audit mode to run the IDENTICAL detection and publish nothing, so
+// the bound is a publication decision and not a detection one: an audit pass measures the
+// same over-limit document and reports the ordinary audit reason rather than failing the
+// call. This is what proves the bound did not quietly become a detection rule that refuses
+// calls in a mode whose whole contract is to measure them.
+func TestExpansionFinalizerAuditModeReportsTheOverLimitConditionWithoutRefusing(t *testing.T) {
+	t.Parallel()
+
+	document, _ := overLimitDocument(t)
+	fin, err := expansion.NewFinalizer(
+		expansionResolver(t, expansionToolName, "/file_path", "/paths"),
+		rewrite.ModeAudit, expansion.Policy{})
+	if err != nil {
+		t.Fatalf("NewFinalizer: %v", err)
+	}
+	res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, document),
+		lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(overLimitProjectRoot))
+	if err != nil {
+		t.Fatalf("Finalize returned a Go error: %v", err)
+	}
+	if res.Action != toolcall.ActionPass {
+		t.Fatalf("action=%v want pass in audit mode (reason %q)", res.Action, res.ReasonCode)
+	}
+	if expansionReason(t, res.ReasonCode) != expansion.ReasonAuditMode {
+		t.Fatalf("reason=%q want %q", res.ReasonCode, expansion.ReasonAuditMode)
+	}
+	if res.ArgsJSON != nil {
+		t.Fatal("audit mode must publish nothing")
 	}
 }

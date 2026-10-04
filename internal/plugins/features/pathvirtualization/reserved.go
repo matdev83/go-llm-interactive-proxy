@@ -240,7 +240,7 @@ func (m Mapping) expandReservedAlias(alias reservedAlias) (string, ExpandResult)
 		!segmentEqual(alias.flavor, alias.tag, m.WorkspaceTag) {
 		return "", ExpandResultWorkspaceMismatch
 	}
-	return joinRootSuffix(m.RealRoot, alias.rest), ExpandResultExpanded
+	return joinRootSuffix(m.Flavor, m.RealRoot, alias.rest), ExpandResultExpanded
 }
 
 // reservedWorkspaceTag validates one candidate workspace tag segment and returns

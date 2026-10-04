@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization"
@@ -637,5 +639,144 @@ func TestAccountIndexIsBounded(t *testing.T) {
 	}
 	if stats.BytesSaved() != 0 {
 		t.Error("account without byte totals must report zero savings")
+	}
+}
+
+// deepMemberName is the member name each level of the boundary fixture repeats. It is a
+// name no realistic payload would choose, which is the point: the fixture has to control
+// DEPTH exactly, so the depth is spelled rather than implied by a path.
+const deepMemberName = "level"
+
+// nestedArrayDocument builds one document holding a single-element-per-level chain of
+// depth nested members whose innermost value is an array of strings, and returns it with
+// the pointer text of that array.
+//
+// The array sits at exactly depth reference tokens below the root, which is the deepest
+// a compiled pointer can name, so each of its elements sits one token deeper than any
+// pointer reaches on its own.
+func nestedArrayDocument(t *testing.T, depth int) ([]byte, string) {
+	t.Helper()
+	if depth < 1 {
+		t.Fatal("fixture depth must be positive")
+	}
+	var document strings.Builder
+	document.Grow(depth * (len(deepMemberName) + 5))
+	for range depth {
+		document.WriteString(`{"` + deepMemberName + `":`)
+	}
+	document.WriteString(`[`)
+	for i := range 2 {
+		if i > 0 {
+			document.WriteByte(',')
+		}
+		document.WriteString(`"element_` + strconv.Itoa(i) + `"`)
+	}
+	document.WriteString(`]`)
+	for range depth {
+		document.WriteByte('}')
+	}
+	tokens := strings.Repeat("/"+deepMemberName, depth)
+	return []byte(document.String()), tokens
+}
+
+// TestPointerTextIsMaterializedAtEverySelectableDepth pins the boundary the walk's
+// pointer-text bound is derived from, from both sides.
+//
+// The walk builds a container's canonical pointer text only while a selection can reach
+// that container, so the bound has to be EXACT: one token too low and a real selected
+// leaf is silently never visited, one token too high and the walk keeps paying for text
+// no pointer can name. The bound is asserted against the selector layer's own constant
+// rather than against a literal here, so a change to that constant cannot leave a stale
+// depth behind in this package.
+//
+// The positive half is the boundary itself: an array named by the deepest pointer the
+// selector layer will compile has its ELEMENTS one token below that pointer, so a walk
+// that stopped one token early would find no leaf at all. The negative half is the next
+// token down: a pointer that deep is refused outright, so no leaf there can ever be
+// selected and materialising its text could change nothing.
+func TestPointerTextIsMaterializedAtEverySelectableDepth(t *testing.T) {
+	t.Parallel()
+
+	if maxSelectableLeafDepth != pathvirtualization.MaxPointerDepth+1 {
+		t.Fatalf("maxSelectableLeafDepth = %d, want pathvirtualization.MaxPointerDepth+1 = %d",
+			maxSelectableLeafDepth, pathvirtualization.MaxPointerDepth+1)
+	}
+
+	document, arrayPointer := nestedArrayDocument(t, pathvirtualization.MaxPointerDepth)
+	keys := map[string]struct{}{
+		arrayPointer + "/0": {},
+		arrayPointer + "/1": {},
+		// The unescaped spelling of the same location must not match, exactly as at any
+		// other depth: the key set is canonical pointer text.
+		strings.ReplaceAll(arrayPointer+"/0", "/0", "//0"): {},
+	}
+	spans, err := findSelectedStringSpans(document, keys)
+	if err != nil {
+		t.Fatalf("findSelectedStringSpans: %v", err)
+	}
+	got := make([]string, 0, len(spans))
+	for _, span := range spans {
+		var decoded string
+		if err := json.Unmarshal(document[span.start:span.end], &decoded); err != nil {
+			t.Fatalf("span [%d,%d) is not a JSON string literal", span.start, span.end)
+		}
+		if decoded != span.value {
+			t.Errorf("span [%d,%d) does not decode to the value it recorded", span.start, span.end)
+		}
+		got = append(got, span.value)
+	}
+	sort.Strings(got)
+	if want := []string{"element_0", "element_1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("found %d spans at the deepest selectable depth, want the %d the boundary can select",
+			len(got), len(want))
+	}
+
+	// One token deeper, no compiled pointer can name anything there.
+	tooDeep, deepPointer := nestedArrayDocument(t, maxSelectableLeafDepth)
+	deepTokens := strings.Count(deepPointer, "/")
+	if deepTokens != len(strings.Split(strings.TrimPrefix(arrayPointer, "/"), "/"))+1 {
+		t.Fatalf("fixture pointer depth = %d tokens, want one more than the boundary fixture",
+			deepTokens)
+	}
+	if _, reject := pathvirtualization.ParseSelector(deepPointer); reject != pathvirtualization.SelectorRejectPointerDepth {
+		t.Fatalf("a pointer one token past the bound rejected as %v, want %v",
+			reject, pathvirtualization.SelectorRejectPointerDepth)
+	}
+	// The array of that deeper document sits one token below its own pointer, so its
+	// elements are exactly maxSelectableLeafDepth tokens deep, and they are still the
+	// deepest leaves a compiled pointer could ever publish.
+	deepKeys := map[string]struct{}{deepPointer + "/0": {}, deepPointer + "/1": {}}
+	if _, err := findSelectedStringSpans(tooDeep, deepKeys); err != nil {
+		t.Fatalf("findSelectedStringSpans at the boundary: %v", err)
+	}
+}
+
+// TestDeepUnselectedNestingRewritesTheShallowSelectedLeaf proves the depth bound changed
+// no observable answer for a payload whose selected member is buried under nesting no
+// pointer can name.
+//
+// The selected leaf is at depth one, the nesting below it is unselectable, and the
+// published bytes must still be the shallow member rewritten inside the untouched
+// document. This is the payload shape the pointer-text bound exists for, so it is the one
+// whose byte fidelity has to be asserted rather than assumed.
+func TestDeepUnselectedNestingRewritesTheShallowSelectedLeaf(t *testing.T) {
+	t.Parallel()
+
+	nesting := strings.Repeat(`{"`+deepMemberName+`":`, maxSelectableLeafDepth*4)
+	closing := strings.Repeat(`}`, maxSelectableLeafDepth*4)
+	document := `{"file_path":"` + docTarget + `","` + deepMemberName + `":` + nesting + `{}` + closing + `}`
+
+	var acc account
+	published, changed, err := New(docMapping(t), nil).
+		rewriteDocument([]byte(document), docPointers(t, "/file_path"), &acc)
+	if err != nil {
+		t.Fatalf("rewriteDocument: %v", err)
+	}
+	if !changed {
+		t.Fatal("the shallow selected member was not rewritten")
+	}
+	want := `{"file_path":"` + docVPath + `","` + deepMemberName + `":` + nesting + `{}` + closing + `}`
+	if string(published) != want {
+		t.Fatal("the rewrite did not preserve the document byte for byte outside the selected literal")
 	}
 }

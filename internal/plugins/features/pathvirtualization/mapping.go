@@ -192,7 +192,7 @@ func (m Mapping) ExpandPath(path string) (string, ExpandResult) {
 	if !ok {
 		return path, ExpandResultNotApplicable
 	}
-	return joinRootSuffix(m.RealRoot, suffix), ExpandResultExpanded
+	return joinRootSuffix(m.Flavor, m.RealRoot, suffix), ExpandResultExpanded
 }
 
 // matchableRoot drops the trailing separators of root that sit above its spelled
@@ -205,6 +205,13 @@ func (m Mapping) ExpandPath(path string) (string, ExpandResult) {
 // keeps its single separator, so it matches only itself and never `/x`; a drive
 // volume matches its children because the separator that follows it in the path is
 // the first byte of the suffix.
+//
+// Trailing separators are recognised under the ROOT'S OWN flavor rather than a
+// separator set shared by all of them, which is what keeps a POSIX directory whose
+// name ends in a literal backslash intact. Under a POSIX flavor the backslash is an
+// ordinary file-name byte, so trimming it would delete the last byte of the workspace
+// identity: every legitimate child would stop matching, and every path beneath the
+// similarly named directory WITHOUT that byte would start matching.
 func matchableRoot(root string) string {
 	parsed, reason := ClassifyPath(root)
 	if reason != SkipReasonNone {
@@ -212,7 +219,7 @@ func matchableRoot(root string) string {
 	}
 	volumeLen := len(parsed.Root)
 	trimmed := root
-	for len(trimmed) > volumeLen && isSeparator(trimmed[len(trimmed)-1]) {
+	for len(trimmed) > volumeLen && isFlavorSeparator(parsed.Flavor, trimmed[len(trimmed)-1]) {
 		trimmed = trimmed[:len(trimmed)-1]
 	}
 	return trimmed
@@ -226,11 +233,16 @@ func matchableRoot(root string) string {
 // byte-reversible when RealRoot itself carries a trailing separator the client did
 // not send. A non-empty suffix is always preserved in full, including a lone
 // boundary separator.
-func joinRootSuffix(root, suffix string) string {
+//
+// The boundary separator is recognised under the ROOT'S OWN flavor, for the same
+// reason the trailing trim above is: a POSIX root may end in an ordinary backslash,
+// and treating that byte as the boundary would consume the client's leading separator
+// and join two paths into one name.
+func joinRootSuffix(flavor PathFlavor, root, suffix string) string {
 	switch {
 	case suffix == "":
 		return root
-	case isSeparator(root[len(root)-1]):
+	case isFlavorSeparator(flavor, root[len(root)-1]):
 		// The root already spells the boundary separator the suffix repeats, so it
 		// is not doubled. A suffix that is nothing but that separator needs no
 		// byte of its own.
@@ -243,6 +255,21 @@ func joinRootSuffix(root, suffix string) string {
 		// implementation would otherwise drop.
 		return root + suffix
 	}
+}
+
+// isFlavorSeparator reports whether b ends a path segment under the flavor's own rules.
+//
+// This is the one place the shared [isSeparator] predicate is deliberately NOT used,
+// and the difference is the whole POSIX-versus-Windows split of design.md 150: POSIX has
+// exactly one separator and treats a backslash as an ordinary byte, while every Windows
+// flavor accepts both interchangeably. Reserved-alias recognition stays stricter than both
+// on purpose - see [takeSegment] - but ordinary root matching must not be, because the
+// bytes this predicate skips are part of a POSIX workspace's identity.
+func isFlavorSeparator(flavor PathFlavor, b byte) bool {
+	if flavor == FlavorPOSIX {
+		return b == slashSeparator
+	}
+	return isSeparator(b)
 }
 
 // stripRootPrefix matches root against a leading region of path on a

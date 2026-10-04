@@ -60,7 +60,7 @@ const (
 	outboundOutcomeSlots  = 4
 	expansionOutcomeSlots = 3
 	skipReasonSlots       = 12
-	expansionReasonSlots  = 13
+	expansionReasonSlots  = 14
 	// passSlots is the size of the per-pass breakdown array: one slot per member of the
 	// outbound pass vocabulary - the unattributed value, the early pass, and the late pass -
 	// plus ONE bounded slot for a value outside it.
@@ -109,6 +109,7 @@ var expansionReasonMembers = [...]expansion.Reason{
 	expansion.ReasonArgsUnparseable,
 	expansion.ReasonMalformedReservedAlias,
 	expansion.ReasonWorkspaceMismatch,
+	expansion.ReasonExpandedTooLarge,
 	expansion.ReasonInvalidRewrite,
 }
 

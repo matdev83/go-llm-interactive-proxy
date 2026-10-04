@@ -328,3 +328,179 @@ func TestScanReservedAliasRecognizesEscapedSpellings(t *testing.T) {
 		})
 	}
 }
+
+// scanCaseVariants enumerates the ASCII case spellings of the fixed V1 marker this file
+// requires the byte recognizer to accept.
+//
+// It exists because the marker and the tag are the SAME namespace decision read twice, and
+// the two reads disagreed on case. The tag was already accepted in either case, because a
+// Windows flavor's path comparison folds ASCII case, while the marker was matched byte for
+// byte. So the parseable recognizer accepted an upper-case marker spelling while the byte
+// recognizer reported those very bytes as carrying no namespace at all, and the
+// disagreement is only observable where no parseable path exists - an unreadable argument
+// document - which is the one place the byte recognizer is the only thing between an alias
+// and the client.
+//
+// The canonical spelling is in the table on purpose: it is the case every other case is
+// compared against, so a table that lost it could no longer prove the other spellings are
+// the same marker.
+var scanCaseVariants = map[string]string{
+	"canonical":        ".__lip_v1__",
+	"all_upper":        ".__LIP_V1__",
+	"first_letter":     ".__Lip_v1__",
+	"trailing_upper":   ".__lip_V1__",
+	"alternating":      ".__LiP_V1__",
+	"underscores_only": ".__lIp_v1__",
+}
+
+// TestScanReservedAliasRecognizesCaseVariedMarkers requires every ASCII case spelling of
+// the marker to be recognized as the namespace, wherever a real alias spells it, with
+// either tag case, in a bare path and inside unreadable argument bytes.
+//
+// A case-folded marker is not a new namespace: it is the same reserved root the frozen
+// derivation emits, read under the matching rules of the flavors that fold case. The
+// answer therefore stays inside the vocabulary this recognizer already reports - a folded
+// marker followed by a valid tag is well-formed, and a folded marker followed by an
+// unusable tag is a recognized MALFORMED namespace rather than an ordinary path, which is
+// the refusal a caller depends on.
+func TestScanReservedAliasRecognizesCaseVariedMarkers(t *testing.T) {
+	t.Parallel()
+
+	forms := []struct {
+		form   string
+		layout string
+		want   pathvirtualization.ReservedAliasPresence
+	}{
+		{
+			form:   "posix_alias_root",
+			layout: `/%s/w_` + scanTag + `/src/main.go`,
+			want:   pathvirtualization.ReservedAliasWellFormed,
+		},
+		{
+			form:   "posix_upper_tag",
+			layout: `/%s/w_` + scanTagUpper + `/src/main.go`,
+			want:   pathvirtualization.ReservedAliasWellFormed,
+		},
+		{
+			form:   "windows_drive_alias",
+			layout: `C:\home\dev\%s\w_` + scanTagUpper + `\src\main.go`,
+			want:   pathvirtualization.ReservedAliasWellFormed,
+		},
+		{
+			form:   "unc_server_position",
+			layout: `\\%s\w_` + scanTag + `\src\main.go`,
+			want:   pathvirtualization.ReservedAliasWellFormed,
+		},
+		{
+			form:   "unreadable_document_bytes",
+			layout: `{"file_path":"/%s/w_` + scanTag + `/src/main.go"`,
+			want:   pathvirtualization.ReservedAliasWellFormed,
+		},
+		{
+			form:   "unreadable_document_malformed_tag",
+			layout: `{"file_path":"/%s/w_short/src/main.go"}`,
+			want:   pathvirtualization.ReservedAliasMalformedTag,
+		},
+		{
+			form:   "bare_alias_with_no_suffix",
+			layout: `/%s/w_` + scanTag,
+			want:   pathvirtualization.ReservedAliasWellFormed,
+		},
+	}
+
+	for variant, marker := range scanCaseVariants {
+		t.Run(variant, func(t *testing.T) {
+			t.Parallel()
+			for _, f := range forms {
+				raw := fmt.Sprintf(f.layout, marker)
+				if got := pathvirtualization.ScanReservedAlias([]byte(raw)); got != f.want {
+					t.Errorf("form %q: presence = %v, want %v", f.form, got, f.want)
+				}
+			}
+		})
+	}
+}
+
+// TestScanReservedAliasRecognizesEscapedCaseVariedMarker pins the same requirement for
+// the SECOND scan pass.
+//
+// An argument document may spell any letter of the marker as a JSON escape, so the literal
+// byte scan sees none of the marker at all and the answer has to come from the unescaped
+// projection. The projection is decoded to the folded spelling first, so the case-folded
+// comparison in the literal scan is not enough on its own: this case fails unless the
+// folded comparison applies to the projection too.
+func TestScanReservedAliasRecognizesEscapedCaseVariedMarker(t *testing.T) {
+	t.Parallel()
+
+	// Each letter of the marker, other than the leading dot, spelled as an escape whose
+	// decoded form is its UPPER-case ASCII value.
+	escaped := `{"file_path":"/.\u005f\u005f\u004c\u0049\u0050\u005f\u0056\u0031\u005f\u005f/w_` +
+		scanTag + `/src/main.go"`
+	if got := pathvirtualization.ScanReservedAlias([]byte(escaped)); got != pathvirtualization.ReservedAliasWellFormed {
+		t.Fatalf("an escaped case-folded marker: presence = %v, want well-formed", got)
+	}
+}
+
+// TestScanReservedAliasRejectsCaseVariedOrdinaryNames is the near-miss guard: folding the
+// marker's case must not loosen the rule that made the byte recognizer safe in the first
+// place.
+//
+// A real directory can be named after the namespace and a real file can begin with it, so
+// recognition still requires the marker to occupy a COMPLETE segment. A longer name that
+// embeds or extends the marker stays an ordinary path in EVERY case spelling - including
+// the spelling the derivation never emits, because an unrelated real directory is far more
+// likely to differ from the namespace by case than to reproduce it exactly.
+func TestScanReservedAliasRejectsCaseVariedOrdinaryNames(t *testing.T) {
+	t.Parallel()
+
+	forms := []struct {
+		form   string
+		layout string
+	}{
+		{form: "directory_named_by_a_prefix", layout: `/home/dev/my%s/src/main.go`},
+		{form: "member_extended_by_a_suffix", layout: `/home/dev%sw_` + scanTag + `/src/main.go`},
+		{form: "member_extended_by_a_suffix_alone", layout: `/home/dev%sx/src/main.go`},
+		{form: "no_separator_before_the_marker", layout: `prefix%s/w_` + scanTag + `/src/main.go`},
+		{form: "prose_inside_unreadable_document", layout: `{"content":"see /home/dev/my%s/ for details"}`},
+		{form: "sibling_with_a_folded_name", layout: `/home/dev/%s_other/src/main.go`},
+	}
+
+	for variant, marker := range scanCaseVariants {
+		t.Run(variant, func(t *testing.T) {
+			t.Parallel()
+			for _, f := range forms {
+				raw := fmt.Sprintf(f.layout, marker)
+				if got := pathvirtualization.ScanReservedAlias([]byte(raw)); got != pathvirtualization.ReservedAliasAbsent {
+					t.Errorf("form %q: presence = %v, want absent", f.form, got)
+				}
+			}
+		})
+	}
+}
+
+// TestScanReservedAliasRejectsMarkersOfAnotherLength is the length half of the
+// near-miss guard.
+//
+// A one-byte-shorter and a one-byte-longer segment are both ordinary names, and the fact
+// that they are case variants of the marker's own bytes must not change that: folding case
+// does not make a segment shorter or longer, and the frozen width is namespace syntax
+// rather than a matching rule.
+func TestScanReservedAliasRejectsMarkersOfAnotherLength(t *testing.T) {
+	t.Parallel()
+
+	for _, variant := range []string{"canonical", "all_upper", "alternating"} {
+		for _, tc := range []struct {
+			form   string
+			marker string
+		}{
+			{form: "one_byte_shorter", marker: ".__lip_v1_"},
+			{form: "one_byte_longer", marker: ".__lip_v1___"},
+			{form: "letters_swapped", marker: ".__vlp_i1__"},
+		} {
+			raw := fmt.Sprintf(`/home/dev/%s/w_`+scanTag+`/src/main.go`, tc.marker)
+			if got := pathvirtualization.ScanReservedAlias([]byte(raw)); got != pathvirtualization.ReservedAliasAbsent {
+				t.Errorf("variant %q form %q: presence = %v, want absent", variant, tc.form, got)
+			}
+		}
+	}
+}

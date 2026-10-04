@@ -12,7 +12,7 @@ package expansion
 //	 6. parse a V1 reserved alias form before any expansion                 -> expandPath
 //	 7. if the alias matches the current VirtualRoot, use the RealRoot      -> expandPath
 //	 8. reject a malformed alias or a different tag/flavor/drive           -> expandPath
-//	 9. validate the rewritten JSON                                         -> publish
+//	 9. validate the rewritten JSON and bound it against the canonical delta limit -> publish
 //	10. the assembler synthesizes the canonical rewritten lifecycle         -> ActionRewrite
 //	11. existing tool policies/reactors receive real paths                  -> design step 10
 //
@@ -43,6 +43,12 @@ package expansion
 // the tool's own policy must name at least one argument location, and a document with
 // no marker keeps requirement 4.7's pass-through - and the accepted residual it
 // cannot avoid is documented on the decider itself.
+//
+// The second rule of its own is the OUTPUT BOUND of step 9. Syntax validity is the
+// half of canonical validation that costs nothing to check; the size half is the half
+// expansion itself can break, because the alias it substitutes is short by construction
+// and the real root is not. The bound used is the runtime's own canonical delta limit
+// rather than a limit invented here.
 
 import (
 	"context"
@@ -434,8 +440,28 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, met
 			// Audit mode: identical detection, no mutation (requirement 7.3).
 			return accounted.withReason(ReasonAuditMode)
 		}
-		// Step 7 succeeded on at least one leaf. Steps 9's JSON validation happens in
-		// Finalize, next to the rewrite it guards.
+		// Step 9's SIZE half. The assembler publishes this document as ONE canonical
+		// tool-call args delta, and canonical event validation bounds that delta, so a
+		// document that fits the declared argument bound is still not automatically
+		// publishable: expansion substitutes the real root for the alias in every
+		// selected leaf at once, and the root is longer than the alias by construction.
+		// Publishing an over-limit document would hand the assembler a lifecycle the
+		// runtime itself rejects, and the call would fail downstream of the feature that
+		// produced it.
+		//
+		// The bound is the runtime's own canonical constant rather than a number chosen
+		// here, so this check and the validator it exists for cannot drift apart. It runs
+		// AFTER the audit-mode branch on purpose: a bound on publication is not a
+		// detection rule, and requirement 7.3 asks audit mode to run the identical
+		// detection without failing anything.
+		//
+		// Refusing is the only safe answer. A partial expansion would release one decided
+		// path beside one undecided alias (requirements.md 4.4), and passing the original
+		// document through would release the very namespace this pass exists to expand
+		// (requirements.md 4.1).
+		if len(published) > lipapi.MaxEventDeltaBytes {
+			return accounted.withReason(ReasonExpandedTooLarge)
+		}
 		return accounted.withReason(ReasonExpanded).withPublished(published)
 	default:
 		// An outcome outside the closed vocabulary is treated as the safe direction: a

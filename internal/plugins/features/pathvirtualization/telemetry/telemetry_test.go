@@ -593,8 +593,8 @@ func TestTheSnapshotIsBoundedWhateverTheTraffic(t *testing.T) {
 		t.Fatalf("expansion outcome series holds %d entries, want at most the 3 closed outcomes: %+v",
 			got, snapshot.Inbound.Outcomes)
 	}
-	if got := len(snapshot.Inbound.Reasons); got > 13 {
-		t.Fatalf("expansion reason series holds %d entries, want at most the 13 closed reasons: %+v",
+	if got := len(snapshot.Inbound.Reasons); got > 14 {
+		t.Fatalf("expansion reason series holds %d entries, want at most the 13 recordable closed reasons plus the one bounded slot: %+v",
 			got, snapshot.Inbound.Reasons)
 	}
 	if got := len(snapshot.Inbound.Restore.Skips); got > 11 {
@@ -603,15 +603,17 @@ func TestTheSnapshotIsBoundedWhateverTheTraffic(t *testing.T) {
 	}
 	// Every one of the 256 expansion observations reached a REASON series entry, and the
 	// series is still bounded by the closed vocabulary - which is the property the count
-	// above states. The 244 in the final slot are the out-of-vocabulary values, all folded
-	// into ONE bounded slot rather than 244 series, which is what the fold is for.
-	if got := snapshot.Inbound.Reasons[len(snapshot.Inbound.Reasons)-1].Count; got != 244 {
-		t.Fatalf("the bounded slot counted %d, want the 244 out-of-vocabulary values: %+v",
+	// above states. The 243 in the final slot are the out-of-vocabulary values, all folded
+	// into ONE bounded slot rather than 243 series, which is what the fold is for. The
+	// remaining 13 observations carry the recordable reasons the feed cycles through, the
+	// no-decision value being the one member the series deliberately omits.
+	if got := snapshot.Inbound.Reasons[len(snapshot.Inbound.Reasons)-1].Count; got != 243 {
+		t.Fatalf("the bounded slot counted %d, want the 243 out-of-vocabulary values: %+v",
 			got, snapshot.Inbound.Reasons)
 	}
 	// And every entry is a genuine vocabulary member or the bounded fallback: none of them
 	// is the 244 distinct values a naive map keyed on the raw reason would have produced.
-	if got := len(snapshot.Inbound.Reasons); got > 13 {
+	if got := len(snapshot.Inbound.Reasons); got > 14 {
 		t.Fatalf("expansion reason series holds %d entries, want the closed vocabulary: %+v",
 			got, snapshot.Inbound.Reasons)
 	}

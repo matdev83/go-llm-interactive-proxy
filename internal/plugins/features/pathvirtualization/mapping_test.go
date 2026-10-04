@@ -1793,3 +1793,175 @@ func TestWorkspaceTagIsNeverEmittedInBoundedDiagnostics(t *testing.T) {
 		}
 	}
 }
+
+// posixTrailingBackslashRoot is a supported POSIX root whose FINAL directory name ends
+// in a literal backslash byte.
+//
+// It is not a Windows spelling and not a malformed root: on POSIX a backslash is an
+// ordinary file-name byte, so this names one real directory. The fixture root is long
+// enough that its derived alias is strictly shorter, which is what keeps the mapping
+// active (requirement 1.4) and every expectation below non-vacuous.
+const posixTrailingBackslashRoot = `/home/dev/workspaces/lip-path-virtualization\`
+
+// posixTrailingBackslashSiblingRoot is the same root with the trailing backslash removed:
+// a DIFFERENT directory that happens to have the same name up to that one byte.
+const posixTrailingBackslashSiblingRoot = `/home/dev/workspaces/lip-path-virtualization`
+
+// TestPosixRootKeepsATrailingBackslashByte pins design.md 150-151 on the byte that
+// separates them from a Windows spelling.
+//
+// Both helpers that decide where a root ENDS - the trailing-separator trim that makes a
+// root matchable, and the suffix join that reconstructs a client's own bytes - used one
+// separator predicate that accepted both separators for every flavor. On POSIX that
+// predicate was strictly too permissive, because POSIX has exactly one separator: a
+// trailing backslash is part of the directory's name, and treating it as a separator
+// deleted a byte of the workspace identity. Two failure modes follow from that one byte,
+// and both are worse than a path that simply fails to match:
+//
+//   - a legitimate child of this root stops matching, so a path the client spelled is
+//     never virtualized;
+//   - a path beneath the SIMILARLY NAMED sibling directory without the backslash now
+//     matches this root's trimmed spelling, so a file outside the workspace is
+//     virtualized as though it were inside it.
+//
+// The sibling assertion is the one that matters most, because the trimmed root is a
+// prefix of a path that has nothing to do with this workspace.
+func TestPosixRootKeepsATrailingBackslashByte(t *testing.T) {
+	t.Parallel()
+
+	mapping, reason := pathvirtualization.DeriveMapping(posixTrailingBackslashRoot)
+	if reason != pathvirtualization.SkipReasonNone {
+		t.Fatalf("DeriveMapping reason = %q, want none", reason)
+	}
+	if mapping.Flavor != pathvirtualization.FlavorPOSIX {
+		t.Fatalf("flavor = %v, want POSIX", mapping.Flavor)
+	}
+	if mapping.VirtualRoot == "" {
+		t.Fatal("the fixture root must derive an active alias (requirement 1.4)")
+	}
+	if mapping.RealRoot != posixTrailingBackslashRoot {
+		t.Fatal("the mapping did not keep the root exactly as spelled")
+	}
+
+	child := posixTrailingBackslashRoot + `/src/main.go`
+	virtual, changed := mapping.VirtualizePath(child)
+	if !changed {
+		t.Fatal("a legitimate child of the root must match the root's matchable spelling")
+	}
+	wantVirtual := mapping.VirtualRoot[:len(mapping.VirtualRoot)-1] + `/src/main.go`
+	if virtual != wantVirtual {
+		t.Fatal("the virtualized child did not keep the client's suffix below the alias root")
+	}
+
+	// The reverse direction has the same one byte: expansion must reconstruct the
+	// client's bytes, and the backslash is one of them.
+	expanded, result := mapping.ExpandPath(virtual)
+	if result != pathvirtualization.ExpandResultExpanded {
+		t.Fatalf("ExpandPath result = %v, want expanded", result)
+	}
+	if expanded != child {
+		t.Fatal("expansion did not reproduce the client's own bytes")
+	}
+
+	// The bare alias root expands under the same rule an ordinary POSIX root ending on
+	// a name does, and what matters here is only that the expansion keeps the root's own
+	// trailing name byte: the result must still be a path under THIS root and never the
+	// similarly named sibling.
+	for _, aliasRoot := range []string{mapping.VirtualRoot, mapping.VirtualRoot + `/`} {
+		expanded, result := mapping.ExpandPath(aliasRoot)
+		if result != pathvirtualization.ExpandResultExpanded {
+			t.Fatalf("ExpandPath of an alias root = %v, want expanded", result)
+		}
+		if !strings.HasPrefix(expanded, posixTrailingBackslashRoot) {
+			t.Fatal("expanding an alias root left the workspace root's trailing name byte behind")
+		}
+	}
+
+	// The near-named sibling is a different workspace and must stay untouched.
+	sibling, reason := pathvirtualization.DeriveMapping(posixTrailingBackslashSiblingRoot)
+	if reason != pathvirtualization.SkipReasonNone {
+		t.Fatalf("sibling DeriveMapping reason = %q, want none", reason)
+	}
+	if sibling.WorkspaceTag == mapping.WorkspaceTag {
+		t.Fatal("the two fixture roots must be different workspaces")
+	}
+	for _, foreign := range []string{
+		posixTrailingBackslashSiblingRoot + `/src/main.go`,
+		posixTrailingBackslashSiblingRoot,
+		posixTrailingBackslashSiblingRoot + `/`,
+	} {
+		if got, changed := mapping.VirtualizePath(foreign); changed || got != foreign {
+			t.Fatal("a path beneath the near-named sibling was rewritten")
+		}
+		if got, result := mapping.ExpandPath(foreign); result != pathvirtualization.ExpandResultNotApplicable || got != foreign {
+			t.Fatalf("a path beneath the near-named sibling expanded, result = %v", result)
+		}
+	}
+}
+
+// TestWindowsRootsKeepSeparatorAgnosticTrimming is the flavor-scoping half.
+//
+// The POSIX fix must not narrow the Windows rules: a Windows root spelled with a forward
+// slash and a client that sent backslashes (or the reverse) is one root under Windows
+// matching, and the trailing-separator trim and the suffix join have to agree. This is
+// asserted on both separators and on the mixed spelling, so scoping the predicate by
+// flavor cannot quietly become a global narrowing.
+func TestWindowsRootsKeepSeparatorAgnosticTrimming(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		root       string
+		wantFlavor pathvirtualization.PathFlavor
+	}{
+		{
+			name:       "drive_backslash_spelling",
+			root:       `C:\Users\dev\source\repos\lip-path-virtualization`,
+			wantFlavor: pathvirtualization.FlavorWindowsDrive,
+		},
+		{
+			name:       "drive_forward_slash_spelling",
+			root:       `C:/Users/dev/source/repos/lip-path-virtualization`,
+			wantFlavor: pathvirtualization.FlavorWindowsDrive,
+		},
+		{
+			name:       "unc_spelling",
+			root:       `\\build01\dev\source\repos\lip-path-virtualization`,
+			wantFlavor: pathvirtualization.FlavorWindowsUNC,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mapping, reason := pathvirtualization.DeriveMapping(tc.root)
+			if reason != pathvirtualization.SkipReasonNone {
+				t.Fatalf("DeriveMapping reason = %q, want none", reason)
+			}
+			if mapping.Flavor != tc.wantFlavor {
+				t.Fatalf("flavor = %v, want %v", mapping.Flavor, tc.wantFlavor)
+			}
+			if mapping.VirtualRoot == "" {
+				t.Fatal("the fixture root must derive an active alias (requirement 1.4)")
+			}
+
+			// A child spelled with EITHER separator matches, and expansion puts back
+			// the separator the client actually sent.
+			for _, child := range []string{
+				tc.root + `\src\main.go`,
+				tc.root + `/src/main.go`,
+				tc.root + `\src/main.go`,
+			} {
+				virtual, changed := mapping.VirtualizePath(child)
+				if !changed {
+					t.Fatalf("a child of the root must match under Windows matching rules")
+				}
+				expanded, result := mapping.ExpandPath(virtual)
+				if result != pathvirtualization.ExpandResultExpanded {
+					t.Fatalf("ExpandPath result = %v, want expanded", result)
+				}
+				if expanded != child {
+					t.Fatalf("ExpandPath did not reproduce the client's own separator bytes")
+				}
+			}
+		})
+	}
+}

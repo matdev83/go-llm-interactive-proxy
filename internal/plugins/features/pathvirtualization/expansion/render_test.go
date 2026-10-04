@@ -44,6 +44,7 @@ func TestEveryReportEnumRendersAsABoundedString(t *testing.T) {
 		expansion.ReasonArgsUnparseable,
 		expansion.ReasonMalformedReservedAlias,
 		expansion.ReasonWorkspaceMismatch,
+		expansion.ReasonExpandedTooLarge,
 		expansion.ReasonInvalidRewrite,
 		expansion.Reason(0xFF),
 	} {

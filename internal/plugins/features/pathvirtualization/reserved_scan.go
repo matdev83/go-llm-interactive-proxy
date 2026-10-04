@@ -29,6 +29,14 @@ package pathvirtualization
 // segment and the tag segment is validated by the same reservedWorkspaceTag rule the
 // parseable path uses, so a real directory named `my.__lip_v1__` and a substring
 // mention of the marker are both outside the namespace.
+//
+// The marker is matched with ASCII case FOLDED, exactly like the tag, because that is
+// how the parseable recognizer compares both: three of the five V1 flavors match
+// case-insensitively, so a case-varied marker spelling is the same reserved root to them.
+// Matching the marker byte-exactly while folding the tag gave the two halves of one
+// decision different answers for the same bytes, and the answer that lost was the one
+// this file exists to give. Folding the case does not loosen the segment rule: a
+// case-varied spelling of an ordinary name is still an ordinary name.
 
 import (
 	"bytes"
@@ -88,6 +96,13 @@ func (p ReservedAliasPresence) String() string {
 // occupy a COMPLETE segment - preceded by a separator or by the first byte of raw,
 // and followed by a separator or by the end - so a path whose directory is named
 // `my.__lip_v1__` or whose name starts with `.__lip_v1__x` is an ordinary path.
+//
+// Both the marker and the tag are compared with ASCII case FOLDED, which is the
+// comparison [parseReservedAlias] applies to both of them under a Windows flavor. A
+// byte-exact marker comparison here did not make this recognizer stricter in any useful
+// sense: the alias-root spellings this build itself derives are recognized by the
+// parseable recognizer in every ASCII case, so refusing them lexically only ever
+// released a namespace the core had already claimed.
 //
 // The tag segment is validated with [reservedWorkspaceTag] under the permissive
 // two-case alphabet, because this recognizer does not resolve a flavor and must not
@@ -220,11 +235,10 @@ func scannableTagSegment(raw []byte, after int) string {
 func scanReservedAliasSpelling(raw []byte) ReservedAliasPresence {
 	presence := ReservedAliasAbsent
 	for offset := 0; ; {
-		found := bytes.Index(raw[offset:], reservedMarkerBytes)
-		if found < 0 {
+		start, found := indexReservedMarker(raw, offset)
+		if !found {
 			return presence
 		}
-		start := offset + found
 		if !isSegmentBoundaryBefore(raw, start) {
 			// The marker bytes appear inside a longer name, so this occurrence is
 			// not the reserved namespace. Stepping one byte past the marker's own
@@ -250,8 +264,64 @@ func scanReservedAliasSpelling(raw []byte) ReservedAliasPresence {
 	}
 }
 
-// reservedMarkerBytes is the reserved namespace marker as a byte sequence, so the
-// scan is a byte search rather than a substring search over converted strings.
+// indexReservedMarker returns the offset of the first spelling of the reserved marker at
+// or after from, and whether one exists.
+//
+// Case is folded on both sides because the marker is namespace SYNTAX compared under a
+// flavor's matching rules, and three of the five V1 flavors fold ASCII case. A byte-exact
+// search here would disagree with [parseReservedAlias] about the same bytes: the
+// parseable recognizer accepts an upper-case marker spelling as this build's own alias
+// root, so a byte-exact scan reported ABSENT for a namespace the core recognizes, and the
+// one caller of the scan then passed a document carrying that namespace straight through to
+// the client. The tag comparison in this file already folds case for the same reason, so
+// folding the marker makes the two halves of one decision agree instead of inventing a
+// second, stricter namespace.
+//
+// The search stays anchored on the marker's own first byte, which no ASCII case fold can
+// change: a byte search for that byte cannot skip a folded spelling, and it keeps the scan
+// linear and allocation free over a payload inside the declared argument bound. Folding is
+// ASCII-only for the same reason tag comparison is, so a multi-byte UTF-8 sequence can
+// never equal a marker byte and no Unicode equivalence can invent a spelling.
+func indexReservedMarker(raw []byte, from int) (int, bool) {
+	markerLen := len(reservedMarkerBytes)
+	// A spelling that would run past the end cannot be a complete marker, so the
+	// candidate window stops one byte short of the final possible start.
+	for offset := from; offset+markerLen <= len(raw); {
+		gap := bytes.IndexByte(raw[offset:len(raw)-markerLen+1], reservedMarkerFirstByte)
+		if gap < 0 {
+			return 0, false
+		}
+		start := offset + gap
+		if reservedMarkerAt(raw, start) {
+			return start, true
+		}
+		offset = start + 1
+	}
+	return 0, false
+}
+
+// reservedMarkerFirstByte is the marker byte an ASCII case fold cannot change, used as the
+// scan's anchor. It is the marker's first byte, which is the dot that opens every V1
+// alias root's reserved segment.
+const reservedMarkerFirstByte = '.'
+
+// reservedMarkerAt reports whether the marker is spelled at start, ignoring ASCII case.
+func reservedMarkerAt(raw []byte, start int) bool {
+	if start+len(reservedMarkerBytes) > len(raw) {
+		return false
+	}
+	for i, want := range reservedMarkerBytes {
+		if toLowerASCII(raw[start+i]) != toLowerASCII(want) {
+			return false
+		}
+	}
+	return true
+}
+
+// reservedMarkerBytes is the reserved namespace marker as a byte sequence, so the scan
+// compares bytes rather than strings converted from them. Its spelling is the canonical
+// lower-case one the frozen derivation emits; recognition folds case on both sides, as
+// [reservedMarkerAt] documents.
 var reservedMarkerBytes = []byte(reservedNamespaceV1)
 
 // isSegmentBoundaryBefore reports whether the marker at start begins a complete

@@ -163,6 +163,25 @@ const (
 	// defensive invariant rather than a reachable state; it exists because requirement
 	// 8.5 asks for canonical validation to hold after every mutation, and a rule that
 	// is only stated is a rule nobody can point at when it stops holding.
+	// ReasonExpandedTooLarge marks a decision that failed the call closed because the
+	// expanded document would not fit the canonical tool-call args delta the assembler
+	// publishes it in.
+	//
+	// Expansion substitutes the real root for the alias in every selected leaf at once, so
+	// a readable document well inside the declared argument bound can still expand past a
+	// canonical bound: the alias is short by construction and the real root is not. The
+	// expanded output is therefore bounded BEFORE it is published, and a document that does
+	// not fit is refused rather than handed on as a lifecycle the runtime's own canonical
+	// validation would reject (requirements.md 8.5). Publishing only part of the expansion
+	// is not an alternative either: it would release one decided path beside one undecided
+	// alias (requirements.md 4.4).
+	ReasonExpandedTooLarge
+	// ReasonInvalidRewrite marks a decision that failed the call closed because the
+	// spliced document did not survive the JSON validation design.md section 7 step 9
+	// requires. A splice of a decoded document cannot break the grammar, so this is a
+	// defensive invariant rather than a reachable state; it exists because requirement
+	// 8.5 asks for canonical validation to hold after every mutation, and a rule that is
+	// only stated is a rule nobody can point at when it stops holding.
 	ReasonInvalidRewrite
 )
 
@@ -195,6 +214,8 @@ func (r Reason) String() string {
 		return "malformed_reserved_alias"
 	case ReasonWorkspaceMismatch:
 		return "workspace_mismatch"
+	case ReasonExpandedTooLarge:
+		return "expanded_too_large"
 	case ReasonInvalidRewrite:
 		return "invalid_rewrite"
 	default:
@@ -220,7 +241,8 @@ func (r Reason) MarshalText() ([]byte, error) { return []byte(r.String()), nil }
 // pass-through.
 func (r Reason) rejects() bool {
 	switch r {
-	case ReasonArgsUnparseable, ReasonMalformedReservedAlias, ReasonWorkspaceMismatch, ReasonInvalidRewrite:
+	case ReasonArgsUnparseable, ReasonMalformedReservedAlias, ReasonWorkspaceMismatch,
+		ReasonExpandedTooLarge, ReasonInvalidRewrite:
 		return true
 	case ReasonNone, ReasonExpanded, ReasonAuditMode, ReasonNoAlias, ReasonNoSelectors,
 		ReasonArgsAbsent, ReasonPayloadNotObject, ReasonRootUnusable, ReasonMappingInactive:
