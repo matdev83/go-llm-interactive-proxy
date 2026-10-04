@@ -117,7 +117,10 @@ func terminalDecisionCandidateText(p *responsePipeline) string {
 	if p == nil {
 		return ""
 	}
-	return p.releasedOutputText()
+	// Progress detection compares one attempt's own answer. The cumulative
+	// released text would make identical answers on successive attempts look
+	// like fresh evidence and reset the no-progress breaker every leg.
+	return p.attemptLocalOutputText()
 }
 
 func terminalDecisionItemText(item lipapi.Item) string {
