@@ -3,7 +3,6 @@ package sessionclassification
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -170,7 +169,7 @@ func (r RemoteConfig) validate() error {
 	if r.RetryBackoff < 0 || r.RetryBackoff > MaxRemoteRetryBackoff {
 		return configError("retry_backoff is outside its finite bounds")
 	}
-	if math.IsNaN(r.PositiveThreshold) || math.IsInf(r.PositiveThreshold, 0) || r.PositiveThreshold <= 0 || r.PositiveThreshold > 1 {
+	if !validRemoteThreshold(r.PositiveThreshold) {
 		return configError("positive_threshold must be greater than zero and at most one")
 	}
 	return nil
