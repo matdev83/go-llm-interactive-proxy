@@ -144,6 +144,11 @@ func withTool(call lipapi.Call, tool lipapi.ToolDef) lipapi.Call {
 	return call
 }
 
+func withResponseMIME(call lipapi.Call, mime string) lipapi.Call {
+	call.Options.ResponseMIMEType = mime
+	return call
+}
+
 func sharesBacking(a, b []byte) bool {
 	return len(a) > 0 && len(b) > 0 && &a[0] == &b[0]
 }
@@ -238,6 +243,36 @@ func TestProjectEligibilityMatrix(t *testing.T) {
 			call:   projectionMessageCall(),
 			caps:   nil,
 			reason: ReasonBackendToolsUnsupported,
+		},
+		{
+			name:   "json object response format stays inactive",
+			call:   withResponseMIME(projectionMessageCall(), "application/json"),
+			caps:   projectionToolsCaps(),
+			reason: ReasonOutputFormatUnsupported,
+		},
+		{
+			name:   "json response format with parameters stays inactive",
+			call:   withResponseMIME(projectionMessageCall(), "application/json; charset=utf-8"),
+			caps:   projectionToolsCaps(),
+			reason: ReasonOutputFormatUnsupported,
+		},
+		{
+			name:   "json response format spelling is case insensitive",
+			call:   withResponseMIME(projectionMessageCall(), "Application/JSON"),
+			caps:   projectionToolsCaps(),
+			reason: ReasonOutputFormatUnsupported,
+		},
+		{
+			name:   "explicit plain text response format is eligible",
+			call:   withResponseMIME(projectionMessageCall(), "text/plain"),
+			caps:   projectionToolsCaps(),
+			reason: ReasonActive,
+		},
+		{
+			name:   "plain text response format with parameters is eligible",
+			call:   withResponseMIME(projectionMessageCall(), "text/plain; charset=utf-8"),
+			caps:   projectionToolsCaps(),
+			reason: ReasonActive,
 		},
 		{
 			name:   "tool choice none",

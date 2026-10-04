@@ -430,3 +430,39 @@ func TestMapper_remapToolCallID_noOpWhenIDsEqualOrEmpty(t *testing.T) {
 		t.Fatalf("args = %q, want original buffered delta preserved after no-op remaps", args.String())
 	}
 }
+
+func TestMapper_doneOnlyDualFinalNotifications_emitFallbackArgsOnce(t *testing.T) {
+	t.Parallel()
+	m, q := newTestMapper()
+	// A done-only tool call with no incremental deltas: the Responses adapter
+	// routes both response.function_call_arguments.done and the final
+	// response.output_item.done (function_call) through FinishToolCallArguments.
+	// The full-argument fallback must be emitted exactly once; a second
+	// argument delta after the finish would invalidate the private control
+	// capture that already completed.
+	if err := m.FinishToolCallArguments("fc_1", "attempt_completion", `{"result":"Done."}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.FinishToolCallArguments("fc_1", "attempt_completion", `{"result":"Done."}`); err != nil {
+		t.Fatal(err)
+	}
+	events := stream.DrainPending(q)
+	want := []lipapi.EventKind{
+		lipapi.EventResponseStarted,
+		lipapi.EventMessageStarted,
+		lipapi.EventToolCallStarted,
+		lipapi.EventToolCallArgsDelta,
+		lipapi.EventToolCallFinished,
+	}
+	if len(events) != len(want) {
+		t.Fatalf("events = %+v, want %d events %v", events, len(want), want)
+	}
+	for i, kind := range want {
+		if events[i].Kind != kind {
+			t.Fatalf("events[%d] = %v, want %v (full sequence %+v)", i, events[i].Kind, kind, events)
+		}
+	}
+	if got := events[3].Delta; got != `{"result":"Done."}` {
+		t.Fatalf("fallback args delta = %q, want complete arguments", got)
+	}
+}
