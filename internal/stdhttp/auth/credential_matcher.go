@@ -48,6 +48,30 @@ func (m *exactCredentialMatcher) ScanString(ctx context.Context, input string) (
 	return m.ScanBytes(ctx, []byte(input))
 }
 
+// ScanOccurrences implements the optional neutral positional capability. It
+// returns only offsets and safe accepted-credential attribution; the matcher
+// retains the credential bytes privately.
+func (m *exactCredentialMatcher) ScanOccurrences(input []byte) []secretguard.PositionalOccurrence {
+	if m == nil || len(m.secret) == 0 || len(input) < len(m.secret) {
+		return nil
+	}
+	var out []secretguard.PositionalOccurrence
+	for from := 0; from <= len(input)-len(m.secret); {
+		relative := bytes.Index(input[from:], m.secret)
+		if relative < 0 {
+			break
+		}
+		start := from + relative
+		out = append(out, secretguard.PositionalOccurrence{
+			Start:   start,
+			End:     start + len(m.secret),
+			Finding: m.finding(1),
+		})
+		from = start + len(m.secret)
+	}
+	return out
+}
+
 func (m *exactCredentialMatcher) RedactBytes(_ context.Context, input []byte) ([]byte, []secretguard.Finding, error) {
 	if m == nil || len(m.secret) == 0 || len(input) == 0 {
 		return append([]byte(nil), input...), nil, nil
@@ -85,3 +109,4 @@ func countExactOccurrences(haystack, needle []byte) int {
 }
 
 var _ secretguard.Matcher = (*exactCredentialMatcher)(nil)
+var _ secretguard.PositionalMatcher = (*exactCredentialMatcher)(nil)

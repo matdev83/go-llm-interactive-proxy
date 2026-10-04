@@ -72,6 +72,22 @@ type Finding struct {
 	Confidence string
 }
 
+// PositionalOccurrence is safe positional attribution for one exact match.
+// It carries only caller-provided byte offsets and bounded finding metadata;
+// implementations must not expose secret bytes, hashes, or detector objects.
+type PositionalOccurrence struct {
+	Start   int
+	End     int
+	Finding Finding
+}
+
+// PositionalMatcher is an optional Matcher capability. Feature-owned code may
+// use it to deduplicate detector reports by admitted-content span while the
+// Matcher contract remains safe-finding based.
+type PositionalMatcher interface {
+	ScanOccurrences(input []byte) []PositionalOccurrence
+}
+
 // Decision is the Evaluate result: outcome, safe findings, and scan metadata.
 type Decision struct {
 	Outcome       Outcome

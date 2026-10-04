@@ -952,6 +952,32 @@ func TestExactCredentialMatcher_scanAndRedactBytes(t *testing.T) {
 	}
 }
 
+func TestExactCredentialMatcher_scanOccurrencesPreservesSafeAttribution(t *testing.T) {
+	t.Parallel()
+	secret := []byte(testkit.SyntheticUnicodeSecret)
+	m := newExactCredentialMatcher(string(secret), "accepted-key")
+	positional, ok := m.(secretguard.PositionalMatcher)
+	if !ok {
+		t.Fatal("authenticated request matcher must expose the neutral positional capability")
+	}
+	input := append([]byte("left "), secret...)
+	input = append(input, []byte(" middle ")...)
+	input = append(input, secret...)
+	got := positional.ScanOccurrences(input)
+	if len(got) != 2 {
+		t.Fatalf("positional occurrences = %d, want two", len(got))
+	}
+	wantStart := []int{len("left "), len("left ") + len(secret) + len(" middle ")}
+	for i, occurrence := range got {
+		if occurrence.Start != wantStart[i] || occurrence.End != wantStart[i]+len(secret) {
+			t.Fatalf("occurrence[%d] span = %d..%d, want %d..%d", i, occurrence.Start, occurrence.End, wantStart[i], wantStart[i]+len(secret))
+		}
+		if occurrence.Finding.SecretRefName != "accepted-key" || occurrence.Finding.SourceCategory != secretguard.SourceCategoryRequestCred {
+			t.Fatalf("occurrence[%d] attribution = %#v", i, occurrence.Finding)
+		}
+	}
+}
+
 func TestPolicyProvider_allow_matcherUsesDefaultRefWhenKeyIDEmpty(t *testing.T) {
 	t.Parallel()
 	secret := testkit.SyntheticBearerCredential

@@ -26,9 +26,7 @@ type scanOutcome struct {
 	discoveryFacts       DetectorFacts
 }
 
-type exactOccurrenceMatcher interface {
-	ScanOccurrences(input []byte) []engine.Occurrence
-}
+type exactOccurrenceMatcher = sdk.PositionalMatcher
 
 // collectExactPrivateFindings retains exact spans only inside the feature
 // boundary. The matcher receives the admitted fragment bytes and returns safe
@@ -120,7 +118,7 @@ func collectExactRawOccurrences(m exactOccurrenceMatcher, raw []byte, fieldID st
 			end:            occurrence.End,
 			offsetsValid:   true,
 			fieldID:        fieldID,
-			ruleID:         occurrence.SecretRefName,
+			ruleID:         occurrence.Finding.SecretRefName,
 			role:           betterLeaksOccurrencePrimary,
 			representation: betterLeaksOccurrenceLiteral,
 		})

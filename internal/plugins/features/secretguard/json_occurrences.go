@@ -92,7 +92,7 @@ func exactOccurrencesFromJSONTokens(m exactOccurrenceMatcher, tokens []jsonStrin
 				end:            rawEnd,
 				offsetsValid:   true,
 				fieldID:        fieldID,
-				ruleID:         occurrence.SecretRefName,
+				ruleID:         occurrence.Finding.SecretRefName,
 				role:           betterLeaksOccurrencePrimary,
 				representation: betterLeaksOccurrenceDecoded,
 			})

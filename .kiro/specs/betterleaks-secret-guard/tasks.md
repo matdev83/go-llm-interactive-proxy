@@ -272,14 +272,14 @@
   - Make resolved mask and prefix policy authoritative for exact, BetterLeaks, and hybrid redaction in single-user and multi-user modes; preserve explicit false and custom masks.
   - _Requirements: 6.3, 6.4, 7.10, 8.1, 10.2_
   - _Boundary: generation services, host composition, rewrite policy plumbing, request-credential redaction, and directly related tests_
-  - _Depends: 10.1_
+  - _Depends: 10.3_
   - _Validation: strict TDD; single/multi-user detector-policy cross-product; affected composition/auth/feature consumers; vet_
 
-- [ ] 10.3 Deduplicate positional request-credential overlap
+- [x] 10.3 Deduplicate positional request-credential overlap
   - Add a neutral value-free positional capability for safe exact attribution, implement it for authenticated request credentials, and consume it privately for hybrid overlap deduplication. Do not import feature engine into auth or expose secret bytes/hashes.
   - _Requirements: 4.5, 5.2, 5.3, 5.5, 10.2_
   - _Boundary: SDK secretguard positional contract, auth credential matcher, private feature occurrence bridge, and related tests_
-  - _Depends: 10.2_
+  - _Depends: 10.1_
   - _Validation: strict TDD; multi-user exact/BetterLeaks overlap and repeated occurrence tests; auth/SDK/feature regressions; architecture checks_
 
 - [ ] 10.4 Enforce complete post-redaction occurrence coverage
@@ -287,7 +287,7 @@
   - Update design and certification artifacts with current evidence for all four review areas; historical green checks do not certify these repairs.
   - _Requirements: 6.3, 6.4, 6.5, 6.6, 6.7, 10.1_
   - _Boundary: feature rewrite/evaluation and targeted tests; parent-owned spec artifacts_
-  - _Depends: 10.3_
+  - _Depends: 10.2_
   - _Validation: strict TDD; partial/zero rewrite and JSON mapping negative controls; feature/integration/race checks; current remote CI; independent focused review_
 
 ## Implementation Notes

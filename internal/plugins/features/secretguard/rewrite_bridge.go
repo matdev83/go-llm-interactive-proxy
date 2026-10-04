@@ -527,13 +527,11 @@ func betterLeaksCandidateFindings(ranges []betterLeaksRewriteRange) []sdk.Findin
 // ScanOccurrences delegates only to the exact matcher. Transient BetterLeaks
 // occurrences are merged from discovery provenance and must not become exact
 // catalog occurrences.
-func (m *betterLeaksRewriteMatcher) ScanOccurrences(input []byte) []engine.Occurrence {
+func (m *betterLeaksRewriteMatcher) ScanOccurrences(input []byte) []sdk.PositionalOccurrence {
 	if m == nil || m.exact == nil {
 		return nil
 	}
-	if positional, ok := m.exact.(interface {
-		ScanOccurrences([]byte) []engine.Occurrence
-	}); ok {
+	if positional, ok := m.exact.(sdk.PositionalMatcher); ok {
 		return positional.ScanOccurrences(input)
 	}
 	return nil

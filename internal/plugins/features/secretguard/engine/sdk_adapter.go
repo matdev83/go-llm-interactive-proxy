@@ -28,10 +28,28 @@ func (a matcherAdapter) ScanString(ctx context.Context, input string) ([]sdk.Fin
 	return a.m.ScanString(input), nil
 }
 
-// ScanOccurrences is the feature-private positional extension. It accepts
-// only actual request content and returns spans plus safe attribution.
-func (a matcherAdapter) ScanOccurrences(input []byte) []Occurrence {
-	return a.m.ScanOccurrences(input)
+// ScanOccurrences is the neutral positional extension. It accepts only actual
+// request content and converts the engine's safe attribution to the SDK shape;
+// no catalog value crosses this adapter.
+func (a matcherAdapter) ScanOccurrences(input []byte) []sdk.PositionalOccurrence {
+	occurrences := a.m.ScanOccurrences(input)
+	if len(occurrences) == 0 {
+		return nil
+	}
+	out := make([]sdk.PositionalOccurrence, 0, len(occurrences))
+	for _, occurrence := range occurrences {
+		out = append(out, sdk.PositionalOccurrence{
+			Start: occurrence.Start,
+			End:   occurrence.End,
+			Finding: sdk.Finding{
+				SecretRefName:   occurrence.SecretRefName,
+				Aliases:         append([]string(nil), occurrence.Aliases...),
+				SourceCategory:  occurrence.SourceCategory,
+				OccurrenceCount: 1,
+			},
+		})
+	}
+	return out
 }
 
 func (a matcherAdapter) RedactBytes(ctx context.Context, input []byte) ([]byte, []sdk.Finding, error) {
@@ -71,6 +89,7 @@ func (r staticMatcherResolver) Resolve(ctx context.Context) (sdk.Matcher, error)
 }
 
 var (
-	_ sdk.Matcher         = matcherAdapter{}
-	_ sdk.MatcherResolver = staticMatcherResolver{}
+	_ sdk.Matcher           = matcherAdapter{}
+	_ sdk.PositionalMatcher = matcherAdapter{}
+	_ sdk.MatcherResolver   = staticMatcherResolver{}
 )

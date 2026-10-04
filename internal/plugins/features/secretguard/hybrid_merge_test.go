@@ -1,6 +1,8 @@
 package secretguard
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -56,6 +58,140 @@ func TestMergePrivateHybridFindings_OverlappingOccurrencePreservesExactAndBetter
 	if merged.OccurrenceCount != 1 {
 		t.Fatalf("overlap was double-counted: %#v", merged)
 	}
+}
+
+func TestCollectExactPrivateFindings_NeutralPositionalMatcherDeduplicatesBetterLeaksOverlap(t *testing.T) {
+	t.Parallel()
+
+	const secret = "accepted-request-secret"
+	input := []byte("before " + secret + " after " + secret)
+	m := positionalCredentialMatcher{
+		secret: []byte(secret),
+		finding: sdk.Finding{
+			SecretRefName:   "accepted-key",
+			SourceCategory:  sdk.SourceCategoryRequestCred,
+			OccurrenceCount: 2,
+		},
+	}
+	fragment := LogicalFragment{Location: "messages[0].parts[0]", Raw: input}
+	found, err := m.ScanBytes(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	private := collectExactPrivateFindings(m, fragment, found)
+	if len(private) != 1 || len(private[0].occurrences) != 2 {
+		t.Fatalf("private positional occurrences = %#v", private)
+	}
+
+	firstStart := bytes.Index(input, []byte(secret))
+	firstEnd := firstStart + len(secret)
+	firstSpan, err := spanForByteRange(input, firstStart, firstEnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovery := betterLeaksFinding{
+		RuleID:          "generic-api-key",
+		Confidence:      sdk.ConfidenceHigh,
+		Location:        fragment.Location,
+		OccurrenceCount: 1,
+		occurrences: []betterLeaksOccurrence{{
+			value: []byte(secret), span: firstSpan, start: firstStart, end: firstEnd,
+			offsetsValid: true, fieldID: fragment.privateID, ruleID: "generic-api-key",
+			role: betterLeaksOccurrencePrimary, representation: betterLeaksOccurrenceLiteral,
+		}},
+	}
+	got, err := mergeHybridFindings(private, []betterLeaksFinding{discovery}, DetectorFacts{RuleIDs: []string{"generic-api-key"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].OccurrenceCount != 2 {
+		t.Fatalf("overlap cardinality = %#v, want one finding with two occurrences", got)
+	}
+	if got[0].SecretRefName != "accepted-key" || got[0].SourceCategory != sdk.SourceCategoryRequestCred || got[0].RuleID != "generic-api-key" {
+		t.Fatalf("accepted credential attribution/provenance = %#v", got[0])
+	}
+}
+
+func TestCollectExactPrivateFindings_NeutralPositionalMatcherMapsJSONEscapes(t *testing.T) {
+	t.Parallel()
+
+	const secret = "accepted-request-secret"
+	raw := []byte(`["accepted-request-secret","\u0061ccepted-request-secret"]`)
+	m := positionalCredentialMatcher{
+		secret: []byte(secret),
+		finding: sdk.Finding{
+			SecretRefName:  "accepted-key",
+			SourceCategory: sdk.SourceCategoryRequestCred,
+		},
+	}
+	findings, err := scanJSONPayload(t.Context(), m, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fragment := LogicalFragment{Location: "messages[0].parts[0]", Kind: FragmentJSON, Raw: raw}
+	private := collectExactPrivateFindings(m, fragment, findings)
+	if len(private) != 1 || len(private[0].occurrences) != 2 {
+		t.Fatalf("JSON positional occurrences = %#v", private)
+	}
+	if private[0].occurrences[0].start == private[0].occurrences[1].start {
+		t.Fatalf("escaped JSON occurrences collapsed to one offset: %#v", private[0].occurrences)
+	}
+}
+
+type positionalCredentialMatcher struct {
+	secret  []byte
+	finding sdk.Finding
+}
+
+func (m positionalCredentialMatcher) ScanBytes(_ context.Context, input []byte) ([]sdk.Finding, error) {
+	count := countTestOccurrences(input, m.secret)
+	if count == 0 {
+		return nil, nil
+	}
+	finding := m.finding
+	finding.OccurrenceCount = count
+	return []sdk.Finding{finding}, nil
+}
+
+func (m positionalCredentialMatcher) ScanString(ctx context.Context, input string) ([]sdk.Finding, error) {
+	return m.ScanBytes(ctx, []byte(input))
+}
+
+func (m positionalCredentialMatcher) RedactBytes(_ context.Context, input []byte) ([]byte, []sdk.Finding, error) {
+	return append([]byte(nil), input...), nil, nil
+}
+
+func (m positionalCredentialMatcher) RedactString(_ context.Context, input string) (string, []sdk.Finding, error) {
+	return input, nil, nil
+}
+
+func (m positionalCredentialMatcher) ScanOccurrences(input []byte) []sdk.PositionalOccurrence {
+	var out []sdk.PositionalOccurrence
+	for from := 0; from < len(input); {
+		i := bytes.Index(input[from:], m.secret)
+		if i < 0 {
+			break
+		}
+		start := from + i
+		finding := m.finding
+		finding.OccurrenceCount = 1
+		out = append(out, sdk.PositionalOccurrence{Start: start, End: start + len(m.secret), Finding: finding})
+		from = start + len(m.secret)
+	}
+	return out
+}
+
+func countTestOccurrences(input, needle []byte) int {
+	count := 0
+	for from := 0; len(needle) > 0 && from <= len(input)-len(needle); {
+		i := bytes.Index(input[from:], needle)
+		if i < 0 {
+			break
+		}
+		count++
+		from += i + len(needle)
+	}
+	return count
 }
 
 func TestMergePrivateHybridFindings_ExactRepeatedOccurrencesKeepCardinality(t *testing.T) {
