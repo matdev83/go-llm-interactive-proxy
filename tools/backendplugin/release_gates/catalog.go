@@ -23,7 +23,30 @@ type gateSpec struct {
 	Kind    string // go_test | make | builtin | external
 	WorkDir string // relative to root; empty => root
 	Args    []string
+	// Timeout overrides defaultMakeGateTimeout for `make` gates whose real cost
+	// is known and larger. Zero keeps the default; `go_test` gates keep their
+	// own fixed budget.
+	Timeout time.Duration
 	Notes   string
+}
+
+// defaultMakeGateTimeout bounds a `make` gate that does not declare a budget.
+const defaultMakeGateTimeout = 20 * time.Minute
+
+// raceScanGateTimeout mirrors the budget the Release workflow already grants
+// this exact scan: .github/workflows/release.yml runs
+// `bash scripts/race-check.sh --strict` inside a `timeout-minutes: 60` verify
+// job. scripts/race-check.sh executes the broad, billing, support, runtime and
+// architecture lanes sequentially, so the full scan cannot fit the blanket
+// make-gate budget on a CI runner; the surrounding
+// backend-plugin-release-gates job allows 120 minutes.
+const raceScanGateTimeout = 60 * time.Minute
+
+func (g gateSpec) makeTimeout() time.Duration {
+	if g.Timeout > 0 {
+		return g.Timeout
+	}
+	return defaultMakeGateTimeout
 }
 
 type gateResult struct {
@@ -56,7 +79,7 @@ func rootGateCatalog() []gateSpec {
 		{Name: "backend_plugin_absence_checks", Kind: "make", Args: []string{"backend-plugin-absence-checks"}},
 		{Name: "isolated_root_qa", Kind: "make", Args: []string{"isolated-root-qa"}},
 		{Name: "installed_plugin_smoke", Kind: "make", Args: []string{"installed-plugin-smoke"}},
-		{Name: "race_scan", Kind: "make", Args: []string{"test-race"}, Notes: "windows skip recorded as external_blocker; linux/macOS execute"},
+		{Name: "race_scan", Kind: "make", Args: []string{"test-race"}, Timeout: raceScanGateTimeout, Notes: "windows skip recorded as external_blocker; linux/macOS execute"},
 		{Name: "security_fuzz_subset", Kind: "builtin", Notes: "covered by backend-plugin-security-checks FuzzManifest/FuzzServerFrame; full make test-fuzz not required in this gate"},
 
 		{Name: "security_external_ci", Kind: "external", Notes: "phase9-task93 linux race/security + darwin peer-cred"},
@@ -251,7 +274,7 @@ func runGate(root string, g gateSpec, observed map[string]gateResult) gateResult
 		result := runner.Run(context.Background(), runner.Request{
 			Argv:    append([]string{"make"}, g.Args...),
 			Dir:     root,
-			Timeout: 20 * time.Minute,
+			Timeout: g.makeTimeout(),
 			Output:  taskrunner.Capture,
 			Label:   "release_gates:" + g.Name,
 		})
