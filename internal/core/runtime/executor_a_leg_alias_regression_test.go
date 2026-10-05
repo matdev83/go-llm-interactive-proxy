@@ -22,6 +22,7 @@ type aliasRecordingBLeg struct {
 }
 
 func (r *aliasRecordingBLeg) Recv(context.Context) (lipapi.Event, error) { return lipapi.Event{}, nil }
+
 func (r *aliasRecordingBLeg) Cancel(_ context.Context, cause leglifecycle.CancelCause) leglifecycle.CancelResult {
 	r.calls = append(r.calls, "cancel:"+string(cause.Kind))
 	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeProvider}

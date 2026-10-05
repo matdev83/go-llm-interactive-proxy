@@ -96,6 +96,7 @@ func (s *coordinatorStore) Put(_ context.Context, _ lipstate.Scope, _, _ string,
 }
 
 func (s *coordinatorStore) Delete(context.Context, lipstate.Scope, string, string) error { return nil }
+
 func (s *coordinatorStore) InspectTTL(context.Context, lipstate.Scope, string, string) (time.Duration, bool, error) {
 	return 0, s.found, nil
 }
