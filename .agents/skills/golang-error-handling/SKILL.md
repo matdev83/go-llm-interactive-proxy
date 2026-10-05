@@ -1,158 +1,50 @@
 ---
 name: golang-error-handling
-description: "Handle, wrap, classify, and format Go errors idiomatically: errors.Is/As, %w wrapping, errors.Join, structured errors with samber/oops, domain-to-wire error mapping, and panic boundaries."
+description: "Create, wrap, classify, expose, log, and test Go errors using errors.Is/As, %w, errors.Join, custom types, sentinel values, panic boundaries, and structured logging. Use when implementing or reviewing error paths and public error contracts."
 ---
 
-# Go Error Handling Guide
+# Go error handling
 
-Go treats errors as regular values. Errors must be checked explicitly, contextualized as they travel up the call stack, and translated cleanly into protocol-appropriate shapes at API boundaries.
+An error is both control flow and a contract. Preserve the information callers need while keeping internal details out of public responses.
 
----
+## Focused review
 
-## 1. Standard Error Inspection & Wrapping
+For a review, keep the work read-only unless fixes are requested. Establish the review base, supported versions, and relevant contract; inspect changed code plus the callers and tests needed to assess it. Stay within this skill’s lens.
 
-### Wrapping with `%w`
-Use `fmt.Errorf` with `%w` to wrap an underlying error while preserving its identity for inspection:
+- Trace each error from origin to caller/log/wire mapping, including deferred Close, joined errors, partial results, and cancellation. Check whether a shadowed or overwritten error becomes success.
+- Compare errors.Is/As behavior before and after wrapping; %v loses causal identity and %w may expose an implementation cause as a compatibility commitment.
+- Inspect typed-nil errors, errors.As pointer/value targets, custom Is/As/Unwrap methods, multiple causes, and retry classification. Error text alone is not a stable classifier.
+- Check one layer owns reporting and safe public translation. Recovery must occur in the panicking goroutine and must respect the validity of state after the panic.
 
-~~~go
-func ReadConfig(path string) (*Config, error) {
-    data, err := os.ReadFile(path)
+Report each actionable finding with severity, confidence, file/symbol, trigger, consequence, and smallest remedy. Separate introduced/worsened defects from pre-existing debt, and state executed checks versus inference. If none survives validation, say so and identify coverage gaps.
+
+## Create and wrap
+
+- Return `nil` only when the operation succeeded. Use `errors.New` for stable sentinel values and `fmt.Errorf("operation: %w", err)` to add context while preserving identity.
+- Define a custom error type when callers need structured fields or a stable `errors.As` target. Keep messages useful to humans but do not make callers parse them.
+- Use `errors.Is` for sentinels and `errors.As` for types. `errors.Join` is appropriate when multiple independent failures must be retained; document precedence when a caller needs one primary cause.
+- Preserve cancellation and deadline classification through wrapping.
+
+```go
+var ErrNotFound = errors.New("not found")
+
+func load(ctx context.Context, id string) (*Item, error) {
+    item, err := store.Get(ctx, id)
     if err != nil {
-        return nil, fmt.Errorf("read config file %q: %w", path, err)
+        return nil, fmt.Errorf("load item %q: %w", id, err)
     }
-    return parse(data)
+    return item, nil
 }
-~~~
+```
 
-### Inspecting with `errors.Is` & `errors.As`
-- **`errors.Is(err, target)`**: Checks if any error in the wrap chain matches the target sentinel value:
-~~~go
-if errors.Is(err, os.ErrNotExist) {
-    // handle missing file
-}
-~~~
+## Handle once, expose deliberately
 
-- **`errors.As(err, &target)`**: Finds the first error in the chain that matches the target type and assigns it:
-~~~go
-var pathErr *os.PathError
-if errors.As(err, &pathErr) {
-    log.Printf("failed on path: %s", pathErr.Path)
-}
-~~~
+At each layer choose the owner of handling: classify/translate, log, or return. Avoid logging the same error at every stack frame. A layer may add structured context and return; the boundary that has the right audience should log or map it.
 
-### Combining Multiple Errors (`errors.Join`)
-Use `errors.Join` when coordinating multiple operations (e.g., closing multiple resources or accumulating validation errors):
-~~~go
-func (c *Client) Close() error {
-    return errors.Join(
-        c.conn.Close(),
-        c.tracer.Shutdown(context.Background()),
-        c.metrics.Flush(),
-    )
-}
-~~~
+`%v` versus `%w` is not a security boundary. Formatting changes text and `%v` loses wrapping, but neither guarantees that a message is safe to send to a client. Map internal errors explicitly to a public status/code/message, log the detailed cause with access controls, and keep secrets and user input out of logs unless redacted.
 
----
+Use panic only for programmer invariants or initialization failures that cannot be represented as an error. Recover at a deliberate goroutine or server boundary, convert the value to an error, preserve the stack in internal diagnostics, and ensure the process does not continue with corrupt state. Do not use `recover` to hide ordinary errors.
 
-## 2. Sentinels vs Custom Error Types
+## Verification
 
-| Strategy | When to Use | Example |
-| :--- | :--- | :--- |
-| **Sentinel Values** | Fixed error conditions where no dynamic metadata is needed. | `var ErrNotFound = errors.New("not found")` |
-| **Custom Structs** | Errors requiring structured contextual fields (e.g., field name, code). | `type ValidationError struct { Field string; Msg string }` |
-
-~~~go
-type ValidationError struct {
-    Field   string
-    Message string
-}
-
-func (e *ValidationError) Error() string {
-    return fmt.Sprintf("validation failed on %s: %s", e.Field, e.Message)
-}
-~~~
-
----
-
-## 3. Structured Errors with `samber/oops`
-
-For complex internal domain logic where error codes, attributes, user messages, and stack traces must be attached cleanly, use `samber/oops`:
-
-~~~go
-import "github.com/samber/oops"
-
-func ProcessPayment(ctx context.Context, userID string, amount int64) error {
-    if amount <= 0 {
-        return oops.
-            Code("invalid_amount").
-            With("user_id", userID).
-            With("amount", amount).
-            User("Amount must be greater than zero.").
-            Errorf("payment processing rejected: non-positive amount")
-    }
-
-    if err := chargeCard(ctx, userID, amount); err != nil {
-        return oops.
-            Code("card_charge_failed").
-            With("user_id", userID).
-            Wrapf(err, "failed to charge card")
-    }
-    return nil
-}
-~~~
-
----
-
-## 4. Domain-to-Wire Error Translation
-
-Never leak internal database errors, raw SQL queries, or third-party stack traces directly to external API callers. Map domain errors explicitly at the HTTP or gRPC boundary:
-
-~~~go
-func WriteHTTPError(w http.ResponseWriter, err error) {
-    var status int
-    var clientMsg string
-
-    switch {
-    case errors.Is(err, ErrNotFound):
-        status = http.StatusNotFound
-        clientMsg = "Resource not found"
-    case errors.Is(err, ErrUnauthorized):
-        status = http.StatusUnauthorized
-        clientMsg = "Authentication required"
-    case errors.Is(err, ErrInvalidInput):
-        status = http.StatusBadRequest
-        clientMsg = err.Error()
-    default:
-        // Mask unexpected internal failures
-        status = http.StatusInternalServerError
-        clientMsg = "Internal server error"
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(status)
-    _ = json.NewEncoder(w).Encode(map[string]string{"error": clientMsg})
-}
-~~~
-
----
-
-## 5. Panic Recovery Boundaries
-
-Panics must be caught and contained at the top-level boundary (e.g., HTTP middleware or background worker root) to prevent crashing the server:
-
-~~~go
-func RecoveryMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        defer func() {
-            if rec := recover(); rec != nil {
-                slog.ErrorContext(r.Context(), "panic recovered in HTTP handler",
-                    slog.Any("panic", rec),
-                    slog.String("stack", string(debug.Stack())),
-                )
-                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-            }
-        }()
-        next.ServeHTTP(w, r)
-    })
-}
-~~~
+Test success, sentinel/type classification, joined errors, cancellation, and public mapping. Check every ignored error and every `defer` cleanup error for an intentional policy. See [creation](references/error-creation.md), [handling](references/error-handling.md), and [wrapping](references/error-wrapping.md).
