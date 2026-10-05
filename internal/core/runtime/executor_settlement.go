@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -200,9 +201,84 @@ func (t *turnTerminal) finalizeTokenAccounting(ctx context.Context, attempt *att
 // advisory apply runs on a non-canceled context so post-output accounting completes after
 // client cancellation, and is idempotent via the store source key (duplicate finalize calls
 // are no-ops at the runtime guard and at the store).
-func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev lipapi.Event, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, continuation ...func(context.Context, terminaldecision.ContinuationIntent) (bool, error)) (lipapi.Event, bool, error) {
+// finishAuthorityInput is the narrow private typed optional input of the
+// response_finished authority chokepoint. It carries no terminal authority of its
+// own: it only names the publication seams the receive stream already owns. Every
+// field is optional, and a zero value preserves the provisional behavior callers
+// without a receive transaction already had.
+type finishAuthorityInput struct {
+	// continuation is the one core-owned publication seam for a provider
+	// continuation. It is unchanged.
+	continuation func(context.Context, terminaldecision.ContinuationIntent) (bool, error)
+	// publishable re-checks the receive-side publication fence for a private
+	// pending completion result: the attempt publication window. It performs no I/O
+	// and takes no terminal ownership. The receive loop binds it to the ONE lexical
+	// identity fence over expectedPrepared and expectedOrigin, so the same
+	// predicate decides staging, activation, and delivery.
+	publishable func() bool
+	// callerFence re-checks the live caller context of the receive loop that
+	// accepted the terminal. The terminal owner runs its effects on a DETACHED
+	// bounded cleanup context, so a client cancellation that already won is only
+	// visible through this original caller. It performs no I/O and takes no
+	// terminal ownership.
+	callerFence func() bool
+	// expectedPrepared is the EXACT candidate this terminal call captured BEFORE any
+	// terminal work, and expectedOrigin the attempt it was retained under.
+	//
+	// They are private IDENTITY FACTS, not an owner graph: no pipeline, terminal,
+	// attempt slot, or context is carried here. The claim, the reservation, the
+	// activation, and the physical drain are all checked against this pair, so a
+	// publication that disappeared after the capture is a withdrawal instead of
+	// silently becoming "no publication was expected".
+	expectedPrepared *pendingCompletion
+	expectedOrigin   *attemptSession
+	// acceptedNormal stages this turn's one private pending completion
+	// publication: it builds and prefights the complete canonical batch and
+	// nothing else. It runs only inside the winning effects of an accepted
+	// normal terminal, before customer settlement and billing handoff, and never
+	// on a surfaced failure, a continuation, an attempt or request loser, an
+	// attempt error, or an authoritative cancel or Close.
+	//
+	// ownerCtx is the winning owner's bounded cleanup context, so recorder,
+	// observer, and PTC work is never unbounded. usage and usageOK are the REAL
+	// values AuthorityPrepare just computed in this very terminal call; no
+	// pipeline round trip may replace them with an empty shell.
+	acceptedNormal func(ctx context.Context, usage lipapi.Event, usageOK bool) error
+}
+
+// publishesPendingCompletion reports whether this turn carries a prepared
+// candidate that must be published at an accepted normal terminal. Candidate
+// EXISTENCE is independent of result eligibility, so a suppressed result still
+// owns the authoritative ordinary stream and its real finish and drains through
+// the same accepted path.
+func (f finishAuthorityInput) publishesPendingCompletion(prepared *pendingCompletion) bool {
+	return prepared.holds() && f.acceptedNormal != nil
+}
+
+// pendingPublicationFenceOpen reports whether the FULL live publication fence is
+// still open at activation: the caller-supplied identity and window fence, the
+// live caller, and the shared A-leg cause. A zero input preserves the provisional
+// behavior callers without a receive transaction already had.
+func (f finishAuthorityInput) pendingPublicationFenceOpen(t *turnTerminal) bool {
+	if t != nil && t.hasALeg() && t.aLegErr() != nil {
+		return false
+	}
+	if f.publishable != nil && !f.publishable() {
+		return false
+	}
+	if f.callerFence != nil && !f.callerFence() {
+		return false
+	}
+	return true
+}
+
+func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev lipapi.Event, request requestTerminalFacts, attempt *attemptSession, p *responsePipeline, in ...finishAuthorityInput) (lipapi.Event, bool, error) {
 	if attempt == nil || t == nil || p == nil {
 		return lipapi.Event{}, false, nil
+	}
+	var hooks finishAuthorityInput
+	if len(in) > 0 {
+		hooks = in[0]
 	}
 	if t.accountingFinalized() && t.requestTerminal().Owner().State().IsTerminal() {
 		return lipapi.Event{}, false, nil
@@ -210,12 +286,16 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 	snapshot := p.accumulatorSnapshot()
 	decision := t.sharedTerminalDecision(ctx, t.terminalDecisionProvider, t.terminalDecisionInput(sdkterminal.CommandNormalFinish, request, attempt, p, snapshot))
 	if decision.Decision.Kind == terminaldecision.DecisionContinue {
-		if len(continuation) == 0 || continuation[0] == nil || decision.Decision.Continue == nil {
+		// A continuation retires this attempt's private candidate BEFORE the
+		// existing transaction runs, so the replacement B-leg can never publish the
+		// continued attempt's lexical result.
+		p.discardPendingCompletion()
+		if hooks.continuation == nil || decision.Decision.Continue == nil {
 			// Callers without a receive transaction preserve the provisional
 			// behavior until they can supply the generic publication boundary.
 			return lipapi.Event{}, false, nil
 		}
-		published, err := continuation[0](ctx, *decision.Decision.Continue)
+		published, err := hooks.continuation(ctx, *decision.Decision.Continue)
 		if published {
 			if err != nil {
 				return lipapi.Event{}, false, fmt.Errorf("%w: %v", errTerminalDecisionContinuationPublished, err)
@@ -236,21 +316,35 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 	var preparedAuthorityEv lipapi.Event
 	var preparedOK bool
 	var preparedErr error
+	// A prepared pending completion publication owns the final-client observation of
+	// its own staged sequence. Only that deferral is private here: attempt
+	// accounting, usage authority, billing, and teardown ownership stay exactly
+	// where they already are, and the attempt-owned final-stream observer is never
+	// moved onto the pipeline or reopened.
+	//
+	// The expected candidate is the one the receive route captured BEFORE this
+	// terminal call started, and it stays expected for the whole call: if the
+	// claim, the reservation, the activation, or the physical drain later finds it
+	// gone, that is a withdrawal of an expected publication and never the optional
+	// "nothing to publish" outcome.
+	publishPending := hooks.publishesPendingCompletion(hooks.expectedPrepared) &&
+		terminalIntent == IntentSuccess
 	evidence := attemptEvidence{
-		Command:        terminalCommand,
-		LegOutcome:     billing.LegOutcomeWinner,
-		Usage:          lipapi.Event{},
-		ObsOutcome:     response.OutcomeSuccessReleased,
-		TraceID:        request.traceID,
-		ALegID:         request.aLegID,
-		Snapshot:       &snapshot,
-		RecordOutcome:  lipapi.AttemptSuccess,
-		StartedAt:      attempt.accountingStartedAt(),
-		StreamFallback: p.billingEvidenceFallback(),
-		BillingState:   request.billingState,
-		BillingCallID:  request.billingCallID,
-		Committed:      t.committed(),
-		ObserveEvent:   &ev,
+		Command:                     terminalCommand,
+		LegOutcome:                  billing.LegOutcomeWinner,
+		Usage:                       lipapi.Event{},
+		ObsOutcome:                  response.OutcomeSuccessReleased,
+		TraceID:                     request.traceID,
+		ALegID:                      request.aLegID,
+		Snapshot:                    &snapshot,
+		RecordOutcome:               lipapi.AttemptSuccess,
+		StartedAt:                   attempt.accountingStartedAt(),
+		StreamFallback:              p.billingEvidenceFallback(),
+		BillingState:                request.billingState,
+		BillingCallID:               request.billingCallID,
+		Committed:                   t.committed(),
+		ObserveEvent:                &ev,
+		DeferFinalStreamObservation: publishPending,
 		AuthorityPrepare: func(cctx context.Context) (lipapi.Event, lipapi.Event, bool, error) {
 			if !t.claimAccountingFinalization() {
 				return lipapi.Event{}, lipapi.Event{}, false, nil
@@ -275,12 +369,20 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 		evidence.LegOutcome = billing.LegOutcomeFailed
 		evidence.ObsOutcome = response.OutcomeFailed
 		evidence.RecordOutcome = lipapi.AttemptSurfacedFailure
+		// A surfaced failure never publishes a private result. Invalidate the
+		// candidate BEFORE any success return on this path, so no lexical candidate
+		// survives for a later finish route or a later attempt to pick up. A normal
+		// accepted owner is untouched here: it retains its candidate until the
+		// physical finish.
+		p.discardPendingCompletion()
 	}
 	resOuter := attempt.TerminalizeAttempt(ctx, terminalIntent, evidence)
 	if !resOuter.Result.Won {
+		t.abandonDeferredFinalObservation(p, attempt)
 		return lipapi.Event{}, false, terminalLossError(resOuter.Result)
 	}
 	if resOuter.Result.Err != nil {
+		t.abandonDeferredFinalObservation(p, attempt)
 		return preparedUsageEv, preparedOK, resOuter.Result.Err
 	}
 	// Use the prepared authorityEv for request settlement; if Prepare didn't run (loser), use evidence.Usage
@@ -298,22 +400,222 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 	var r terminal.Result
 	if t.isInterleavedThinker() {
 		r = terminal.Result{Won: true, Outcome: terminal.Outcome{Command: terminalCommand}, State: sdkterminal.StateReleased}
+		if publishPending {
+			// An interleaved thinker terminalizes only its own B-leg, so its accepted
+			// normal publication runs here under the EXISTING bounded cleanup budget:
+			// the attempt-effects context must not be retained after
+			// TerminalizeAttempt returns. The internal thinker canonical stream
+			// consumes the result through the existing wrapper path; request
+			// NormalFinish, customer request settlement, and billing handoff stay with
+			// the executor that owns them.
+			cleanupCtx, cleanupCancel := cleanupContext(ctx, attemptCleanupTimeout(attempt))
+			stageErr := t.stagePendingAcceptedNormal(cleanupCtx, hooks, attempt, p, preparedUsageEv, preparedOK)
+			if stageErr == nil {
+				// Activation shares the stage's bounded budget, so a withdrawal at this
+				// boundary closes the deferred observer inside the same one.
+				stageErr = t.activatePendingPublication(cleanupCtx, p, hooks)
+			}
+			cleanupCancel()
+			if stageErr != nil {
+				r = terminal.Result{Err: stageErr}
+			}
+		}
 	} else {
 		r = t.claimRequestTerminal(ctx, terminalCommand, snapshot, func(cctx context.Context, _ terminal.Outcome) error {
-			if err := t.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv, request, p); err != nil {
+			var stageErr error
+			if publishPending {
+				// The winning request owner supplies its OWN existing bounded cleanup
+				// context, so recorder, observer, and PTC publication inherit exactly
+				// the request terminal's budget.
+				stageErr = t.stagePendingAcceptedNormal(cctx, hooks, attempt, p, preparedUsageEv, preparedOK)
+				if stageErr != nil {
+					// A rejected publication preflight stops settlement and handoff: no
+					// customer authority is settled and no billing call is handed off
+					// for a batch that will never be released.
+					return stageErr
+				}
+				// The SAME full expected-publication fence that gated staging and will
+				// gate activation is consulted BEFORE the first not-yet-admitted success
+				// effect. A client cancellation, an authoritative A-leg cause, a closed
+				// publication window, or a replaced origin that wins after the batch was
+				// staged must stop settlement here instead of charging a customer for a
+				// publication that can never be released.
+				if !hooks.pendingPublicationFenceOpen(t) {
+					p.abandonOwnedPendingPublication(cctx, hooks.expectedOrigin)
+					return errPendingPublicationWithdrawn
+				}
+			}
+			customer, _ := p.stagedCustomerUsage()
+			if err := t.settleRequestAuthorityWithCustomerOverride(cctx, authorityEv, customer, request, p); err != nil {
 				return err
+			}
+			if publishPending {
+				// Settlement above is an ALREADY-ADMITTED private effect: it may complete
+				// and is never rejected for existing, because nothing here can undo it.
+				// The next not-yet-admitted effect is the normal-success billing handoff,
+				// so the SAME fence is consulted again immediately before it. A withdrawal
+				// that landed during settlement must therefore be observed here, and only
+				// the owned captured state is disposed, conservatively and exactly once,
+				// through the existing withdrawal cleanup.
+				if !hooks.pendingPublicationFenceOpen(t) {
+					p.abandonOwnedPendingPublication(cctx, hooks.expectedOrigin)
+					return errPendingPublicationWithdrawn
+				}
 			}
 			return t.handoffBillingTurn(cctx, request, terminalCommand)
 		})
+		if r.Won && r.Err == nil && publishPending {
+			// The private drain becomes deliverable only after the owning effects
+			// reported a real winner and the live origin/publication fence still
+			// permits release. Activation runs after the request terminal released
+			// its own effects context, so it uses the attempt's existing bounded
+			// cleanup budget rather than an unbounded or retained context.
+			activateCtx, activateCancel := cleanupContext(ctx, attemptCleanupTimeout(attempt))
+			activateErr := t.activatePendingPublication(activateCtx, p, hooks)
+			activateCancel()
+			if activateErr != nil {
+				r.Err = activateErr
+			}
+		}
 	}
 	if !r.Won {
 		// Another exit path already terminalized; surface cancel/error consistently.
+		t.abandonDeferredFinalObservation(p, attempt)
 		return lipapi.Event{}, false, terminalLossError(r)
 	}
 	if r.Err != nil {
+		t.abandonDeferredFinalObservation(p, attempt)
 		return preparedUsageEv, preparedOK, r.Err
 	}
 	return preparedUsageEv, preparedOK, nil
+}
+
+// attemptCleanupTimeout reports the established bounded cleanup budget of one
+// attempt's authority lifecycle, falling back to the existing authority default.
+func attemptCleanupTimeout(attempt *attemptSession) time.Duration {
+	if attempt != nil && attempt.authority.control != nil {
+		attempt.authority.control.mu.Lock()
+		timeout := attempt.authority.control.state.cleanupTimeout
+		attempt.authority.control.mu.Unlock()
+		if timeout > 0 {
+			return timeout
+		}
+	}
+	return defaultAuthorityCleanupTimeout
+}
+
+// stagePendingAcceptedNormal reserves and stages this turn's one private pending
+// completion publication through the accepted normal terminal path.
+//
+// The pipeline claims the publication, so a repeated terminal call, a competing
+// request command, and the generic losing GateReplacement effect exception can
+// never publish it twice. The claim must return the EXACT expected candidate: a
+// lost or replaced claim is a real withdrawal and is returned as one, so the caller
+// stops settlement, handoff, and activation instead of failing the terminal
+// truthfully on a publication that will never be released. A foreign candidate is
+// neither staged nor discarded.
+func (t *turnTerminal) stagePendingAcceptedNormal(
+	ctx context.Context,
+	hooks finishAuthorityInput,
+	attempt *attemptSession,
+	p *responsePipeline,
+	usage lipapi.Event,
+	usageOK bool,
+) error {
+	if hooks.acceptedNormal == nil || p == nil {
+		return nil
+	}
+	expected := hooks.expectedPrepared
+	if expected == nil {
+		return nil
+	}
+	prepared, claimed := p.takePendingPublication()
+	if !claimed || prepared == nil {
+		// The expected publication lost its claim, so the caller must stop
+		// settlement and billing handoff rather than continue for a batch that will
+		// never be released.
+		return errPendingPublicationWithdrawn
+	}
+	if prepared != expected {
+		// A DIFFERENT candidate is live. It is neither claimed nor discarded here:
+		// this caller reports its own expected publication as withdrawn and leaves
+		// the foreign reservation to its real owner.
+		return errPendingPublicationWithdrawn
+	}
+	return hooks.acceptedNormal(ctx, usage, usageOK)
+}
+
+// activatePendingPublication releases the staged batch for delivery. It runs only
+// after the owning effects reported Won with no error and only while the live
+// origin/publication fence still permits release, so a Close that already closed
+// the window can never make the batch deliverable again.
+//
+// Activation is pinned to the EXACT expected candidate and expected origin the
+// terminal captured before it started, and the response owner re-checks under
+// [responsePipeline.eventsMu] that this same candidate is still reserved, still
+// carries its deferred observer finish, is still staged, and is not activated yet.
+// A refused activation is a withdrawal the caller propagates; its bool is never
+// ignored. Cleanup disposes the CAPTURED expected identity, never an origin
+// snapshot chosen after the failure, so a foreign owner can never have its own
+// publication erased by a foreign activation.
+//
+// ctx is the winning owner's existing bounded cleanup context, so a withdrawal at
+// this boundary closes the deferred observer inside the same budget as the rest of
+// the owning effects. It opens no new one.
+func (t *turnTerminal) activatePendingPublication(ctx context.Context, p *responsePipeline, hooks finishAuthorityInput) error {
+	if p == nil {
+		return nil
+	}
+	// Activation uses the FULL lexical live fence, not the publication window
+	// alone: the caller context, the shared A-leg cause, the frozen origin, and the
+	// window. A Close, a client cancellation, an authoritative A-leg cause, or a
+	// replaced attempt between staging and activation must stop the release here.
+	if !hooks.pendingPublicationFenceOpen(t) {
+		p.abandonOwnedPendingPublication(ctx, hooks.expectedOrigin)
+		return errPendingPublicationWithdrawn
+	}
+	if !p.activateReservedPendingPublication(hooks.expectedPrepared, hooks.expectedOrigin) {
+		p.abandonOwnedPendingPublication(ctx, hooks.expectedOrigin)
+		return errPendingPublicationWithdrawn
+	}
+	return nil
+}
+
+// abandonDeferredFinalObservation finishes the attempt-owned final-stream
+// observer conservatively when a prepared pending publication never reached its
+// accepted normal publication. Reservation and staging are NOT full acceptance:
+// a staged-but-unactivated batch is discarded whole so no queued event and no
+// already-successful observer can survive a rejected terminal effect. The
+// observer is never reopened afterwards.
+//
+// The observer's existence controls ONLY the Finish. The owned reserved, staged,
+// and retained publication state is always discarded, so a settlement, handoff, or
+// attempt/request loser failure on an attempt with no observer leaves no phantom
+// release effect behind either.
+func (t *turnTerminal) abandonDeferredFinalObservation(p *responsePipeline, attempt *attemptSession) {
+	if t == nil || p == nil || attempt == nil {
+		return
+	}
+	if p.pendingPublicationActive() {
+		// The activated drain owns the observer finish at its real delivery
+		// boundary, including a conservative finish on an interrupted partial drain.
+		return
+	}
+	// Drop the owned reserved, staged, and retained state, and close the observer
+	// conservatively exactly once. The observer's existence gates only the Finish,
+	// never the state, so an attempt without one leaves no phantom release effect.
+	p.withdrawPendingCompletion(attempt)
+}
+
+// finishPendingObservationConservatively closes the deferred final-stream observer
+// exactly once under the bounded cleanup budget, never reopening it.
+func (p *responsePipeline) finishPendingObservationConservatively(attempt *attemptSession) {
+	if p == nil || attempt == nil || attempt.finalStreamObs == nil {
+		return
+	}
+	cleanupCtx, cancel := cleanupContext(context.Background(), attemptCleanupTimeout(attempt))
+	defer cancel()
+	p.finishFinalStreamObservation(cleanupCtx, attempt, response.OutcomeFailed)
 }
 
 // settleRequestAuthorityWithFrontendEgress emits the frontend-egress fact for the
@@ -323,13 +625,34 @@ func (t *turnTerminal) finalizeResponseFinishedAuthority(ctx context.Context, ev
 // durable-intent-rejected errors are returned so stream terminal effects fail
 // truthfully (Phase 4.5 / D9).
 func (t *turnTerminal) settleRequestAuthorityWithFrontendEgress(ctx context.Context, usageEv lipapi.Event, request requestTerminalFacts, p *responsePipeline) error {
+	return t.settleRequestAuthorityWithCustomerOverride(ctx, usageEv, lipapi.Event{}, request, p)
+}
+
+// settleRequestAuthorityWithCustomerOverride is the one narrow seam that lets a
+// winning request owner settle from a customer usage event it already holds.
+//
+// It exists only for the accepted pending completion publication, whose customer
+// quantity is previewed privately from the accepted post-hook, post-gate candidate
+// BEFORE the batch is released. Passing that same event here keeps settlement and
+// the client from ever disagreeing. A zero override preserves the existing
+// reconstruction from released content exactly.
+func (t *turnTerminal) settleRequestAuthorityWithCustomerOverride(
+	ctx context.Context,
+	usageEv lipapi.Event,
+	customerOverride lipapi.Event,
+	request requestTerminalFacts,
+	p *responsePipeline,
+) error {
 	if t == nil {
 		return nil
 	}
 	if !p.markCustomerSettled() {
 		return nil
 	}
-	customerEv := p.resolveCustomerUsageForTerminal(ctx, usageEv, request)
+	customerEv := customerOverride
+	if customerEv.Kind == "" {
+		customerEv = p.resolveCustomerUsageForTerminal(ctx, usageEv, request)
+	}
 	var egressFacts []metering.Fact
 	var fact metering.Fact
 	var persisted bool

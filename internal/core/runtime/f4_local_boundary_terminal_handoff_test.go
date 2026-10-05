@@ -439,12 +439,13 @@ func f4AssertLossMarkerBlocksCompleteRetail(t *testing.T, durable billing.CallLe
 // checkpoint owner, so the loss is genuine rather than a stale republish.
 func TestF4TerminalHandoffRetainsFinalLocalMeasurementAcrossDurableRestart(t *testing.T) {
 	// This durable proof drives the production terminal callback against real
-	// file-backed SQLite and must finish the full 128-slot checkpoint flush and
-	// the billing-leg append inside one bounded terminal budget. That work is far
-	// heavier than the in-memory variants, so the test bounds its own terminal
-	// cleanup explicitly instead of relying on the production 2-second default,
-	// which a race-instrumented or loaded CI host can exhaust. Production callers
-	// keep the default unchanged.
+	// file-backed SQLite. The 20s cleanupTimeout below only widens the OUTER
+	// terminal cleanup budget; it does not relax the production inner checkpoint
+	// flush budget (economicCheckpointFlushTimeout, a fixed 2s, applied under
+	// context.WithoutCancel). The 128-slot flush must therefore fit that inner
+	// budget, which is why both file-backed stores use the WAL/synchronous=NORMAL
+	// reopen DSN instead of paying a full fsync per commit. Production callers
+	// keep every budget unchanged.
 	ctx := context.Background()
 
 	const storeID = "store-f4"
@@ -560,8 +561,12 @@ func TestF4TerminalHandoffRetainsFinalLocalMeasurementAcrossDurableRestart(t *te
 // capture-loss disposition must still reach the independent durable billing
 // store, so a restart still observes the immutable final measurement and the
 // fail-closed disposition despite the checkpoint outage.
+//
+// Keep this private, saturated durable fixture serial with package peers
+// so race instrumentation competes less for its default terminal budget.
+// It has no shared store or competing actor; all production budgets and
+// durability assertions remain unchanged.
 func TestF4TerminalHandoffRetainsFinalLocalMeasurementWhenDurableSinkFails(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 
 	const storeID = "store-f4"

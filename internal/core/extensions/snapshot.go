@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -400,6 +401,25 @@ func (s *RequestRuntimeSnapshot) TerminalDecisionProviderIdentity() (string, boo
 // [RunSessionClassificationStage].
 func (s *RequestRuntimeSnapshot) SessionClassifier() sessionclassification.Classifier {
 	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneSessionClassifier)
+}
+
+// ControlToolProvider returns the generation proxy-owned model control tool
+// provider captured by this immutable request snapshot, or nil when the
+// generation admits no control tool. An absent provider requires zero provider
+// method calls: callers must branch on the nil result rather than invoking it.
+func (s *RequestRuntimeSnapshot) ControlToolProvider() controltool.Provider {
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneControlToolProvider)
+}
+
+// ControlToolProviderIdentity returns the frozen identity of the generation
+// control-tool provider captured by this immutable request snapshot, if present.
+// It reads validated cached identity metadata and never invokes a live provider
+// method, so a request path can pin the generation and honor plugin suppression
+// without resolving a spec. An occupied plane without a frozen identity fails
+// closed: a generation that cannot name its control-tool owner has no provable
+// provenance.
+func (s *RequestRuntimeSnapshot) ControlToolProviderIdentity() (string, bool) {
+	return lipfeature.FrozenIdentity(s.featurePlaneSet(), lipfeature.PlaneControlToolProvider)
 }
 
 // WithRequestRuntimeSnapshot attaches snap to ctx for the remainder of the request lifetime.

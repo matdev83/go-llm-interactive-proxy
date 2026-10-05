@@ -1,0 +1,123 @@
+name: Node independence
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Share the branch/PR group so a new push cancels the superseded no-Node run
+  # instead of consuming another hosted runner.
+  group: node-independence-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect host build-surface changes
+    runs-on: ubuntu-latest
+    outputs:
+      host: ${{ steps.filter.outputs.host }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The lane replays the whole host verification surface, so an unrelated
+      # documentation or skill-only PR must not burn a runner. Every bypass
+      # still reports success so the workflow stays mergeable.
+      - name: Classify changed files
+        id: filter
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]] || [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0{40}$ ]]; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git rev-parse --verify "${BASE_SHA}^{commit}" >/dev/null
+          host=false
+          while IFS= read -r file; do
+            case "$file" in
+              Makefile|go.mod|go.sum|go.work|go.work.sum|\
+              .golangci.yml|.goreleaser.yaml|.goreleaser.yml|.release-files|\
+              cmd/*|config/*|internal/*|pkg/*|testdata/*|tools/*|scripts/*|\
+              .github/workflows/*|.github/actions/*)
+                host=true
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "$BASE_SHA" HEAD)
+          echo "host=$host" >> "$GITHUB_OUTPUT"
+
+  no-node:
+    name: no-node
+    needs: changes
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        run: exit 1
+      - name: Report unrelated bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.host != 'true'
+        run: |
+          echo "No-Node lane bypassed: no host build surface changed."
+          echo "The no-node job remains successful for branch-protection semantics."
+      - name: Check out exact head
+        if: needs.changes.result == 'success' && needs.changes.outputs.host == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Go is the only documented build prerequisite this lane provisions. Node
+      # is deliberately never set up: the lane proves unavailability with
+      # tripwires instead of trusting the runner image.
+      - name: Setup Go
+        if: needs.changes.result == 'success' && needs.changes.outputs.host == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          # The shared composite owns cache identity, size and main publication.
+          cache: false
+
+      - name: Restore bounded no-node Go cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.host == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: node-independence
+
+      # The full documented verification surface runs on every pull request. A reduced
+      # subset was rejected: a PR that only exercises the fast set would leave the
+      # quality, packaging and comprehensive steps unproven until merge.
+      - name: Run host verification with Node unavailable
+        if: needs.changes.result == 'success' && needs.changes.outputs.host == 'true'
+        run: bash scripts/check-node-independence.sh --set full --report "$RUNNER_TEMP/node-independence.json"
+
+      - name: Upload no-Node evidence
+        if: always() && needs.changes.result == 'success' && needs.changes.outputs.host == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: node-independence-${{ github.run_id }}
+          path: ${{ runner.temp }}/node-independence.json
+          retention-days: 14
+          if-no-files-found: error
+
+      # Only successful main work publishes the advancing baseline.
+      - name: Save bounded no-node Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.host == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: node-independence
+          phase: save

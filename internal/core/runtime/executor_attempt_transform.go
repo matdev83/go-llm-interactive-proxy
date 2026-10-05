@@ -12,12 +12,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -211,4 +213,134 @@ func (e *Executor) rederiveAfterRequestHooks(
 		}
 	}
 	return out, nil
+}
+
+// controlToolActivation is the trusted, attempt-local owner of one projected
+// proxy-owned model control tool. It exists exactly once per attempt, on the
+// attempt transaction and then on the attempt session, and is discarded with the
+// attempt. It is never a client-writable canonical extension, never serialized
+// backend or frontend metadata, and never derived from a tool name the model
+// emitted. Candidate, race, and replacement attempts therefore hold independent
+// activations pinned to the generation each one was admitted with.
+type controlToolActivation struct {
+	// providerID is the generation-frozen identity read from cached validated
+	// metadata. It never comes from a live provider call.
+	providerID string
+	// provider is the pinned generation provider instance.
+	provider controltool.Provider
+	// projection is the private, immutable approved projection. It is the only
+	// source of proxy-owned control truth for the rest of the attempt.
+	projection controltool.Projection
+	// meta is the request/attempt provenance the control provider receives with a
+	// completed call. It is captured here so later response handling cannot read
+	// a mutable request or context for the same facts.
+	meta controltool.Meta
+}
+
+// active reports whether this attempt approved a proxy-owned control tool. An
+// inactive or absent activation never claims a control call.
+func (a *controlToolActivation) active() bool {
+	return a != nil && a.projection.Active()
+}
+
+// projectCandidateControlTool is the single generic, bounded control-projection
+// stage. It runs after ordinary candidate request mutation and before the
+// authoritative post-hook capability, context, and accounting rederive, so
+// downstream sizing, requirements, and admission observe the real model-facing
+// request.
+//
+// The stage is inert unless the request's own generation admitted a control-tool
+// provider. Absence is the ordinary case and costs nothing: no provider method
+// call, no additional capability resolution, and no projection clone. When a
+// provider is present, its frozen identity is read from cached validated
+// metadata, an unsuppressed provider is resolved once, and the pure projection
+// decides eligibility from that candidate's own effective capabilities.
+//
+// An occupied plane without a frozen identity, an unavailable spec, and an
+// isolated provider or capability panic all fail closed before the authoritative
+// rederive, with bounded content-free errors.
+func (e *Executor) projectCandidateControlTool(
+	hookCtx context.Context,
+	tx *attemptTx,
+	be execbackend.Backend,
+	attempt *lipapi.Call,
+	c routing.AttemptCandidate,
+) error {
+	snap := extensions.RequestRuntimeSnapshotFromContext(hookCtx)
+	if snap == nil {
+		snap = e.RuntimeSnapshot
+	}
+	if snap == nil {
+		return nil
+	}
+	provider := snap.ControlToolProvider()
+	if provider == nil {
+		return nil
+	}
+	providerID, ok := snap.ControlToolProviderIdentity()
+	if !ok {
+		return fmt.Errorf("executor: control tool provider identity unavailable: %w", controltool.ErrInvalidProvider)
+	}
+	if execctx.IsSuppressedPluginID(hookCtx, providerID) {
+		return nil
+	}
+
+	// Eligibility input only. The authoritative rederive below revalidates the
+	// projected candidate; this lookup exists because eligibility depends on the
+	// candidate's actual backend capabilities.
+	caps, err := safety.CallValue(safety.BoundaryBackend, "control_tool_candidate_caps", func() (lipapi.BackendCaps, error) {
+		return e.effectiveFactsForAttempt(hookCtx, be, *attempt, c).EffectiveCaps, nil
+	})
+	if err != nil {
+		return fmt.Errorf("executor: control tool candidate capabilities: %w", err)
+	}
+
+	projected, activation, err := extensions.ProjectControlTool(extensions.ControlToolProjectionRequest{
+		ProviderID: providerID,
+		Provider:   provider,
+		Call:       *attempt,
+		Caps:       caps,
+	})
+	if err != nil {
+		return fmt.Errorf("executor: control tool projection: %w", err)
+	}
+	*attempt = projected
+	tx.controlTool = &controlToolActivation{
+		providerID: activation.ProviderID,
+		provider:   activation.Provider,
+		projection: activation.Projection,
+		meta:       controlToolMeta(tx, c),
+	}
+	logControlToolProjection(hookCtx, e.Log, tx, c, activation)
+	return nil
+}
+
+// controlToolMeta captures the request/attempt provenance handed to the control
+// provider later in the attempt. It is built from frozen request facts, never
+// from live context state.
+func controlToolMeta(tx *attemptTx, c routing.AttemptCandidate) controltool.Meta {
+	views := tx.reqFacts.recvViews
+	meta := controltool.Meta{
+		TraceID:      tx.reqFacts.traceID,
+		ALegID:       tx.reqFacts.aLegID,
+		BLegID:       tx.bleg.BLegID,
+		CandidateKey: c.Key,
+		AttemptSeq:   tx.bleg.Seq,
+		Scope:        views.Scope.Clone(),
+		Workspace:    cloneWorkspaceView(views.Workspace),
+	}
+	meta.Session = cloneSessionView(views.Session)
+	meta.Session.ALegID = tx.reqFacts.aLegID
+	return meta
+}
+
+// logControlToolProjection records the bounded activation outcome. Only the
+// provider identity and the content-free reason code are logged; no instruction
+// text, tool arguments, or raw identifiers are ever attached.
+func logControlToolProjection(ctx context.Context, log *slog.Logger, tx *attemptTx, c routing.AttemptCandidate, activation extensions.ControlToolProjection) {
+	diag.LogDecision(ctx, log, "control_tool_projection", diag.AttrOpts{CallID: tx.reqFacts.traceID, BLegID: tx.bleg.BLegID},
+		slog.String("candidate_key", c.Key),
+		slog.String("backend", c.Primary.Backend),
+		slog.String("provider_id", activation.ProviderID),
+		slog.String("reason_code", activation.Reason()))
 }

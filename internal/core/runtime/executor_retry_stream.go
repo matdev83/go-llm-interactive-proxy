@@ -15,6 +15,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 // retryRecvStream is the small recv-phase EventStream facade: it wraps a
@@ -62,11 +63,87 @@ func lifecycleAttempt(stream lipapi.EventStream) leglifecycle.BLegAttempt {
 	return lipapi.CloseOnlyManagedStream{Stream: stream}
 }
 
+// recvFinishAuthorityInput builds the narrow private typed optional input of the
+// response_finished authority chokepoint for this receive stream. It owns no
+// terminal authority: it only names the continuation seam that already existed and
+// the two publication seams of a prepared pending completion.
+//
+// callerCtx is the original live receive context, captured on purpose and stored
+// ONLY in this lexical callback. The terminal owner runs request effects under its
+// own detached bounded cleanup context, so the publication fence needs the
+// caller's context to notice a client cancellation that already won instead of
+// reading the detached context. No context is retained in persistent drain state.
+//
+// expectedFence is the ONE lexical publication predicate of the receive call. It is
+// handed over rather than rebuilt, so staging, activation, and physical delivery
+// all consult the identical checks over the identical expected candidate and
+// origin instead of three partial ones. A nil predicate preserves the provisional
+// behavior of callers that own no receive transaction.
+func recvFinishAuthorityInput(
+	callerCtx context.Context,
+	s *retryRecvStream,
+	origin *attemptSession,
+	pending *pendingCompletion,
+	endALeg bool,
+	expectedFence func(*pendingCompletion, *attemptSession) bool,
+) finishAuthorityInput {
+	hooks := finishAuthorityInput{
+		continuation: func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+			return runContinuationTransaction(cctx, s.terminal, s, intent)
+		},
+		publishable: func() bool {
+			return expectedFence == nil || expectedFence(pending, origin)
+		},
+		// Activation must consult the ORIGINAL caller, not the detached bounded
+		// cleanup context the terminal owner runs its effects on, so a client
+		// cancellation that already won is never masked there.
+		callerFence: func() bool { return callerCtx != nil && callerCtx.Err() == nil },
+		// The expected identity is captured HERE, before any terminal work runs, and
+		// is carried as private identity facts only. Every later claim, reservation,
+		// activation, and delivery decision is checked against this exact pair.
+		expectedPrepared: pending,
+		expectedOrigin:   origin,
+	}
+	if pending.holds() {
+		hooks.acceptedNormal = func(ownerCtx context.Context, usage lipapi.Event, usageOK bool) error {
+			return s.terminal.stagePendingCompletion(ownerCtx, origin, s.responsePipeline,
+				s.facts.terminalFacts(),
+				pendingPublication{
+					prepared:    pending,
+					usage:       usage,
+					usageOK:     usageOK,
+					facts:       s.facts,
+					recovery:    s.recovery,
+					callerCtx:   callerCtx,
+					publishable: hooks.publishable,
+					endALeg:     endALeg,
+				},
+			)
+		}
+	}
+	return hooks
+}
+
+// recvPendingPublishable is the receive-side publication fence: the attempt
+// publication window must still be open. Close closes that window before terminal
+// competition, so a Close winner always suppresses a late pending result. It
+// performs no I/O and holds no lock across an external call.
+func recvPendingPublishable(s *retryRecvStream) bool {
+	if s == nil {
+		return false
+	}
+	return !s.attempt.publicationIsClosed()
+}
+
 func (s *retryRecvStream) Close() error {
 	if s == nil {
 		return nil
 	}
 	current := s.attempt.closePublicationAndSnapshot()
+	// Close closes the existing publication window BEFORE clearing private state,
+	// so activation can never resurrect a drain afterwards and the undelivered
+	// remainder is discarded here rather than stranding for a later Recv.
+	s.responsePipeline.withdrawPendingCompletion(current)
 	s.responsePipeline.clearAttemptState(s.attempt.snapshot())
 	// lipapi.EventStream.Close has no caller context. Project a detached
 	// request context from immutable facts; no mutable context cache belongs on

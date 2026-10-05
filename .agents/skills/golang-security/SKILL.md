@@ -1,6 +1,6 @@
 ---
 name: golang-security
-description: Review and implement Go application security: input validation, injection prevention (SQL, command, path traversal), SSRF mitigation, secure cryptography, constant-time comparison, secret redaction, and TLS configuration.
+description: "Review and implement Go application security: input validation, injection prevention (SQL, command, path traversal), SSRF mitigation, secure cryptography, constant-time comparison, secret redaction, and TLS configuration."
 ---
 
 # Go Application Security & Defense Guide

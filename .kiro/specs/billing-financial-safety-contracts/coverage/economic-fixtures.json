@@ -1,0 +1,580 @@
+{
+  "version": 2,
+  "prices_are_synthetic": true,
+  "implementation_verified": false,
+  "fixtures": [
+    {
+      "id": "FX01",
+      "title": "Text reference",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/text",
+          "quantity": "100",
+          "unit": "token",
+          "rate_nano_per_unit": "2"
+        },
+        {
+          "support": "b1/output/text",
+          "quantity": "50",
+          "unit": "token",
+          "rate_nano_per_unit": "5"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 450,
+      "reserved_upper_nano": 600
+    },
+    {
+      "id": "FX02",
+      "title": "Simultaneous text image and audio",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/text",
+          "quantity": "100",
+          "unit": "token",
+          "rate_nano_per_unit": "2"
+        },
+        {
+          "support": "b1/input/audio",
+          "quantity": "200",
+          "unit": "audio_token",
+          "rate_nano_per_unit": "6"
+        },
+        {
+          "support": "b1/input/image",
+          "quantity": "300",
+          "unit": "image_token",
+          "rate_nano_per_unit": "4"
+        },
+        {
+          "support": "b1/output/text",
+          "quantity": "50",
+          "unit": "token",
+          "rate_nano_per_unit": "5"
+        },
+        {
+          "support": "b1/output/audio",
+          "quantity": "40",
+          "unit": "audio_token",
+          "rate_nano_per_unit": "8"
+        }
+      ],
+      "non_additive_views": [
+        {
+          "name": "input_total",
+          "quantity": "600",
+          "relation": "sum_view_not_additional_charge"
+        },
+        {
+          "name": "output_total",
+          "quantity": "90",
+          "relation": "sum_view_not_additional_charge"
+        }
+      ],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 3170,
+      "reserved_upper_nano": 4000
+    },
+    {
+      "id": "FX03",
+      "title": "Rational audio duration",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/audio",
+          "quantity": "12.25",
+          "unit": "second",
+          "rate_nano_per_unit": "4"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 49,
+      "reserved_upper_nano": 60
+    },
+    {
+      "id": "FX04",
+      "title": "Video plus separately priced audio track",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/video",
+          "quantity": "6",
+          "unit": "frame",
+          "rate_nano_per_unit": "7"
+        },
+        {
+          "support": "b1/input/video_audio_track",
+          "quantity": "2",
+          "unit": "second",
+          "rate_nano_per_unit": "11"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 64,
+      "reserved_upper_nano": 100
+    },
+    {
+      "id": "FX05",
+      "title": "Video price includes audio track",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/video_inclusive",
+          "quantity": "6",
+          "unit": "frame",
+          "rate_nano_per_unit": "7"
+        }
+      ],
+      "non_additive_views": [
+        {
+          "name": "included_audio_seconds",
+          "quantity": "2",
+          "relation": "subset_not_additional_charge"
+        }
+      ],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 42,
+      "reserved_upper_nano": 80
+    },
+    {
+      "id": "FX06",
+      "title": "Document text and page imagery",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/document_text",
+          "quantity": "400",
+          "unit": "token",
+          "rate_nano_per_unit": "2"
+        },
+        {
+          "support": "b1/input/document_pages",
+          "quantity": "3",
+          "unit": "page_image",
+          "rate_nano_per_unit": "100"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 1100,
+      "reserved_upper_nano": 1500
+    },
+    {
+      "id": "FX07",
+      "title": "Two generated images and text",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/output/image",
+          "quantity": "2",
+          "unit": "image",
+          "rate_nano_per_unit": "700"
+        },
+        {
+          "support": "b1/output/text",
+          "quantity": "20",
+          "unit": "token",
+          "rate_nano_per_unit": "5"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 1500,
+      "reserved_upper_nano": 2000
+    },
+    {
+      "id": "FX08",
+      "title": "Explicit finite binary processing",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/binary",
+          "quantity": "5",
+          "unit": "kibibyte",
+          "rate_nano_per_unit": "3"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 15,
+      "reserved_upper_nano": 30
+    },
+    {
+      "id": "FX09",
+      "title": "Exact cache by modality breakdown",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/text_uncached",
+          "quantity": "40",
+          "unit": "token",
+          "rate_nano_per_unit": "2"
+        },
+        {
+          "support": "b1/input/text_cached",
+          "quantity": "20",
+          "unit": "token",
+          "rate_nano_per_unit": "1"
+        },
+        {
+          "support": "b1/input/audio_uncached",
+          "quantity": "30",
+          "unit": "audio_token",
+          "rate_nano_per_unit": "6"
+        },
+        {
+          "support": "b1/input/audio_cached",
+          "quantity": "10",
+          "unit": "audio_token",
+          "rate_nano_per_unit": "3"
+        }
+      ],
+      "non_additive_views": [
+        {
+          "name": "input_total",
+          "quantity": "100",
+          "relation": "parent_view"
+        },
+        {
+          "name": "cached_total",
+          "quantity": "30",
+          "relation": "orthogonal_subset_view"
+        }
+      ],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 310,
+      "reserved_upper_nano": 600
+    },
+    {
+      "id": "FX10",
+      "title": "Candidates share input and request fee",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/shared",
+          "quantity": "100",
+          "unit": "token",
+          "rate_nano_per_unit": "2"
+        },
+        {
+          "support": "b1/output/candidate1",
+          "quantity": "10",
+          "unit": "token",
+          "rate_nano_per_unit": "5"
+        },
+        {
+          "support": "b1/output/candidate2",
+          "quantity": "20",
+          "unit": "token",
+          "rate_nano_per_unit": "5"
+        },
+        {
+          "support": "b1/request_fee",
+          "quantity": "1",
+          "unit": "request",
+          "rate_nano_per_unit": "50"
+        }
+      ],
+      "non_additive_views": [
+        {
+          "name": "candidatesTokenCount",
+          "quantity": "30",
+          "relation": "already_sum_of_candidates"
+        }
+      ],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 400,
+      "reserved_upper_nano": 700
+    },
+    {
+      "id": "FX11",
+      "title": "Inclusive output with hidden reasoning",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/output/inclusive",
+          "quantity": "100",
+          "unit": "token",
+          "rate_nano_per_unit": "5"
+        }
+      ],
+      "non_additive_views": [
+        {
+          "name": "reasoning_tokens",
+          "quantity": "80",
+          "relation": "subset_not_additional_charge"
+        }
+      ],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 500,
+      "reserved_upper_nano": 700
+    },
+    {
+      "id": "FX12",
+      "title": "Repeated paid execution same content",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/assetA",
+          "quantity": "1",
+          "unit": "image",
+          "rate_nano_per_unit": "100"
+        },
+        {
+          "support": "b2/input/assetA",
+          "quantity": "1",
+          "unit": "image",
+          "rate_nano_per_unit": "100"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 200,
+      "reserved_upper_nano": 250
+    },
+    {
+      "id": "FX13",
+      "title": "Latest cumulative usage",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/output/audio_latest",
+          "quantity": "7",
+          "unit": "second",
+          "rate_nano_per_unit": "11"
+        }
+      ],
+      "non_additive_views": [
+        {
+          "name": "source_revisions",
+          "quantities": [
+            "3",
+            "5",
+            "5",
+            "7"
+          ],
+          "relation": "cumulative_latest_not_sum"
+        }
+      ],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 77,
+      "reserved_upper_nano": 100
+    },
+    {
+      "id": "FX14",
+      "title": "Full cache write plus catalog output maximum",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/input/cache_write",
+          "quantity": "1000",
+          "unit": "token",
+          "rate_nano_per_unit": "5"
+        },
+        {
+          "support": "b1/output/max",
+          "quantity": "300",
+          "unit": "token",
+          "rate_nano_per_unit": "7"
+        }
+      ],
+      "non_additive_views": [
+        {
+          "name": "ordinary_input_price",
+          "quantity": "2",
+          "relation": "replaced_not_additional"
+        }
+      ],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 7100,
+      "reserved_upper_nano": 7100
+    },
+    {
+      "id": "FX15",
+      "title": "Round total after rational accumulation",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/output/audio",
+          "quantity": "1/3",
+          "unit": "second",
+          "rate_nano_per_unit": "1"
+        },
+        {
+          "support": "b2/output/audio",
+          "quantity": "1/3",
+          "unit": "second",
+          "rate_nano_per_unit": "1"
+        },
+        {
+          "support": "b3/output/audio",
+          "quantity": "1/3",
+          "unit": "second",
+          "rate_nano_per_unit": "1"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 1,
+      "reserved_upper_nano": 3
+    },
+    {
+      "id": "FX16",
+      "title": "Contract explicitly rounds each item",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "b1/output/audio",
+          "quantity": "1/3",
+          "unit": "second",
+          "rate_nano_per_unit": "1"
+        },
+        {
+          "support": "b2/output/audio",
+          "quantity": "1/3",
+          "unit": "second",
+          "rate_nano_per_unit": "1"
+        },
+        {
+          "support": "b3/output/audio",
+          "quantity": "1/3",
+          "unit": "second",
+          "rate_nano_per_unit": "1"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_each_atom",
+      "expected_charge_nano": 3,
+      "reserved_upper_nano": 3
+    },
+    {
+      "id": "FX17",
+      "title": "Funded conversion plus inference",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "child_ocr/processing",
+          "quantity": "2",
+          "unit": "page",
+          "rate_nano_per_unit": "20"
+        },
+        {
+          "support": "parent/input/converted_text",
+          "quantity": "100",
+          "unit": "token",
+          "rate_nano_per_unit": "2"
+        },
+        {
+          "support": "parent/output/text",
+          "quantity": "10",
+          "unit": "token",
+          "rate_nano_per_unit": "5"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 290,
+      "reserved_upper_nano": 400
+    },
+    {
+      "id": "FX18",
+      "title": "Finite storage child and media rendering",
+      "currency": "SYN",
+      "state": "complete",
+      "atoms": [
+        {
+          "support": "child_storage/byte_seconds",
+          "quantity": "8",
+          "unit": "kibibyte_second",
+          "rate_nano_per_unit": "2"
+        },
+        {
+          "support": "b1/output/image",
+          "quantity": "1",
+          "unit": "image",
+          "rate_nano_per_unit": "100"
+        }
+      ],
+      "non_additive_views": [],
+      "rounding": "ceil_total",
+      "expected_charge_nano": 116,
+      "reserved_upper_nano": 160
+    },
+    {
+      "id": "FX19",
+      "title": "Missing cache-modality intersection is pending",
+      "currency": "SYN",
+      "state": "pending",
+      "atoms": [
+        {
+          "support": "b1/request_fee",
+          "quantity": "1",
+          "unit": "request",
+          "rate_nano_per_unit": "50"
+        }
+      ],
+      "non_additive_views": [
+        {
+          "name": "input_total",
+          "quantity": "100"
+        },
+        {
+          "name": "audio_marginal",
+          "quantity": "40"
+        },
+        {
+          "name": "cached_marginal",
+          "quantity": "30"
+        }
+      ],
+      "rounding": "ceil_total",
+      "expected_known_charge_nano": 50,
+      "expected_total_charge_nano": null,
+      "reserved_upper_nano": 650,
+      "required_disposition": "retain_unresolved_support_until_authoritative_intersection"
+    },
+    {
+      "id": "FX20",
+      "title": "Native impossible joint output",
+      "currency": "SYN",
+      "state": "native_reject",
+      "atoms": [],
+      "expected_provider_starts": 0,
+      "reserved_upper_nano": 0,
+      "native_allowed_exact_output_sets": [
+        [
+          "text"
+        ],
+        [
+          "audio"
+        ]
+      ],
+      "requested_output_set": [
+        "text",
+        "audio"
+      ]
+    }
+  ]
+}

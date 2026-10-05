@@ -418,15 +418,6 @@ func sessionClassificationReasonsIn(
 	return sortedKeys(reasons)
 }
 
-func sortedKeys(set map[string]bool) []string {
-	out := make([]string, 0, len(set))
-	for key := range set {
-		out = append(out, key)
-	}
-	sort.Strings(out)
-	return out
-}
-
 // receiverIsSessionView reports whether a resolved selector receiver is the
 // canonical session view, through a pointer, an alias, or a named type whose
 // underlying type is the view. Anything else - including reasoningpreservation's

@@ -49,6 +49,11 @@
     "job": "modules",
     "workflow": "Go module synchronization"
   },
+  "node-independence": {
+    "build_mib": 1536,
+    "job": "no-node",
+    "workflow": "Node independence"
+  },
   "official": {
     "build_mib": 1536,
     "job": "official-suite",

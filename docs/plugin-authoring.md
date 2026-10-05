@@ -109,6 +109,14 @@ Authoring and consumption rules:
 
 Operator documentation, the metric and evidence-code contract, the closed label vocabularies, the disabled posture, and correct/incorrect consumer examples: [`docs/session-classification.md`](session-classification.md).
 
+## Standard feature: agent-loop-guard
+
+`agent-loop-guard` is a bundled standard feature (plugin id `agent-loop-guard`) registered in `internal/standardplugins/`, disabled by default. Its thin factory `featureAgentLoopGuard` (`features_install.go`) contributes `feature.PlaneTerminalDecisionProvider` when the row is enabled, and additionally `feature.PlaneControlToolProvider` only when the selected strategy is `attempt_completion`. A disabled row contributes neither plane. Feature code lives in `internal/plugins/features/agentloopguard/` and must not import runtime, frontends, or backends; the generic control-tool and terminal-decision seams it uses live in `pkg/lipsdk/controltool` and `pkg/lipsdk/terminaldecision` and must never import ALG.
+
+Unlike the single-plane features above, its factory is **strategy-aware**: one feature id selects two mutually exclusive implementations, and validation happens during YAML decode so default values cannot make an unused strategy look configured. Two plugin-authoring lessons are worth copying: presence-sensitive decode-time validation for mutually exclusive option sets, and a config decoder that stays free of any runtime/provider dependency.
+
+Operator configuration, strategy selection, mutual exclusion, activation eligibility, and the self-attestation trade-off: [`docs/agent-loop-guard.md`](agent-loop-guard.md), [`config/config.yaml`](../config/config.yaml), and [`config/examples/agent-loop-guard-preferred.yaml`](../config/examples/agent-loop-guard-preferred.yaml) / [`config/examples/agent-loop-guard-legacy-verifier.yaml`](../config/examples/agent-loop-guard-legacy-verifier.yaml).
+
 ## Authoring rules
 
 - Keep handlers small, deterministic, and context-aware.

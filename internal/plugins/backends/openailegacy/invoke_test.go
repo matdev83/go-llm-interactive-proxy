@@ -316,3 +316,93 @@ func TestUpstreamError_returnsAPIError(t *testing.T) {
 		t.Fatalf("status: %d", apiErr.StatusCode)
 	}
 }
+
+// TestParamsForCall_everyCanonicalRoleMapsToItsWireRole pins the complete
+// canonical-role to Chat Completions wire-role translation, one canonical message
+// per role, because the role vocabulary is this adapter's own provider contract
+// rather than a canonical one.
+//
+// lipapi.RoleDeveloper is included because the generic continuation steering
+// transaction writes its instruction as a developer-role message
+// (internal/core/runtime/terminal_decision_continuation.go), which the canonical
+// projection deliberately does not fold into instructions. Chat Completions has a
+// native "developer" wire role, so the canonical role must reach the wire as
+// "developer" rather than being rejected or silently re-labelled.
+func TestParamsForCall_everyCanonicalRoleMapsToItsWireRole(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		role     lipapi.Role
+		parts    []lipapi.Part
+		wantRole string
+	}{
+		{
+			name:     "user",
+			role:     lipapi.RoleUser,
+			parts:    []lipapi.Part{lipapi.TextPart("U")},
+			wantRole: "user",
+		},
+		{
+			name:     "system",
+			role:     lipapi.RoleSystem,
+			parts:    []lipapi.Part{lipapi.TextPart("S")},
+			wantRole: "system",
+		},
+		{
+			name:     "developer",
+			role:     lipapi.RoleDeveloper,
+			parts:    []lipapi.Part{lipapi.TextPart("D")},
+			wantRole: "developer",
+		},
+		{
+			name:     "assistant",
+			role:     lipapi.RoleAssistant,
+			parts:    []lipapi.Part{lipapi.TextPart("A")},
+			wantRole: "assistant",
+		},
+		{
+			name: "tool",
+			role: lipapi.RoleTool,
+			parts: []lipapi.Part{{
+				Kind:       lipapi.PartToolResult,
+				ToolCallID: "call_role_map",
+				Content:    []byte(`{"ok":true}`),
+			}},
+			wantRole: "tool",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			call := lipapi.Call{
+				ID:       "role-map-" + tc.name,
+				Messages: []lipapi.Message{{Role: tc.role, Parts: tc.parts}},
+			}
+			cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+			p, err := backend.ParamsForCall(&call, cand)
+			if err != nil {
+				t.Fatalf("canonical role %q must be encodable, got error: %v", tc.role, err)
+			}
+			raw, err := json.Marshal(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded struct {
+				Messages []struct {
+					Role string `json:"role"`
+				} `json:"messages"`
+			}
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatalf("decode wire params %s: %v", raw, err)
+			}
+			if len(decoded.Messages) != 1 {
+				t.Fatalf("canonical role %q produced %d wire messages, want 1; wire=%s", tc.role, len(decoded.Messages), raw)
+			}
+			if got := decoded.Messages[0].Role; got != tc.wantRole {
+				t.Fatalf("canonical role %q mapped to wire role %q, want %q; wire=%s", tc.role, got, tc.wantRole, raw)
+			}
+		})
+	}
+}

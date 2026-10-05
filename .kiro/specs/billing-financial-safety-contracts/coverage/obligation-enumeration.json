@@ -1,0 +1,11 @@
+{
+  "kind": "SPECIFICATION_LATTICE_ENUMERATION_ONLY",
+  "unique_base_coordinates": 901120,
+  "interface_pairs": 220,
+  "coordinates_per_pair": 4096,
+  "coordinate_id_stream_sha256": "44a18d7d684faf8272e81f2f9d7c3a1924b53c662e4e3341ebd0f04b0649dfcc",
+  "universe_digest": "c22558560c5b76772be606c970000b7943a949701b20cf358360e80f1efc1be8",
+  "all_rows_state": "NOT_RUN",
+  "implementation_verified": false,
+  "note": "Enumerated all baseline mask coordinates and checked uniqueness. Actual native profile/operation/carrier/mode expansion and runtime execution remain mandatory implementation work."
+}

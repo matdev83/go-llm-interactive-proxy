@@ -18,36 +18,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// pollTestPoller is a test poller driven concurrently by the concurrent
-// attach/clear tests, so every field it mutates from Poll is guarded. The
-// counters are atomic; the observable fields share one mutex. Reading lastID
-// directly from a test would race with Poll, so use lastJobID instead.
+// pollTestPoller stands in for auxreq.BackgroundScheduler, whose Poll,
+// Forget and SubmitCollect are all safe for concurrent use. Tests that share
+// one poller across concurrent HandleAttempt calls therefore require this
+// double to be concurrency-safe as well: every field it mutates per call is
+// guarded, never left as a bare write.
 type pollTestPoller struct {
 	pollCalls   atomic.Int32
+	result      auxiliary.PollResult
+	err         error
+	lastIDMu    sync.Mutex
+	lastID      auxiliary.JobID
 	forgetCalls atomic.Int32
-
-	mu     sync.Mutex
-	result auxiliary.PollResult
-	err    error
-	lastID auxiliary.JobID
 }
 
 func (f *pollTestPoller) Poll(_ context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
 	f.pollCalls.Add(1)
-	f.mu.Lock()
-	f.lastID = id
-	result, err := f.result, f.err
-	f.mu.Unlock()
-	if err != nil {
-		return auxiliary.PollResult{}, err
+	f.setLastID(id)
+	if f.err != nil {
+		return auxiliary.PollResult{}, f.err
 	}
-	return result, nil
+	return f.result, nil
 }
 
-// lastJobID reports the most recently polled job under the lock.
-func (f *pollTestPoller) lastJobID() auxiliary.JobID {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+func (f *pollTestPoller) setLastID(id auxiliary.JobID) {
+	f.lastIDMu.Lock()
+	defer f.lastIDMu.Unlock()
+	f.lastID = id
+}
+
+// LastID reports the job id the poll path observed most recently. Concurrent
+// adoption tests read it only after the attempts have joined, so the observed
+// value stays deterministic while the write itself stays race-free.
+func (f *pollTestPoller) LastID() auxiliary.JobID {
+	f.lastIDMu.Lock()
+	defer f.lastIDMu.Unlock()
 	return f.lastID
 }
 
@@ -309,7 +314,7 @@ func TestPollOnce_PreservedSkipped_SecondMissingPicked(t *testing.T) {
 	res := reasoningpreservation.PollOnceForMatchingArtifact(context.Background(), &call, cs, p, snap, pollTestSupport, svc)
 	require.Equal(t, reasoningpreservation.PollKindPending, res.Kind)
 	require.Equal(t, 1, poller.PollCount())
-	require.Equal(t, auxiliary.JobID("job-art-b"), poller.lastJobID(), "must poll job-B, first is preserved not missing")
+	require.Equal(t, auxiliary.JobID("job-art-b"), poller.LastID(), "must poll job-B, first is preserved not missing")
 }
 
 func TestPollOnce_UnsupportedDialectSkipped(t *testing.T) {
@@ -341,7 +346,7 @@ func TestPollOnce_UnsupportedDialectSkipped(t *testing.T) {
 	res := reasoningpreservation.PollOnceForMatchingArtifact(context.Background(), &call, cs, p, snap, pollTestSupport, svc)
 	require.Equal(t, reasoningpreservation.PollKindPending, res.Kind)
 	require.Equal(t, 1, poller.PollCount())
-	require.Equal(t, auxiliary.JobID("job-art-b2"), poller.lastJobID(), "must skip unsupported first missing, pick supported second")
+	require.Equal(t, auxiliary.JobID("job-art-b2"), poller.LastID(), "must skip unsupported first missing, pick supported second")
 }
 
 // Transform integration tests — verify chain without active replay.
