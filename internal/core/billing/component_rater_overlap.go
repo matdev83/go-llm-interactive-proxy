@@ -263,6 +263,21 @@ func exclusionPredicate(exclusions map[string]map[string]struct{}) func(scopeKey
 // pair SET it returns is unchanged by that consolidation.
 func containmentUnknownIntersections(program *schemaProgram, lower []*big.Rat, represented []*big.Rat) []string {
 	count := len(program.keyOf)
+	// Publication validates acyclicity. If every node has at most one
+	// containment parent and child, the graph is a set of disjoint chains:
+	// same-chain nodes are comparable, and different chains share no ancestor.
+	// Neither case can produce an unknown intersection. Avoid materializing
+	// all transitive ancestor sets for these graphs.
+	disjointChains := true
+	for node := range count {
+		if len(program.containmentChildren[node]) > 1 || len(program.reverseContainment[node]) > 1 {
+			disjointChains = false
+			break
+		}
+	}
+	if disjointChains {
+		return nil
+	}
 	var positive []int
 	for node := range count {
 		if lower[node] != nil && lower[node].Sign() > 0 {

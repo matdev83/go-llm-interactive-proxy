@@ -356,14 +356,16 @@ func TestReplayDeepestPublishableChainTraversalIsBounded(t *testing.T) {
 	if spread := maxSample.stackGrowth - minSample.stackGrowth; spread > drStackSpreadLimit {
 		t.Fatalf("goroutine stack grew with containment depth: %dB spread, %dB at depth %d versus %dB at depth %d, over the %dB limit", spread, maxSample.stackGrowth, maxSample.depth, minSample.stackGrowth, minSample.depth, drStackSpreadLimit)
 	}
-	shallowest, deepest := samples[0], samples[len(samples)-1]
-	allocLinear := shallowest.allocsPerNode * (float64(deepest.depth) / float64(shallowest.depth))
-	bytesLinear := shallowest.bytesPerNode * (float64(deepest.depth) / float64(shallowest.depth))
-	if deepest.allocsPerNode > allocLinear {
-		t.Errorf("allocations per node grew with containment depth: %.1f at depth %d versus %.1f at depth %d (linear allowance %.1f)", deepest.allocsPerNode, deepest.depth, shallowest.allocsPerNode, shallowest.depth, allocLinear)
-	}
-	if deepest.bytesPerNode > bytesLinear {
-		t.Errorf("bytes per node grew with containment depth: %.0f at depth %d versus %.0f at depth %d (linear allowance %.0f)", deepest.bytesPerNode, deepest.depth, shallowest.bytesPerNode, shallowest.depth, bytesLinear)
+	shallowest := samples[0]
+	allocLinear := drAllocationPerNodeLimit(shallowest.allocsPerNode)
+	bytesLinear := drAllocationPerNodeLimit(shallowest.bytesPerNode)
+	for _, s := range samples[1:] {
+		if s.allocsPerNode > allocLinear {
+			t.Errorf("allocations per node grew with containment depth: %.1f at depth %d versus %.1f at depth %d (constant per-node allowance %.1f)", s.allocsPerNode, s.depth, shallowest.allocsPerNode, shallowest.depth, allocLinear)
+		}
+		if s.bytesPerNode > bytesLinear {
+			t.Errorf("bytes per node grew with containment depth: %.0f at depth %d versus %.0f at depth %d (constant per-node allowance %.0f)", s.bytesPerNode, s.depth, shallowest.bytesPerNode, shallowest.depth, bytesLinear)
+		}
 	}
 	for _, mode := range []string{drStackChildMutantSmall, drStackChildMutantLarge} {
 		output, err := drRunStackChildProcess(t, mode, "^TestReplayDeepestPublishableChainTraversalIsBounded$")
@@ -376,6 +378,14 @@ func TestReplayDeepestPublishableChainTraversalIsBounded(t *testing.T) {
 		}
 		t.Logf("REPLAY-BOUNDEDNESS control=%s %s", mode, output)
 	}
+}
+
+func drAllocationPerNodeLimit(baseline float64) float64 {
+	// Allow fixed allocator size-class and map-capacity variation without
+	// multiplying an already normalized per-node cost by graph depth. The
+	// multiplier stays constant at every publication depth; controls below
+	// certify that linear costs pass and quadratic costs fail.
+	return baseline * 2
 }
 
 type drStackResult struct {
