@@ -118,6 +118,15 @@ type ValueDecision struct {
 	Refused bool
 }
 
+// ErrOutputOverLimit reports that a selected replacement would exceed the
+// caller's output budget.
+//
+// It is returned instead of a partially built document, so a caller that must
+// refuse an over-limit expansion never pays for the document it refuses. It is
+// distinct from a decoder disagreement: the payload was readable, but
+// publishing it would violate a size bound.
+var ErrOutputOverLimit = errors.New("rewrite: selected replacement exceeds output budget")
+
 // ValueDecider answers one selected leaf's decision from that leaf's decoded value.
 //
 // It is called exactly once per selected leaf, in ascending byte order, and never
@@ -175,6 +184,32 @@ func ApplySelectedValues(
 	pointers pathvirtualization.SelectorSet,
 	decide ValueDecider,
 ) ([]byte, DocumentPass, error) {
+	return applySelectedValues(raw, pointers, decide, 0)
+}
+
+// ApplySelectedValuesLimited is [ApplySelectedValues] with a bound on the
+// published document.
+//
+// A positive maxOutputBytes aborts the splice with [ErrOutputOverLimit] as
+// soon as the output exceeds it, instead of building a document the caller
+// would then refuse; a non-positive value means no bound. The bound is on the
+// published bytes, not on the input: a caller that must refuse an over-limit
+// publication uses it to avoid paying for the document it refuses.
+func ApplySelectedValuesLimited(
+	raw []byte,
+	pointers pathvirtualization.SelectorSet,
+	decide ValueDecider,
+	maxOutputBytes int,
+) ([]byte, DocumentPass, error) {
+	return applySelectedValues(raw, pointers, decide, maxOutputBytes)
+}
+
+func applySelectedValues(
+	raw []byte,
+	pointers pathvirtualization.SelectorSet,
+	decide ValueDecider,
+	maxOutputBytes int,
+) ([]byte, DocumentPass, error) {
 	var pass DocumentPass
 	if len(pointers) == 0 {
 		pass.Outcome = PayloadOutcomeNoSelectors
@@ -207,8 +242,11 @@ func ApplySelectedValues(
 		return nil, DocumentPass{Outcome: PayloadOutcomeInvalid}, fmt.Errorf("locate selected leaves: %w", err)
 	}
 	pass.Outcome = PayloadOutcomeReplaced
-	published, changed, refused, err := splice(raw, spans, decide, &pass)
+	published, changed, refused, err := splice(raw, spans, decide, &pass, maxOutputBytes)
 	if err != nil {
+		if errors.Is(err, ErrOutputOverLimit) {
+			return nil, DocumentPass{Outcome: PayloadOutcomeReplaced}, err
+		}
 		return nil, DocumentPass{Outcome: PayloadOutcomeInvalid}, err
 	}
 	pass.Changed = changed
@@ -233,18 +271,54 @@ func splice(
 	spans []stringSpan,
 	decide ValueDecider,
 	pass *DocumentPass,
+	maxOutputBytes int,
 ) ([]byte, bool, bool, error) {
 	ordered := slices.Clone(spans)
 	slices.SortFunc(ordered, func(a, b stringSpan) int { return cmp.Compare(a.start, b.start) })
 
 	published := make([]byte, 0, len(document))
+	if maxOutputBytes > 0 && len(document) > maxOutputBytes {
+		// Cap the initial allocation at the bound: an over-limit publication
+		// aborts instead of growing past it, so reserving more would only
+		// fund the document being refused.
+		published = make([]byte, 0, maxOutputBytes)
+	}
 	cursor := 0
 	changed := false
-	for _, span := range ordered {
+	// changedLeaves and the growth they produced feed the projection below.
+	// Both stay zero until a replacement actually grows the output, so a pass
+	// that only shrinks or copies never projects anything.
+	changedLeaves := 0
+	for index, span := range ordered {
 		if span.start < cursor || span.end > len(document) || span.start >= span.end {
 			// Overlapping or out-of-range spans cannot come from one decoded
 			// document, and writing them would corrupt the payload.
 			return nil, false, false, errors.New("selected leaves overlap in the payload")
+		}
+		if maxOutputBytes > 0 && len(published) > maxOutputBytes {
+			// The publication already exceeds the caller's bound. Abort
+			// before deciding the next leaf, so refusing an over-limit
+			// document never pays for building it.
+			return nil, false, false, ErrOutputOverLimit
+		}
+		if maxOutputBytes > 0 && changedLeaves > 0 {
+			// Project the finished size from the growth observed so far,
+			// rather than visiting every remaining leaf to discover it.
+			// Growth here is transformed-minus-consumed bytes: len(published)
+			// covers exactly document[0:cursor] transformed, so the finished
+			// size is the published bytes plus the untouched remainder plus
+			// the average growth applied to the spans still ahead. An
+			// overestimate fails closed with the over-limit reason, which is
+			// the safe direction; the hard cap above backstops an
+			// underestimate.
+			growth := len(published) - cursor
+			if growth > 0 {
+				projected := len(published) + (len(document) - cursor) +
+					(growth/changedLeaves)*(len(ordered)-index-1)
+				if projected > maxOutputBytes {
+					return nil, false, false, ErrOutputOverLimit
+				}
+			}
 		}
 		decision := decide(span.value)
 		if decision.Refused {
@@ -268,6 +342,7 @@ func splice(
 			if decision.Replacement != span.value {
 				pass.Replaced++
 				changed = true
+				changedLeaves++
 			}
 		}
 		published = append(published, document[cursor:span.start]...)
@@ -277,7 +352,11 @@ func splice(
 	if !changed {
 		return nil, false, false, nil
 	}
-	return append(published, document[cursor:]...), true, false, nil
+	published = append(published, document[cursor:]...)
+	if maxOutputBytes > 0 && len(published) > maxOutputBytes {
+		return nil, false, false, ErrOutputOverLimit
+	}
+	return published, true, false, nil
 }
 
 // virtualizeDeciders is the outbound direction's decider: it asks the mapping what

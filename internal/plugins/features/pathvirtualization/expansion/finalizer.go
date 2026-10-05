@@ -52,6 +52,7 @@ package expansion
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization"
@@ -445,8 +446,18 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, cat
 	// completed document, visits selected leaves only, and never publishes anything when
 	// a leaf refuses.
 	visit := &leafVisitor{mapping: mapping}
-	published, pass, err := rewrite.ApplySelectedValues(call.ArgsJSON, pointers, visit.decide)
+	published, pass, err := rewrite.ApplySelectedValuesLimited(call.ArgsJSON, pointers, visit.decide, lipapi.MaxEventDeltaBytes)
 	if err != nil {
+		if errors.Is(err, rewrite.ErrOutputOverLimit) {
+			// The expansion would exceed the canonical delta limit. Refuse
+			// without having built the document, rather than building it
+			// and then refusing it. Audit mode still refuses nothing: the
+			// bound is on publication, not on detection.
+			if !f.publishes() {
+				return decision{reason: ReasonAuditMode}
+			}
+			return decision{reason: ReasonExpandedTooLarge}
+		}
 		// The engine's error is a decoder disagreement over bytes that already decoded
 		// as one valid JSON value, which untrusted input cannot produce. Fail closed:
 		// releasing the originals would release possibly alias-bearing arguments

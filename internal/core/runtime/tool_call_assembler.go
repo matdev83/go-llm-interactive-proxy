@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 
@@ -422,6 +423,12 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 		// Defensive catalog copy per Finalize (ADR); assembler catalog is owned.
 		catalogCopy := cloneToolCatalog(a.catalog)
 		tool := lookupToolDef(catalogCopy, name)
+		// Detached metadata per Finalize: the views are value structs, but
+		// their maps and slices are shared with every finalizer on the chain
+		// when handed over once. A finalizer that mutates what it was given
+		// must not reach the next finalizer's decision or the producer's
+		// snapshot through that sharing.
+		finMeta := cloneFinalizerMeta(meta)
 		call := toolcall.CompletedCall{
 			ToolCallID: buf.id,
 			ToolName:   name,
@@ -429,7 +436,7 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 		}
 		op := "tool_call_finalizer:" + fin.ID()
 		res, err := safety.CallValue(safety.BoundaryExtension, op, func() (toolcall.Result, error) {
-			return fin.Finalize(ctx, call, tool, catalogCopy, meta)
+			return fin.Finalize(ctx, call, tool, catalogCopy, finMeta)
 		})
 		if err != nil {
 			return a.unusableResult(buf, err)
@@ -527,6 +534,23 @@ func cloneToolCatalog(catalog []lipapi.ToolDef) []lipapi.ToolDef {
 			out[i].Parameters = append([]byte(nil), t.Parameters...)
 		}
 	}
+	return out
+}
+
+// cloneFinalizerMeta detaches one finalizer invocation's metadata from the
+// producer snapshot and from every other finalizer on the chain.
+//
+// toolcall.Meta travels by value, but Scope, Session, and Workspace carry
+// maps and slices by reference. Classification is scalar and needs no work;
+// everything else reference-typed is cloned, preserving nils. A finalizer
+// that writes through what it was handed then corrupts only its own copy,
+// and the next finalizer still reads the authoritative views.
+func cloneFinalizerMeta(meta toolcall.Meta) toolcall.Meta {
+	out := meta
+	out.Scope = meta.Scope.Clone()
+	out.Session.Labels = maps.Clone(meta.Session.Labels)
+	out.Workspace.Labels = maps.Clone(meta.Workspace.Labels)
+	out.Workspace.Markers = slices.Clone(meta.Workspace.Markers)
 	return out
 }
 

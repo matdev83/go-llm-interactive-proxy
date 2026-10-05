@@ -1337,3 +1337,256 @@ func TestStatsSkipOrderIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestRewriteCallVirtualizesStringWrappedItemArguments proves the wire's
+// JSON-string argument spelling is normalized before selector resolution.
+//
+// Canonical item arguments arrive in two spellings: a raw argument document,
+// and a JSON string wrapping one (the pinned wire form, which is always a
+// string). Passing the wrapped spelling straight to the selector engine
+// decodes a string rather than an object, so every configured selector is
+// skipped and the real path reaches the backend. The rewritten document is
+// re-wrapped into the string spelling, so the publication representation is
+// preserved; an untouched document keeps its original bytes either way.
+func TestRewriteCallVirtualizesStringWrappedItemArguments(t *testing.T) {
+	t.Parallel()
+
+	inner := `{"file_path":"` + fixtureTarget + `","content":"literal ` + fixtureRoot + ` text"}`
+	wrapped, err := json.Marshal(inner)
+	if err != nil {
+		t.Fatalf("wrap fixture arguments: %v", err)
+	}
+	call := &lipapi.Call{
+		Items: []lipapi.Item{
+			{
+				Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
+				ToolCall: &lipapi.ToolCallItem{
+					CallID:    "call_7f3a",
+					Name:      "read_file",
+					Arguments: json.RawMessage(wrapped),
+				},
+			},
+		},
+	}
+	if err := call.Validate(); err != nil {
+		t.Fatalf("fixture call must be canonical: %v", err)
+	}
+
+	got, _, err := fixtureRewriter(t).RewriteCall(call)
+	if err != nil {
+		t.Fatalf("RewriteCall: %v", err)
+	}
+	rewritten := got.Items[0].ToolCall
+	if rewritten == nil {
+		t.Fatal("tool call data lost")
+	}
+	// The publication stays in the wire's string spelling.
+	var outer string
+	if err := json.Unmarshal(rewritten.Arguments, &outer); err != nil {
+		t.Fatalf("rewritten arguments must stay a JSON string, got %s: %v", rewritten.Arguments, err)
+	}
+	var args struct {
+		FilePath string `json:"file_path"`
+		Content  string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(outer), &args); err != nil {
+		t.Fatalf("rewrapped arguments are not valid JSON: %v (%s)", err, outer)
+	}
+	if args.FilePath != fixtureVPath {
+		t.Errorf("file_path = %q, want %q", args.FilePath, fixtureVPath)
+	}
+	if args.Content != "literal "+fixtureRoot+" text" {
+		t.Errorf("unselected content leaf was rewritten: %q", args.Content)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("rewritten call must stay canonical: %v", err)
+	}
+}
+
+// TestRewriteCallVirtualizesFunctionCallEnvelopeParts proves supported
+// legacy tool-call envelopes are rewritten, not skipped as content.
+//
+// The Responses frontend decodes a wire function call into a PartJSON
+// envelope carrying the tool identity and argument bytes inside the content,
+// with the part's own tool name and call ID unset. Treating that part as
+// ordinary content skips an exact profile's selectors even though the
+// envelope names a selected tool. The envelope keeps its shape - the part
+// still carries no tool name of its own - and its arguments keep the wire's
+// string spelling; only the selected argument bytes change.
+func TestRewriteCallVirtualizesFunctionCallEnvelopeParts(t *testing.T) {
+	t.Parallel()
+
+	innerArgs := `{"file_path":"` + fixtureTarget + `"}`
+	envelope, err := json.Marshal(map[string]any{
+		"type":      "function_call",
+		"id":        "item_1",
+		"call_id":   "call_7f3a",
+		"name":      "read_file",
+		"arguments": innerArgs,
+	})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	call := &lipapi.Call{Messages: []lipapi.Message{
+		{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{
+			{Kind: lipapi.PartJSON, Content: envelope},
+			{Kind: lipapi.PartJSON, Content: json.RawMessage(`{"note":"` + fixtureTarget + `"}`)},
+		}},
+	}}
+	if err := call.Validate(); err != nil {
+		t.Fatalf("fixture call must be canonical: %v", err)
+	}
+
+	got, _, err := fixtureRewriter(t).RewriteCall(call)
+	if err != nil {
+		t.Fatalf("RewriteCall: %v", err)
+	}
+	parts := got.Messages[0].Parts
+	if len(parts) != 2 {
+		t.Fatalf("parts = %d, want 2", len(parts))
+	}
+	if parts[0].ToolName != "" || parts[0].ToolCallID != "" {
+		t.Fatalf("envelope part gained a tool identity it never carried: %+v", parts[0])
+	}
+	var env struct {
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		CallID    string `json:"call_id"`
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	}
+	if err := json.Unmarshal(parts[0].Content, &env); err != nil {
+		t.Fatalf("rewritten envelope is not valid JSON: %v (%s)", err, parts[0].Content)
+	}
+	if env.Type != "function_call" || env.ID != "item_1" || env.CallID != "call_7f3a" || env.Name != "read_file" {
+		t.Fatalf("envelope identity changed: %+v", env)
+	}
+	var args struct {
+		FilePath string `json:"file_path"`
+	}
+	if err := json.Unmarshal([]byte(env.Arguments), &args); err != nil {
+		t.Fatalf("rewritten envelope arguments are not valid JSON: %v (%s)", err, env.Arguments)
+	}
+	if args.FilePath != fixtureVPath {
+		t.Errorf("envelope file_path = %q, want %q", args.FilePath, fixtureVPath)
+	}
+	// The ordinary-content sibling is untouched: the envelope rule must not
+	// widen into content inspection.
+	if string(parts[1].Content) != `{"note":"`+fixtureTarget+`"}` {
+		t.Errorf("ordinary content part changed: %s", parts[1].Content)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("rewritten call must stay canonical: %v", err)
+	}
+}
+
+// TestRewriteCallResolvesUnnamedResultsThroughHistoricalCallIDs proves a
+// result that names no tool still rewrites through the profile of the call it
+// answers.
+//
+// Decoders for several frontends produce tool results with a call ID and no
+// tool name. Resolving the profile by the empty name disables configured
+// structured-result rewriting on those histories. The historical call carrying
+// the same call ID names the tool exactly; an ambiguous call ID - two
+// different names for one ID - resolves to nothing rather than guessing.
+func TestRewriteCallResolvesUnnamedResultsThroughHistoricalCallIDs(t *testing.T) {
+	t.Parallel()
+
+	rewriter := operatorRewriter(t, []pathvirtualization.ToolProfile{{
+		Names:              []string{"list_dir"},
+		ArgPointers:        []string{"/path"},
+		ResultJSONPointers: []string{"/entries"},
+	}}, nil)
+	call := &lipapi.Call{Items: []lipapi.Item{
+		{
+			Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
+			ToolCall: &lipapi.ToolCallItem{
+				CallID: "call_7f3a", Name: "list_dir",
+				Arguments: json.RawMessage(`{"path":"` + fixtureTarget + `"}`),
+			},
+		},
+		{
+			Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
+			ToolResult: &lipapi.ToolResultItem{
+				CallID: "call_7f3a",
+				Parts: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartJSON, Text: `{"entries":["` + fixtureTarget + `"],"note":"` + fixtureRoot + `"}`},
+				},
+			},
+		},
+	}}
+	if err := call.Validate(); err != nil {
+		t.Fatalf("fixture call must be canonical: %v", err)
+	}
+
+	got, _, err := rewriter.RewriteCall(call)
+	if err != nil {
+		t.Fatalf("RewriteCall: %v", err)
+	}
+	var resolved struct {
+		Entries []string `json:"entries"`
+		Note    string   `json:"note"`
+	}
+	if err := json.Unmarshal([]byte(got.Items[1].ToolResult.Parts[0].Text), &resolved); err != nil {
+		t.Fatalf("rewritten result is not valid JSON: %v", err)
+	}
+	if len(resolved.Entries) != 1 || resolved.Entries[0] != fixtureVPath {
+		t.Errorf("resolved result entries = %q, want the virtualized path", resolved.Entries)
+	}
+	if resolved.Note != fixtureRoot {
+		t.Errorf("unselected result member was rewritten: %q", resolved.Note)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("rewritten call must stay canonical: %v", err)
+	}
+}
+
+// TestRewriteCallLeavesAmbiguousCallIDResultsAlone proves the historical
+// call-ID lookup never guesses.
+//
+// Canonical validation already forbids two different tool names sharing one
+// call ID, so this trajectory is deliberately not validated: the guard exists
+// for unvalidated inputs reaching the walker, and it must resolve to nothing
+// rather than pick a profile.
+func TestRewriteCallLeavesAmbiguousCallIDResultsAlone(t *testing.T) {
+	t.Parallel()
+
+	rewriter := operatorRewriter(t, []pathvirtualization.ToolProfile{{
+		Names:              []string{"list_dir"},
+		ArgPointers:        []string{"/path"},
+		ResultJSONPointers: []string{"/entries"},
+	}}, nil)
+	call := &lipapi.Call{Items: []lipapi.Item{
+		{
+			Kind: lipapi.ItemKindToolCall, ID: "item_call", Status: lipapi.ItemStatusCompleted,
+			ToolCall: &lipapi.ToolCallItem{
+				CallID: "call_7f3a", Name: "list_dir",
+				Arguments: json.RawMessage(`{"path":"` + fixtureTarget + `"}`),
+			},
+		},
+		{
+			Kind: lipapi.ItemKindToolCall, ID: "item_other", Status: lipapi.ItemStatusCompleted,
+			ToolCall: &lipapi.ToolCallItem{
+				CallID: "call_7f3a", Name: "other_tool",
+				Arguments: json.RawMessage(`{"path":"` + fixtureTarget + `"}`),
+			},
+		},
+		{
+			Kind: lipapi.ItemKindToolResult, ID: "item_result", Status: lipapi.ItemStatusCompleted,
+			ToolResult: &lipapi.ToolResultItem{
+				CallID: "call_7f3a",
+				Parts: []lipapi.ContentPart{
+					{Kind: lipapi.ContentPartJSON, Text: `{"entries":["` + fixtureTarget + `"]}`},
+				},
+			},
+		},
+	}}
+
+	got, _, err := rewriter.RewriteCall(call)
+	if err != nil {
+		t.Fatalf("RewriteCall: %v", err)
+	}
+	if got.Items[2].ToolResult.Parts[0].Text != `{"entries":["`+fixtureTarget+`"]}` {
+		t.Errorf("ambiguous result changed: %q", got.Items[2].ToolResult.Parts[0].Text)
+	}
+}

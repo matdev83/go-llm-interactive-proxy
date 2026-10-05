@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -1745,5 +1746,76 @@ func TestExpansionFinalizerUnusableRootKindsKeepTheAliasPolicySeparate(t *testin
 				t.Fatalf("reason=%q want %q", res.ReasonCode, tc.wantReason)
 			}
 		})
+	}
+}
+
+// TestExpansionFinalizerRefusesOverLimitWithoutBuildingTheDocument is the
+// allocation half of the output bound.
+//
+// Refusing an over-limit expansion only closes the resource defect if the
+// refusal does not first pay for the document it refuses. A selected array of
+// repeated aliases expands each element at once, so building the published
+// document before checking its size allocates the whole over-limit output - on
+// the order of hundreds of megabytes for a document still inside the mandatory
+// argument bound. The splice therefore aborts as soon as the output exceeds
+// the canonical delta limit, and this test measures that in allocated bytes
+// rather than wall-clock time, so it is host- and timing-independent.
+//
+// The bound is deliberately generous: the pre-fix code allocates the full
+// expanded document (well past 100 MB on this fixture), while the abort keeps
+// the run to the input scan plus one bounded output window.
+func TestExpansionFinalizerRefusesOverLimitWithoutBuildingTheDocument(t *testing.T) {
+	// Not parallel: TotalAlloc is process-wide, like AllocsPerRun.
+	root := "/" + strings.Repeat("workspace-directory-", 200) + "worktree"
+	mapping, reason := pathvirtualization.DeriveMapping(root)
+	if reason != pathvirtualization.SkipReasonNone {
+		t.Fatalf("derive: reason %v", reason)
+	}
+	if mapping.VirtualRoot == "" {
+		t.Fatal("the fixture root must derive an active alias (requirement 1.4)")
+	}
+	const argsBytes = 960 * 1024
+	var doc strings.Builder
+	doc.WriteString(`{"paths":[`)
+	first := true
+	for doc.Len() < argsBytes {
+		if !first {
+			doc.WriteByte(',')
+		}
+		first = false
+		doc.WriteByte('"')
+		doc.WriteString(mapping.VirtualRoot)
+		doc.WriteString(`pkg/module.go"`)
+	}
+	doc.WriteString(`]}`)
+	document := doc.String()
+	if len(document) >= toolcall.DefaultMandatoryMaxArgsBytes {
+		t.Fatalf("fixture input is %d bytes, which must stay under the %d-byte default mandatory bound",
+			len(document), toolcall.DefaultMandatoryMaxArgsBytes)
+	}
+
+	fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/paths"))
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, document),
+		lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(root))
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("Finalize returned a Go error: %v", err)
+	}
+	if res.Action != toolcall.ActionReject {
+		t.Fatalf("action=%v want reject for an over-limit expansion (reason %q)", res.Action, res.ReasonCode)
+	}
+	if expansionReason(t, res.ReasonCode) != expansion.ReasonExpandedTooLarge {
+		t.Fatalf("reason=%q want %q", res.ReasonCode, expansion.ReasonExpandedTooLarge)
+	}
+	if res.ArgsJSON != nil {
+		t.Fatal("an over-limit expansion must publish nothing")
+	}
+	const maxAllocBytes = 64 << 20
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > maxAllocBytes {
+		t.Fatalf("refusing the over-limit expansion allocated %d bytes, want at most %d",
+			allocated, maxAllocBytes)
 	}
 }

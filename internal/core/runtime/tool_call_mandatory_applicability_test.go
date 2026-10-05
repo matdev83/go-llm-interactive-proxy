@@ -39,11 +39,15 @@ package runtime
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // scopedExpansionFin is a finalizer that declares a mandatory completeness
@@ -890,4 +894,126 @@ func TestToolCallAssembler_ApplicabilityIsIsolatedFromExtensionFailures(t *testi
 			}
 		}
 	})
+}
+
+// metaMutatingFin proves finalizer metadata is per-invocation state: it
+// rewrites the reference-typed views it was handed, so a second finalizer
+// that observed the same values would prove the sharing.
+type metaMutatingFin struct {
+	order int
+}
+
+func (f *metaMutatingFin) ID() string { return "meta-mutating-ordinary" }
+func (f *metaMutatingFin) Order() int { return f.order }
+func (f *metaMutatingFin) Finalize(_ context.Context, _ toolcall.CompletedCall, _ lipapi.ToolDef, _ []lipapi.ToolDef, meta toolcall.Meta) (toolcall.Result, error) {
+	if len(meta.Scope.Roles) > 0 {
+		meta.Scope.Roles[0] = "forged-role"
+	}
+	meta.Scope.SafeClaims["mutated"] = "true"
+	meta.Session.Labels["mutated"] = "true"
+	if len(meta.Workspace.Markers) > 0 {
+		meta.Workspace.Markers[0] = "forged-marker"
+	}
+	meta.Workspace.Labels["mutated"] = "true"
+	return toolcall.Result{Action: toolcall.ActionPass, ReasonCode: toolcall.ReasonValidPassThrough}, nil
+}
+
+// metaObservingFin records exactly the metadata values it was handed, so the
+// test can prove they are the authoritative ones rather than a sibling's
+// mutations.
+type metaObservingFin struct {
+	order    int
+	roles    []string
+	claims   map[string]string
+	labels   map[string]string
+	markers  []string
+	wsLabels map[string]string
+}
+
+func (f *metaObservingFin) ID() string { return "meta-observing-ordinary" }
+func (f *metaObservingFin) Order() int { return f.order }
+func (f *metaObservingFin) Finalize(_ context.Context, _ toolcall.CompletedCall, _ lipapi.ToolDef, _ []lipapi.ToolDef, meta toolcall.Meta) (toolcall.Result, error) {
+	f.roles = append([]string(nil), meta.Scope.Roles...)
+	f.claims = maps.Clone(meta.Scope.SafeClaims)
+	f.labels = maps.Clone(meta.Session.Labels)
+	f.markers = append([]string(nil), meta.Workspace.Markers...)
+	f.wsLabels = maps.Clone(meta.Workspace.Labels)
+	return toolcall.Result{Action: toolcall.ActionPass, ReasonCode: toolcall.ReasonValidPassThrough}, nil
+}
+
+// TestToolCallAssembler_FinalizerMetadataIsDetachedPerInvocation proves one
+// finalizer cannot reach the next finalizer's decision through shared
+// metadata, and cannot reach the producer snapshot either.
+//
+// toolcall.Meta travels by value, but its Scope, Session, and Workspace views
+// carry maps and slices by reference. Handing one value to every finalizer on
+// the chain shares those references across the chain: a probe mutating
+// Meta.Scope.Roles[0] in the first finalizer made the second observe the
+// mutation instead of the authoritative role.
+func TestToolCallAssembler_FinalizerMetadataIsDetachedPerInvocation(t *testing.T) {
+	t.Parallel()
+
+	catalog := scopedCatalog()
+	mutator := &metaMutatingFin{order: 10}
+	observer := &metaObservingFin{order: 11}
+	a := newToolCallAssembler([]toolcall.Finalizer{mutator, observer}, 0, catalog)
+	if a == nil {
+		t.Fatal("assembler must be constructed")
+	}
+	meta := toolcall.Meta{
+		Scope: scope.PrincipalScopeView{
+			Roles:      []string{"authoritative-role"},
+			SafeClaims: map[string]string{"stable": "true"},
+		},
+		Session: session.SessionView{
+			Labels: map[string]string{"stable": "true"},
+		},
+		Workspace: workspace.WorkspaceView{
+			ProjectRoot: "/home/dev/workspaces/lip-path-virtualization-worktree",
+			Markers:     []string{"authoritative-marker"},
+			Labels:      map[string]string{"stable": "true"},
+		},
+	}
+	ctx := context.Background()
+	id := "meta-isolation"
+	if held, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallStarted, ToolCallID: id, ToolName: unselectedToolName,
+	}, meta); err != nil || !held {
+		t.Fatalf("started: held=%v err=%v", held, err)
+	}
+	if held, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallArgsDelta, ToolCallID: id, ToolName: unselectedToolName, Delta: `{}`,
+	}, meta); err != nil || !held {
+		t.Fatalf("delta: held=%v err=%v", held, err)
+	}
+	if _, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallFinished, ToolCallID: id, ToolName: unselectedToolName,
+	}, meta); err != nil {
+		t.Fatalf("finished: %v", err)
+	}
+	for {
+		if _, ok := a.popDrain(); !ok {
+			break
+		}
+	}
+	if len(observer.roles) != 1 || observer.roles[0] != "authoritative-role" {
+		t.Fatalf("second finalizer observed roles %q, want the authoritative role", observer.roles)
+	}
+	if observer.claims["mutated"] != "" || observer.claims["stable"] != "true" {
+		t.Fatalf("second finalizer observed claims %q, want the authoritative claims", observer.claims)
+	}
+	if observer.labels["mutated"] != "" || observer.labels["stable"] != "true" {
+		t.Fatalf("second finalizer observed session labels %q, want the authoritative labels", observer.labels)
+	}
+	if len(observer.markers) != 1 || observer.markers[0] != "authoritative-marker" {
+		t.Fatalf("second finalizer observed markers %q, want the authoritative markers", observer.markers)
+	}
+	if observer.wsLabels["mutated"] != "" || observer.wsLabels["stable"] != "true" {
+		t.Fatalf("second finalizer observed workspace labels %q, want the authoritative labels", observer.wsLabels)
+	}
+	if meta.Scope.Roles[0] != "authoritative-role" || meta.Scope.SafeClaims["mutated"] != "" ||
+		meta.Session.Labels["mutated"] != "" || meta.Workspace.Markers[0] != "authoritative-marker" ||
+		meta.Workspace.Labels["mutated"] != "" {
+		t.Fatal("the producer snapshot was mutated through a finalizer's metadata")
+	}
 }

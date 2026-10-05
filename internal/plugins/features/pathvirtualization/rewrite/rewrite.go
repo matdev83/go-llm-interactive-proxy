@@ -23,6 +23,9 @@ package rewrite
 // every opaque surface of every tool no profile claims, comes back unchanged.
 
 import (
+	"bytes"
+	"encoding/json"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -111,6 +114,18 @@ type callWalker struct {
 	acc      account
 	resolved map[resolutionKey]pathvirtualization.Resolved
 	err      error
+	// callIDsIndexed records that the historical call-ID index below has been
+	// built for this walk. It is built lazily, on the first unnamed result,
+	// so trajectories whose results all name their tools pay nothing for it.
+	callIDsIndexed bool
+	// callIDNames maps one historical call ID to the exact tool name the
+	// trajectory attributes to it. A call ID claimed by two different names
+	// is ambiguous and lives in callIDAmbiguous instead, never here.
+	callIDNames map[string]string
+	// callIDAmbiguous marks call IDs two different tool names claim. Either
+	// name could be right, so neither is used and the result keeps its
+	// pass-through.
+	callIDAmbiguous map[string]bool
 }
 
 // working returns the published call, cloning the input on first use.
@@ -159,7 +174,7 @@ func (w *callWalker) rewriteItems() {
 		item := &w.in.Items[i]
 		switch {
 		case item.Kind == lipapi.ItemKindToolCall && item.ToolCall != nil:
-			w.rewriteToolCall(item.ToolCall.Name, item.ToolCall.Arguments,
+			w.rewriteToolCallItem(item.ToolCall.Name, item.ToolCall.Arguments,
 				func(raw []byte) { w.working().Items[i].ToolCall.Arguments = raw })
 		case item.Kind == lipapi.ItemKindToolResult && item.ToolResult != nil:
 			w.rewriteToolResult(i, item.ToolResult)
@@ -187,10 +202,12 @@ func (w *callWalker) rewriteMessages() {
 			switch part.Kind {
 			case lipapi.PartJSON:
 				if part.ToolName == "" {
-					// A JSON part with no canonical tool name is assistant content or
-					// a reasoning payload, not a tool call. There is no tool to resolve
-					// an exact profile against, so it is not a path-bearing surface at
-					// all and is left alone without a reason (requirement 2.7).
+					// A supported tool-call envelope carries its own tool
+					// identity and argument bytes inside the content; anything
+					// else is assistant content or a reasoning payload, not a
+					// tool call, and is left alone without a reason
+					// (requirement 2.7).
+					w.rewriteEnvelopePart(i, j, part)
 					continue
 				}
 				w.rewriteToolCall(part.ToolName, part.Content,
@@ -213,12 +230,251 @@ func (w *callWalker) rewriteToolCall(toolName string, arguments []byte, assign f
 	w.rewritePayload(arguments, resolved.ArgPointers, assign)
 }
 
-// rewriteToolResult handles the item-authoritative result surfaces.
+// rewriteToolCallItem rewrites one item-authority tool call's arguments.
 //
+// Canonical item arguments arrive in two spellings: a raw argument document,
+// and a JSON string wrapping one (the pinned wire form, which is always a
+// string). Passing the wrapped spelling straight to the selector engine
+// decodes a string rather than an object, so every configured selector is
+// skipped. Unwrap the string, rewrite the document it carries, and re-wrap the
+// result; a document that needs no rewrite keeps its original bytes either way,
+// so the wrapped and unwrapped spellings both stay byte-identical when
+// untouched.
+func (w *callWalker) rewriteToolCallItem(toolName string, arguments []byte, assign func([]byte)) {
+	if w.err != nil {
+		return
+	}
+	trimmed := bytes.TrimSpace(arguments)
+	var inner string
+	if len(trimmed) == 0 || trimmed[0] != '"' || json.Unmarshal(trimmed, &inner) != nil {
+		w.rewriteToolCall(toolName, arguments, assign)
+		return
+	}
+	// Only a string that itself spells a document takes the unwrap path. A bare
+	// string payload is not a wrapped document, and sending it through document
+	// decoding would misreport it as invalid rather than as the non-object it
+	// is.
+	innerTrimmed := bytes.TrimSpace([]byte(inner))
+	if len(innerTrimmed) == 0 || (innerTrimmed[0] != '{' && innerTrimmed[0] != '[') {
+		w.rewriteToolCall(toolName, arguments, assign)
+		return
+	}
+	resolved := w.resolveToolCall(toolName)
+	rewritten, changed, err := w.rewriter.rewriteDocument([]byte(inner), resolved.ArgPointers, &w.acc)
+	if err != nil {
+		w.err = err
+		return
+	}
+	if !changed {
+		return
+	}
+	rewrapped, err := json.Marshal(string(rewritten))
+	if err != nil {
+		w.err = err
+		return
+	}
+	assign(rewrapped)
+}
+
+// isFunctionCallEnvelopeKey reports whether a key may appear in a supported
+// legacy tool-call envelope. Anything else is ordinary content that merely
+// resembles an envelope, and reaching into it would violate requirement 2.7.
+//
+// It is a function rather than a package-level set because this feature
+// declares no package-level mutable state: a set literal would be one more
+// place a prior-root dictionary could hide.
+func isFunctionCallEnvelopeKey(key string) bool {
+	switch key {
+	case "type", "id", "call_id", "name", "arguments":
+		return true
+	default:
+		return false
+	}
+}
+
+// functionCallEnvelope is the canonical tool-call envelope a frontend decoder
+// produces for a wire function call: the part carries no tool name or call ID
+// of its own, and the envelope's arguments spell the wire's JSON-string form.
+type functionCallEnvelope struct {
+	Type      string          `json:"type"`
+	ID        string          `json:"id,omitempty"`
+	CallID    string          `json:"call_id"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+// decodeFunctionCallEnvelope reports whether content is a supported tool-call
+// envelope and, when it is, the tool identity and argument bytes it carries.
+//
+// The shape test is deliberately narrow - an object, the function_call
+// discriminator, no unknown keys, a non-empty name and call ID, and present
+// arguments - because this is the one place the walker reads a tool name out
+// of a payload rather than off the part. A near-miss stays ordinary content.
+func decodeFunctionCallEnvelope(content []byte) (functionCallEnvelope, bool) {
+	var env functionCallEnvelope
+	trimmed := bytes.TrimSpace(content)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return env, false
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &keys); err != nil {
+		return env, false
+	}
+	for key := range keys {
+		if !isFunctionCallEnvelopeKey(key) {
+			return env, false
+		}
+	}
+	if err := json.Unmarshal(trimmed, &env); err != nil {
+		return env, false
+	}
+	if env.Type != "function_call" || env.Name == "" || env.CallID == "" || len(env.Arguments) == 0 {
+		return env, false
+	}
+	return env, true
+}
+
+// rewriteEnvelopePart rewrites one legacy tool-call envelope's arguments.
+//
+// The envelope's arguments spell the wire's JSON-string form, so they are
+// unwrapped before selector resolution exactly like item arguments, and the
+// rewritten document is re-wrapped into the envelope's string slot. The
+// envelope keeps its shape - the part still carries no tool name of its own -
+// and an envelope the rewrite leaves unchanged keeps its original bytes.
+func (w *callWalker) rewriteEnvelopePart(message, part int, value lipapi.Part) {
+	if w.err != nil {
+		return
+	}
+	env, ok := decodeFunctionCallEnvelope(value.Content)
+	if !ok {
+		return
+	}
+	inner, wrapped := unwrapJSONString(env.Arguments)
+	if !wrapped {
+		inner = env.Arguments
+	}
+	resolved := w.resolveToolCall(env.Name)
+	rewritten, changed, err := w.rewriter.rewriteDocument(inner, resolved.ArgPointers, &w.acc)
+	if err != nil {
+		w.err = err
+		return
+	}
+	if !changed {
+		return
+	}
+	env.Arguments = mustMarshalJSONString(rewritten)
+	out, err := json.Marshal(env)
+	if err != nil {
+		w.err = err
+		return
+	}
+	w.working().Messages[message].Parts[part].Content = out
+}
+
+// unwrapJSONString reports whether raw is a JSON string and, when it is, the
+// document it wraps. A non-string payload is returned unchanged with false, so
+// callers that only special-case the wrapped spelling fall through to the
+// ordinary path.
+func unwrapJSONString(raw []byte) ([]byte, bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '"' {
+		return raw, false
+	}
+	var inner string
+	if err := json.Unmarshal(trimmed, &inner); err != nil {
+		return raw, false
+	}
+	return []byte(inner), true
+}
+
+// mustMarshalJSONString renders rewritten argument bytes back into the wire's
+// JSON-string form. The input is a document the engine just produced, so
+// marshaling cannot fail; a failure would mean the engine published bytes that
+// are not a document, and failing the walk is the safe direction.
+func mustMarshalJSONString(raw []byte) json.RawMessage {
+	out, err := json.Marshal(string(raw))
+	if err != nil {
+		return json.RawMessage(`""`)
+	}
+	return out
+}
+
+// toolNameForCallID resolves an unnamed result's tool through the historical
+// call carrying its call ID.
+//
+// The index is built lazily from this walk's own input - item tool calls,
+// legacy tool-call parts, and supported tool-call envelopes - so it can never
+// disagree with the trajectory being rewritten. A call ID claimed by two
+// different tool names is ambiguous and resolves to nothing, and an unknown
+// call ID resolves to nothing: both keep the result's pass-through rather
+// than guessing a profile.
+func (w *callWalker) toolNameForCallID(callID string) (string, bool) {
+	if callID == "" {
+		return "", false
+	}
+	if !w.callIDsIndexed {
+		w.callIDsIndexed = true
+		w.buildCallIDIndex()
+	}
+	if w.callIDAmbiguous[callID] {
+		return "", false
+	}
+	name, ok := w.callIDNames[callID]
+	return name, ok
+}
+
+// buildCallIDIndex records every exact tool name this trajectory attributes to
+// a call ID. The walk's input is never modified, so the index is a read-only
+// view of it; the entry count is bounded by the trajectory's own item and part
+// counts, which canonical validation already bounds.
+func (w *callWalker) buildCallIDIndex() {
+	claim := func(callID, name string) {
+		if callID == "" || name == "" {
+			return
+		}
+		if w.callIDNames == nil {
+			w.callIDNames = make(map[string]string)
+		}
+		if w.callIDAmbiguous == nil {
+			w.callIDAmbiguous = make(map[string]bool)
+		}
+		if prev, seen := w.callIDNames[callID]; seen {
+			if prev != name {
+				w.callIDAmbiguous[callID] = true
+				delete(w.callIDNames, callID)
+			}
+			return
+		}
+		w.callIDNames[callID] = name
+	}
+	for i := range w.in.Items {
+		item := &w.in.Items[i]
+		if item.Kind == lipapi.ItemKindToolCall && item.ToolCall != nil {
+			claim(item.ToolCall.CallID, item.ToolCall.Name)
+		}
+	}
+	for i := range w.in.Messages {
+		for j := range w.in.Messages[i].Parts {
+			part := &w.in.Messages[i].Parts[j]
+			if part.Kind != lipapi.PartJSON {
+				continue
+			}
+			if part.ToolName != "" {
+				claim(part.ToolCallID, part.ToolName)
+				continue
+			}
+			if env, ok := decodeFunctionCallEnvelope(part.Content); ok {
+				claim(env.CallID, env.Name)
+			}
+		}
+	}
+}
+
 // Its Output field and every text-bearing content part are opaque, so they reach only
 // the bounded recognizer of the tool's declared mode and are otherwise left exactly
 // as they arrived. A JSON content part is the structured surface requirement 2.2 and
 // 3.2 address, and it is rewritten only through an explicitly selected location.
+// rewriteToolResult handles the item-authoritative result surfaces.
 func (w *callWalker) rewriteToolResult(index int, result *lipapi.ToolResultItem) {
 	if w.err != nil {
 		return
@@ -226,7 +482,17 @@ func (w *callWalker) rewriteToolResult(index int, result *lipapi.ToolResultItem)
 	// A result has no declared schema, so nothing is offered to the inference step:
 	// requirement 3.2 keeps structured result selection explicit. The memo entry is
 	// therefore separate from the same name's argument-surface entry; see resolve.go.
-	resolved := w.resolveToolResult(result.Name)
+	//
+	// A result that names no tool resolves through its historical call ID when
+	// exactly one call in this trajectory carries it. Decoders for several
+	// frontends produce results with a call ID and no tool name; without the
+	// lookup, configured structured-result and opaque-result rewriting silently
+	// misses those histories.
+	name := result.Name
+	if name == "" {
+		name, _ = w.toolNameForCallID(result.CallID)
+	}
+	resolved := w.resolveToolResult(name)
 	if result.Output != "" {
 		w.rewriteOpaque(result.Output, resolved.OpaqueResultMode,
 			func(raw string) { w.working().Items[index].ToolResult.Output = raw })
@@ -259,7 +525,11 @@ func (w *callWalker) rewriteLegacyToolResult(message, part int, value lipapi.Par
 	if w.err != nil {
 		return
 	}
-	resolved := w.resolveToolResult(value.ToolName)
+	name := value.ToolName
+	if name == "" {
+		name, _ = w.toolNameForCallID(value.ToolCallID)
+	}
+	resolved := w.resolveToolResult(name)
 	if !isAbsentOrNullPayload(value.Content) {
 		w.rewritePayload(value.Content, resolved.ResultJSONPointers,
 			func(raw []byte) { w.working().Messages[message].Parts[part].Content = raw })
