@@ -33,13 +33,17 @@ type gateSpec struct {
 // defaultMakeGateTimeout bounds a `make` gate that does not declare a budget.
 const defaultMakeGateTimeout = 20 * time.Minute
 
-// raceScanGateTimeout mirrors the budget the Release workflow already grants
-// this exact scan: .github/workflows/release.yml runs
-// `bash scripts/race-check.sh --strict` inside a `timeout-minutes: 60` verify
-// job. scripts/race-check.sh executes the broad, billing, support, runtime and
-// architecture lanes sequentially, so the full scan cannot fit the blanket
-// make-gate budget on a CI runner; the surrounding
-// backend-plugin-release-gates job allows 120 minutes.
+// raceScanGateTimeout is the operational deadline the release-gates runner
+// applies to `make test-race`. scripts/race-check.sh runs the broad, billing,
+// support, runtime and architecture lanes sequentially inside one process,
+// while the Release workflow runs those same lanes as parallel matrix jobs and
+// picks each budget from a workflow expression. No single workflow job budget
+// therefore describes this scan. This deadline bounds one sequential execution
+// and is not a certification guarantee that the scan completes: a sequential
+// run that outlasts it is reported as a gate failure, and the Linux race
+// evidence for that SHA is then the partitioned Release lanes' responsibility.
+// Raise it only against a measured sequential run, never from the sum of the
+// per-lane CI budgets.
 const raceScanGateTimeout = 60 * time.Minute
 
 func (g gateSpec) makeTimeout() time.Duration {
