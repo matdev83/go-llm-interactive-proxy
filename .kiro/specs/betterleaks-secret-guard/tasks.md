@@ -322,7 +322,7 @@
   - _Boundary: hybrid_merge.go, scan.go, the existing feature-private safe-finding merge helper, and directly related feature tests/benchmarks only_
   - _Validation: strict TDD allocation/semantic controls; focused and complete feature tests, benchmarks and vet; independent review_
 
-- [ ] 12.3 Map validated JSON scalars without per-token decoders
+- [x] 12.3 Map validated JSON scalars without per-token decoders
   - Advance scalar spans to their delimiters after the outer decoder validates the first JSON value; preserve UseNumber, first-value consumption, duplicate-key semantics, depth handling, and exact raw-to-semantic occurrence mapping.
   - Add near-2 MiB scalar-dense JSON containing a detectable credential, allocation regressions, and adversarial benchmarks.
   - _Requirements: 4.2, 5.3, 6.3, 6.4, 6.6, 8.7, 8.8_

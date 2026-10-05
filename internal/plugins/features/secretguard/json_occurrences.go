@@ -138,6 +138,8 @@ func decodedJSONOccurrenceValue(raw []byte) (jsonOccurrenceValue, error) {
 	return value, nil
 }
 
+// jsonOccurrenceParser maps the first JSON value already validated and bounded
+// by decodedJSONOccurrenceValue. It is not an independent JSON validator.
 type jsonOccurrenceParser struct {
 	raw []byte
 	pos int
@@ -240,18 +242,25 @@ func (p *jsonOccurrenceParser) array() (jsonOccurrenceValue, error) {
 
 func (p *jsonOccurrenceParser) literal() (jsonStringMapping, error) {
 	start := p.pos
-	dec := json.NewDecoder(bytes.NewReader(p.raw[start:]))
-	dec.UseNumber()
-	var value any
-	if err := dec.Decode(&value); err != nil {
+	if start >= len(p.raw) {
 		return jsonStringMapping{}, errJSONOccurrenceMapping
 	}
-	switch value.(type) {
-	case json.Number, bool, nil:
+	switch p.raw[start] {
+	case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 't', 'f', 'n':
 	default:
 		return jsonStringMapping{}, errJSONOccurrenceMapping
 	}
-	p.pos = start + int(dec.InputOffset())
+	// The outer UseNumber decoder has validated scalar syntax. Its first-value
+	// bound excludes trailing content, so delimiters retain the original numeric
+	// spelling and bool/null bytes without decoding every token again.
+scalar:
+	for p.pos < len(p.raw) {
+		switch p.raw[p.pos] {
+		case ',', ']', '}', ' ', '\t', '\r', '\n':
+			break scalar
+		}
+		p.pos++
+	}
 	return rawJSONTokenMapping(p.raw, start, p.pos), nil
 }
 
