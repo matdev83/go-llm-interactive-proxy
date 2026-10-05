@@ -1,6 +1,6 @@
 # PR 726 focused review remediation
 
-Current disposition: the four original remediation findings remain closed, and main integration is complete with green checks at 9b8649d5. The newly clarified user/tool-output provenance contract requires tasks 11.1 and 11.2; feature GO is withheld until their implementation, focused review and fresh certification. The PR stays open with auto-merge disabled.
+Current disposition: the four original remediation findings remain closed, and tasks 11.1 and 11.2 implement the clarified user/tool-output provenance and incremental response-stream contracts. Independent task reviews approve both areas, and all executed checks at b31053f8 pass. The PR stays open with auto-merge disabled for maintainer re-review.
 
 ## Repair scope
 
@@ -49,3 +49,21 @@ Fresh native Linux commands on merge 7e1827b7 both exited 0:
 - go test ./tools/backendplugin/release_gates ./internal/qa ./internal/archtest ./internal/plugins/features/sessionclassification/testfixtures
 
 Evidence: /home/ciuser/betterleaks-main-integration-7e1827b7/ and C:/Users/Mateusz/betterleaks-main-integration-7e1827b7/ (commit.txt, exits.txt, race.log, integration.log). Fresh remote checks are required on the delivered head. This integration does not authorize merging or auto-merge.
+
+## Provenance and active-redaction streaming correction
+
+The maintainer approved a narrower contract than original issue #714 and the old walker. Requirements 4.7 and 10.9, design/tasks, issue #714 and operator docs now require only user prompts and tool execution output. Instructions, assistant/system/developer/unknown-role history, model tool calls (including legacy JSON parts with tool metadata), reasoning/refusal/reference items and tool definitions remain untouched and uncharged. One feature-owned walker supplies admitted fragments and replacement handles to exact, BetterLeaks and hybrid paths; no response-path production code changed.
+
+Canonical-valid guard matrices cover three detector modes, message/item authority and block/log/redact (18 mixed-history cases plus 18 excluded-only cases). Excluded-only content passes with a one-byte budget and no findings/mutations. Restoring broad traversal or removing the legacy tool-call metadata exclusion causes the provenance regressions to fail. Fixture validation initially failed for nine item cases; correcting IDs and separating output-only/parts-only results restored green without dropping JSON assertions. Independent review approves the corrected fixtures and full feature suite.
+
+The controllable runtime stream emits response/message starts, two secret-bearing text events and finish/EOF. Both text events reach downstream unchanged before completion is released, while the actual provider receives a redacted user request. ValidateEventSequence proves the canonical event sequence. A completion-buffered negative control times out while gated and then releases the unchanged event, proving delay rather than permanent loss. Execution waits are bounded and cancellation joins the owned receiver and closes the provider. Independent runtime and workflow reviews approve these controls.
+
+Current source head b31053f82d98f7b67cb0998b30922088758fac03 passed all executed PR checks. Scoped Linux run [37296483084](https://github.com/matdev83/go-llm-interactive-proxy/actions/runs/37296483084) passed:
+
+- go test -race -count=1 -timeout=5m ./internal/plugins/features/secretguard/... ./internal/stdhttp/auth ./internal/standardplugins/featurehost/secretguard ./pkg/lipsdk/secretguard ./internal/core/runtime ./internal/infra/runtimebundle
+- make parity-checks
+- go build -o "$RUNNER_TEMP/lipstd" ./cmd/lipstd; "$RUNNER_TEMP/lipstd" --help
+
+Artifact secretguard-contracts-37296483084 records tested merge 935ec1b8c11f7cf52647f9bab311fb2eb2fb4d6f. Its parents were independently verified as main 987e1f7d and PR head b31053f8. Downloaded logs and CLI help output in job.log are retained at F:/codex-task-artifacts/betterleaks-secret-guard/remote-b31053f8/. The delivery workflow also captures help stderr in smoke.log.
+
+Local Linux quality passed at 3eeeb3f2, but subsequent local certification is failed/interrupted evidence: C: filled, WSL became emergency read-only, and Windows-mounted test temporaries caused Git/chmod and storage permission failures. The retry was stopped before further disk pressure. Logs remain at C:/Users/Mateusz/betterleaks-provenance-3eeeb3f2/ and F:/codex-task-artifacts/betterleaks-secret-guard/provenance-3eeeb3f2-recovered/ (plus native-temp retry). Older task bundles and one generated binary were moved to F: without discarding evidence. Remote full CI supplies current comprehensive test evidence. No tests, limits or existing workflows were weakened to bypass the local environment failure.

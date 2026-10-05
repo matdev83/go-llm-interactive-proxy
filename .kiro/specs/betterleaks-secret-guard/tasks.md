@@ -298,7 +298,7 @@
   - _Boundary: feature logical-fragment traversal and directly affected feature fixtures/regressions; parent-owned approved spec correction_
   - _Validation: strict TDD; mixed history, excluded-only budget/enforcement, exact/BetterLeaks/hybrid text/JSON and message/item tests; complete affected suites and vet_
 
-- [ ] 11.2 Ratchet incremental response passthrough while request redaction is active
+- [x] 11.2 Ratchet incremental response passthrough while request redaction is active
   - Use a controllable provider stream to prove unchanged secret-bearing response events are observed before completion, with BetterLeaks enabled and action:redact. Prove eligible request content is redacted before dispatch and preserve normal termination/cancellation cleanup.
   - _Requirements: 4.7, 10.8, 10.9_
   - _Boundary: runtime SecretGuard integration tests and scoped Linux CI certification; no response-path production changes_
@@ -307,6 +307,7 @@
 
 ## Implementation Notes
 
+- Task 11.2 received independent APPROVED runtime and scoped-CI reviews. Canonical-valid secret-bearing response deltas arrive unchanged before completion with BetterLeaks/action:redact active; delayed-delivery controls, bounded execution, EOF/close and cancellation joining pass. Remote run 37296483084 at b31053f8 passes feature/auth/SDK/composition/runtime/runtime-bundle Linux race, canonical parity and CLI build/help. All executed same-head PR checks pass. Local quality passed; full local certification was interrupted by C: disk exhaustion and Windows-mounted temporary-file permission failures, retained as failed evidence rather than reported green.
 - Task 11.1 received independent APPROVED review after canonical tool-result fixtures were corrected and validated before evaluation and after redaction. Exact/BetterLeaks/hybrid × message/item × block/log/redact and excluded-only budget matrices pass, along with the full feature suite and affected runtime/composition/auth consumers. Model tool-call JSON carriers are excluded by tool metadata even under an eligible message role. Linux race and final certification remain in 11.2.
 - The maintainer's scope correction authorizes Requirements 4.7 and 10.9 and supersedes earlier broad request-field coverage, including tool definitions and model arguments. Tasks 11.1–11.2 are required before the current branch can claim feature GO. Response streaming remains outside SecretGuard ownership.
 
