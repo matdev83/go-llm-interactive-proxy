@@ -1017,3 +1017,122 @@ func TestToolCallAssembler_FinalizerMetadataIsDetachedPerInvocation(t *testing.T
 		t.Fatal("the producer snapshot was mutated through a finalizer's metadata")
 	}
 }
+
+// TestToolCallAssembler_RefusingCallsCountAsUnresolved proves an overflow
+// refusal that has not reached its finished event still suppresses automatic
+// completion.
+//
+// When an oversized mandatory-buffered call outgrows its applicable ceiling
+// mid-stream, it moves from active to refusing: the buffer is dropped without
+// release and the typed refusal waits for the finished event. The old
+// hasActiveCalls read only the active set, so a proxy-owned completion drawn
+// before that finished event saw no unresolved call and could publish a
+// successful answer over the still-pending refusal. A response ending without
+// the tool-finished event must not silently discard it either: the finished
+// event below is what surfaces the refusal, and until then the call counts.
+func TestToolCallAssembler_RefusingCallsCountAsUnresolved(t *testing.T) {
+	t.Parallel()
+
+	catalog := scopedCatalog()
+	fin := newScopedFin(t, "scoped-expansion", 20, toolcall.BufferingSpec{
+		MaxArgsBytes: toolcall.DefaultMandatoryMaxArgsBytes,
+		Overflow:     toolcall.OverflowReject,
+	}, mandatoryToolName)
+	a := newToolCallAssembler([]toolcall.Finalizer{fin}, 0, catalog)
+	if a == nil {
+		t.Fatal("assembler must be constructed")
+	}
+
+	// Past the declarer's own 1 MiB bound, so the call is refused mid-stream
+	// rather than finalized.
+	const oversize = toolcall.DefaultMandatoryMaxArgsBytes + 8*1024
+	args := mandatoryArgsJSON(oversize)
+	if len(args) != oversize {
+		t.Fatalf("fixture sizing: got %d want %d", len(args), oversize)
+	}
+
+	ctx := context.Background()
+	meta := toolcall.Meta{}
+	id := "refusing-unresolved"
+	if held, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallStarted, ToolCallID: id, ToolName: mandatoryToolName,
+	}, meta); err != nil || !held {
+		t.Fatalf("started: held=%v err=%v", held, err)
+	}
+	if !a.hasActiveCalls() {
+		t.Fatal("a held call must count as unresolved")
+	}
+	if held, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallArgsDelta, ToolCallID: id, ToolName: mandatoryToolName, Delta: args,
+	}, meta); err != nil || !held {
+		t.Fatalf("oversized delta: held=%v err=%v", held, err)
+	}
+	// The call left active for refusing without releasing a byte. A completion
+	// boundary drawn here must still see it as unresolved.
+	if !a.hasActiveCalls() {
+		t.Fatal("a call with a pending overflow refusal must count as unresolved")
+	}
+	if _, ok := a.refusing[id]; !ok {
+		t.Fatal("fixture: the oversized call must sit in the refusing set")
+	}
+
+	// The finished event surfaces the refusal instead of discarding it, and
+	// only then is the call resolved.
+	_, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallFinished, ToolCallID: id, ToolName: mandatoryToolName,
+	}, meta)
+	var mbe *MandatoryBufferingError
+	if !errors.As(err, &mbe) || mbe == nil {
+		t.Fatalf("the finished event must surface the pending refusal, got %T (%v)", err, err)
+	}
+	if mbe.Reason != ReasonMandatoryBufferingOverflow {
+		t.Fatalf("reason: got %q want %q", mbe.Reason, ReasonMandatoryBufferingOverflow)
+	}
+	if a.hasActiveCalls() {
+		t.Fatal("a refused-at-finish call must no longer count as unresolved")
+	}
+}
+
+// TestToolCallAssembler_ReleasedLegacyOverflowIsNotUnresolved is the control
+// the refusal test above must not break: a legacy pass-through overflow
+// releases its fragments immediately, so nothing is pending and the call
+// correctly counts as resolved.
+func TestToolCallAssembler_ReleasedLegacyOverflowIsNotUnresolved(t *testing.T) {
+	t.Parallel()
+
+	catalog := scopedCatalog()
+	fin := newScopedFin(t, "scoped-expansion", 20, toolcall.BufferingSpec{
+		MaxArgsBytes: toolcall.DefaultMandatoryMaxArgsBytes,
+		Overflow:     toolcall.OverflowReject,
+	}, mandatoryToolName)
+	a := newToolCallAssembler([]toolcall.Finalizer{fin}, 0, catalog)
+	if a == nil {
+		t.Fatal("assembler must be constructed")
+	}
+	const oversize = toolcall.DefaultMandatoryMaxArgsBytes + 8*1024
+	args := mandatoryArgsJSON(oversize)
+
+	ctx := context.Background()
+	meta := toolcall.Meta{}
+	id := "legacy-released"
+	if held, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallStarted, ToolCallID: id, ToolName: unselectedToolName,
+	}, meta); err != nil || !held {
+		t.Fatalf("started: held=%v err=%v", held, err)
+	}
+	// Past the shared legacy bound with no applicable requirement: the
+	// fragments enqueue onto the drain immediately and the call leaves active
+	// for pass-through, not for refusing. held stays true because the event
+	// was consumed into the replay, not passed on.
+	if held, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallArgsDelta, ToolCallID: id, ToolName: unselectedToolName, Delta: args,
+	}, meta); err != nil || !held {
+		t.Fatalf("legacy overflow must be consumed into the replay: held=%v err=%v", held, err)
+	}
+	if a.hasActiveCalls() {
+		t.Fatal("a released legacy call must not count as unresolved")
+	}
+	if _, ok := a.refusing[id]; ok {
+		t.Fatal("a legacy call must never enter the refusing set")
+	}
+}

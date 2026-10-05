@@ -160,10 +160,17 @@ func (a *toolCallAssembler) clear() {
 // about the complete ordinary boundary of a held candidate cannot represent it and
 // has to treat it as unresolved.
 //
+// A call refused closed for exceeding an applicable mandatory bound counts too:
+// it left active for refusing, but its refusal is still pending - no finished
+// event has released or reported it - so a completion boundary drawn now would
+// publish a successful answer over an undecided overflow. Only a call the
+// assembler already released (pass-through) or decided (completed or refused
+// at finish) is resolved.
+//
 // The assembler is owned by the single receive loop, so this is a plain read at
 // that owner's serialization boundary and takes no lock.
 func (a *toolCallAssembler) hasActiveCalls() bool {
-	return a != nil && len(a.active) > 0
+	return a != nil && (len(a.active) > 0 || len(a.refusing) > 0)
 }
 
 func (a *toolCallAssembler) popDrain() (lipapi.Event, bool) {
