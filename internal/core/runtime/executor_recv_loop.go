@@ -12,22 +12,11 @@ import (
 	"io"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 )
 
 // errGateContinueInner signals Recv to pull another inner event without returning to the client yet.
 var errGateContinueInner = errors.New("runtime: completion gate continue buffering")
-
-// pendingOrdinaryHead picks the release head for one finish route: the
-// authoritative completion-gate output when preparation produced one, and the
-// accepted finish otherwise. Candidate existence is independent of the ordinary
-// head, so a suppressed result still releases its own evaluated sequence.
-func pendingOrdinaryHead(finish, ordinary lipapi.Event) lipapi.Event {
-	if ordinary.Kind != "" {
-		return ordinary
-	}
-	return finish
-}
 
 func cancellationAttemptReason(ctx context.Context, recvErr error) string {
 	if recvErr != nil {
@@ -62,160 +51,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	p := s.responsePipeline
 	terminal := s.terminal
 	recovery := s.recovery
-	// pendingExpectedFence is the ONE lexical publication fence for this receive
-	// call. It decides, for one expected candidate and the origin it was retained
-	// under, whether the private publication may still be staged, activated, or
-	// physically delivered.
-	//
-	// It checks the complete identity, not a partial one: the response still
-	// retains the SAME candidate value, that value's origin is the SAME attempt,
-	// the frozen B-leg ID and sequence the candidate was copied under still match
-	// that attempt, the live slot still publishes that same attempt, the live
-	// caller context is alive, the shared A-leg carries no authoritative cause, and
-	// the attempt publication window is still open. An ordinary request owner that
-	// already reached Released is EXPECTED here and is not a withdrawal fence.
-	//
-	// The same predicate is handed to the finish authority seams and consulted at
-	// every publication boundary, so staging, activation, and delivery can never
-	// disagree about which identity they are publishing. It performs no I/O and
-	// holds no owner, pipeline, or control mutex.
-	pendingExpectedFence := func(expected *pendingCompletion, origin *attemptSession) bool {
-		if p == nil || expected == nil || origin == nil {
-			return false
-		}
-		if p.pendingPreparedSnapshot() != expected {
-			return false
-		}
-		if expected.origin != origin {
-			return false
-		}
-		if !pendingOriginOwns(expected, origin) {
-			return false
-		}
-		if ctx != nil && ctx.Err() != nil {
-			return false
-		}
-		if slot.publicationIsClosed() {
-			return false
-		}
-		if slot.snapshot() != origin {
-			return false
-		}
-		if terminal != nil && terminal.hasALeg() && terminal.aLegErr() != nil {
-			return false
-		}
-		return true
-	}
-	// drainPending delivers exactly one already-observed publication event to the
-	// client under the FULL identity fence, and converges the accepted-finish
-	// bookkeeping at the ACTUAL finish delivery.
-	//
-	// One delivery sequences several owners: the response owner that owns the
-	// retained candidate and its queue, the terminal owner that converges the
-	// accepted finish, the recovery owner whose policy must observe the delivery,
-	// and the live attempt slot. It therefore stays a lexical coordinator here, over
-	// the references Recv already holds, rather than becoming a new carrier, a
-	// receiver, or a helper that repackages the same owner graph. It carries no new
-	// state: the live Recv context and every owner it sequences are captured for
-	// this call only, so no persistent drain state holds a context.
-	//
-	// Release-tail effects run outside every mutex, and the fence is rechecked
-	// after them so a withdrawal discards the remainder instead of returning content
-	// the client must never see.
-	drainPending := func(expected *pendingCompletion, origin *attemptSession) (lipapi.Event, bool, error) {
-		if p == nil || expected == nil || origin == nil {
-			return lipapi.Event{}, false, nil
-		}
-		if !pendingExpectedFence(expected, origin) {
-			// A failed fence is the withdrawal of the candidate THIS delivery was
-			// pinned to, and only of that one. A caller that owns no private
-			// publication, or that is delivering some other live candidate, must not
-			// erase it: the identity fence and the ownership rule are separate facts.
-			if p.pendingPreparedSnapshot() == expected {
-				p.withdrawPendingCompletion(origin)
-			}
-			return lipapi.Event{}, false, nil
-		}
-		ev, ok := p.pendingPublicationHead()
-		if !ok {
-			return lipapi.Event{}, false, nil
-		}
-		isUsage := p.pendingPublicationNextUsage()
-		p.popPendingCompletionRelease()
-
-		// The private drain owns its own physical delivery, so the ordinary dispatch
-		// seam's client-event effects must run here exactly once per DELIVERED event,
-		// including the accepted finish. Without them the attempt accounting and the
-		// recovery policy would never see the published result or the physical finish,
-		// because the raw finish was recorded and finalized without being released.
-		// They run on delivery only, never while staging, and the event is consumed
-		// above so a requeued finish is never observed twice.
-		origin.observeAccountingClientEvent(p.nowTime(), ev)
-		if recovery != nil && recovery.recoverPolicy != nil {
-			recovery.recoverPolicy.ObserveClientEvent(ev, p.nowTime())
-		}
-
-		// Release tail: the effects that must run exactly once per DELIVERED event.
-		// Local customer observation, PTC traffic, the client accumulator, affinity,
-		// and compaction notification run here for the first time; the mandatory
-		// recorder and the fail-closed final observer already ran once during
-		// preflight, so neither repeats.
-		out, _, err := p.observeClientFacing(ctx, ev, responseEventInput{
-			facts: facts, attempt: origin, recovery: recovery,
-			pm:        pendingReleasePartMeta(facts, origin, facts.terminalFacts()),
-			committed: terminal.committed(), now: p.nowTime(),
-			recorded: true, finalObserved: true,
-		})
-		if err != nil {
-			p.withdrawPendingCompletion(origin)
-			return lipapi.Event{}, false, err
-		}
-		if isUsage {
-			p.emitUsageTerminal(ctx, facts.terminalFacts(), origin, out)
-		}
-		// The fence is rechecked AFTER the external release effects so a Close, an A-leg
-		// cancellation, or a caller cancellation that won while they ran discards the
-		// remainder instead of returning content.
-		if !pendingExpectedFence(expected, origin) {
-			p.withdrawPendingCompletion(origin)
-			return lipapi.Event{}, false, nil
-		}
-		if ev.Kind == lipapi.EventResponseFinished {
-			origin.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID: facts.aLegID, BLeg: origin.bleg, Cand: origin.cand, Outcome: lipapi.AttemptSuccess,
-			}, facts.attemptDiagAttrs(origin))
-			p.commitSuccessfulTurn(facts, origin, terminal.committed())
-			// A fully delivered publication closes its observer successfully, exactly
-			// once, at this boundary.
-			p.finishFinalStreamObservation(ctx, origin, response.OutcomeSuccessReleased)
-			terminal.finishResponseAtBoundary(p, origin, p.pendingPublicationEndALeg())
-			// The accepted finish is the real end of the owned window: the retained
-			// candidate, its reservation, and its queue are disposed HERE and only here,
-			// so no later Recv can deliver a second copy and a competing attempt can
-			// never inherit a finished publication.
-			p.completePendingPublication(origin)
-			return out, true, nil
-		}
-		if lipapi.OutputCommitted(out) {
-			terminal.markOutputCommittedForAttempt(out, origin, recovery)
-		}
-		return out, true, nil
-	}
-	// drainPendingFinish is the finish-route adapter over drainPending: an error
-	// propagates, an exhausted drain means the caller ends the stream instead of
-	// releasing the accepted finish a second time, and one drained event is returned
-	// to the client. Its zero event is strictly this internal result paired with
-	// continueInner=true and never a public (zero, nil) return.
-	drainPendingFinish := func(expected *pendingCompletion, origin *attemptSession) (lipapi.Event, bool, error) {
-		ev, more, err := drainPending(expected, origin)
-		if err != nil {
-			return lipapi.Event{}, false, err
-		}
-		if !more {
-			return lipapi.Event{}, true, nil
-		}
-		return ev, false, nil
-	}
 	dispatchClientFacingEvent := func(ev lipapi.Event, prepared recvEventPreparation) (lipapi.Event, bool, error) {
 		attempt := slot.require()
 		transformed := p.transformClientEvent(ctx, facts, attempt, ev, prepared)
@@ -245,21 +80,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			ev = gated.event
 			if gated.finishPreflight {
-				// The expected candidate and origin are captured here, before the
-				// terminal runs, and the SAME pair pins the physical drain below.
-				hooks := recvFinishAuthorityInput(ctx, s, attempt, gated.pending, false, pendingExpectedFence)
-				usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, hooks)
+				usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+					return runContinuationTransaction(cctx, terminal, s, intent)
+				})
 				if errors.Is(err, errTerminalDecisionContinuationPublished) {
 					return lipapi.Event{}, true, nil
 				}
 				if err != nil {
 					return lipapi.Event{}, false, err
-				}
-				if p.pendingPublicationActive() {
-					// The accepted normal terminal staged and activated the private
-					// batch. The turn is NOT physically finished yet: the accepted
-					// finish bookkeeping converges at the actual finish delivery.
-					return drainPendingFinish(hooks.expectedPrepared, attempt)
 				}
 				if ok {
 					p.prependRecoveryDrain(ev)
@@ -302,49 +130,21 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			return out, false, nil
 		}
-		// The ordinary client-event effects of the accepted finish run only when this
-		// response owns NO private candidate, and preparation decides that: while a
-		// candidate exists the raw finish is still a CANDIDATE, and a rejected,
-		// continued, or withdrawn publication must not stamp a client finish, complete
-		// the proxy, or report finished output for a batch that is never released. The
-		// private drain runs those same effects exactly once at the physical delivery.
-		var prep pendingPreparation
-		pendingOwned := false
+		attempt.observeAccountingClientEvent(p.nowTime(), ev)
+		if recovery != nil && recovery.recoverPolicy != nil {
+			recovery.recoverPolicy.ObserveClientEvent(ev, p.nowTime())
+		}
 		if ev.Kind == lipapi.EventResponseFinished {
-			prepared, pendingErr := p.preparePendingCompletion(ctx, facts, attempt, ev, nil, terminal.committed())
-			if pendingErr != nil {
-				if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, pendingErr) {
+			recording := p.recordClientFacing(ctx, facts, attempt, ev, terminal.committed())
+			if recording.mandatory() {
+				if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err) {
 					return lipapi.Event{}, true, nil
 				}
-				return lipapi.Event{}, false, pendingErr
+				return lipapi.Event{}, false, recording.err
 			}
-			prep, pendingOwned = prepared, prepared.prepared.holds()
-			// An authoritative completion-gate output that carries no accepted finish
-			// becomes the ordinary release head here, so the ordinary gate path drains
-			// it and the chain is never evaluated a second time.
-			ev = pendingOrdinaryHead(ev, prep.ordinary)
-		}
-		if !pendingOwned {
-			attempt.observeAccountingClientEvent(p.nowTime(), ev)
-			if recovery != nil && recovery.recoverPolicy != nil {
-				recovery.recoverPolicy.ObserveClientEvent(ev, p.nowTime())
-			}
-		}
-		if ev.Kind == lipapi.EventResponseFinished {
-			recording := responseRecordingResult{}
-			if !prep.prepared.holds() {
-				recording = p.recordClientFacing(ctx, facts, attempt, ev, terminal.committed())
-				if recording.mandatory() {
-					if terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err) {
-						return lipapi.Event{}, true, nil
-					}
-					return lipapi.Event{}, false, recording.err
-				}
-			}
-			// The expected candidate and origin are captured here, before the terminal
-			// runs, and the SAME pair pins the physical drain below.
-			hooks := recvFinishAuthorityInput(ctx, s, attempt, prep.prepared, true, pendingExpectedFence)
-			usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, hooks)
+			usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+				return runContinuationTransaction(cctx, terminal, s, intent)
+			})
 			if errors.Is(err, errTerminalDecisionContinuationPublished) {
 				return lipapi.Event{}, true, nil
 			}
@@ -353,9 +153,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					terminal.finishResponse(p, attempt)
 				}
 				return lipapi.Event{}, false, err
-			}
-			if p.pendingPublicationActive() {
-				return drainPendingFinish(hooks.expectedPrepared, attempt)
 			}
 			if ok {
 				p.rememberClientEvent(ev)
@@ -546,20 +343,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		recovery.exclude(attempt.cand.Key)
 		return lipapi.Event{}, true, nil
 	}
-	// The private publication drains completely before the stream may report EOF,
-	// so an accepted result, its refreshed customer usage, and its finish are never
-	// stranded. The first drain of this receive ALWAYS selects the retained
-	// ORIGINAL origin, never the live slot, and it reads the expected candidate and
-	// its frozen origin as one pair under the response-state lock. Every live fence
-	// is applied by the drain itself: a withdrawn drain discards its remainder and
-	// lets the existing end-of-stream behavior stand.
-	if expected, expectedOrigin := p.pendingPublicationExpectation(); expected != nil {
-		if ev, more, derr := drainPending(expected, expectedOrigin); derr != nil {
-			return lipapi.Event{}, derr
-		} else if more {
-			return ev, nil
-		}
-	}
 	if terminal.finished() || (terminal.isInterleavedThinker() && terminal.accountingFinalized()) {
 		return lipapi.Event{}, io.EOF
 	}
@@ -585,23 +368,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	if ev, hasRecoveryDrain := p.popRecoveryDrain(); hasRecoveryDrain {
 		if ev.Kind == lipapi.EventResponseFinished && (terminal == nil || !terminal.accountingFinalized()) {
-			prep, pendingErr := p.preparePendingCompletion(ctx, facts, attempt, ev, nil, terminal.committed())
-			if pendingErr != nil {
-				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, pendingErr)
-				return lipapi.Event{}, pendingErr
+			recording := p.recordClientFacing(ctx, facts, attempt, ev, terminal.committed())
+			if recording.mandatory() {
+				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err)
+				return lipapi.Event{}, recording.err
 			}
-			recording := responseRecordingResult{}
-			if !prep.prepared.holds() {
-				recording = p.recordClientFacing(ctx, facts, attempt, ev, terminal.committed())
-				if recording.mandatory() {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err)
-					return lipapi.Event{}, recording.err
-				}
-			}
-			// The expected candidate and origin are captured here, before the terminal
-			// runs, and the SAME pair pins the physical drain below.
-			hooks := recvFinishAuthorityInput(ctx, s, attempt, prep.prepared, true, pendingExpectedFence)
-			usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, hooks)
+			usageEv, ok, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+				return runContinuationTransaction(cctx, terminal, s, intent)
+			})
 			if errors.Is(err, errTerminalDecisionContinuationPublished) {
 				return lipapi.Event{}, nil
 			}
@@ -611,17 +385,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, err)
 				return lipapi.Event{}, err
-			}
-			if p.pendingPublicationActive() {
-				ev, more, drainErr := drainPending(hooks.expectedPrepared, attempt)
-				if drainErr != nil {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, drainErr)
-					return lipapi.Event{}, drainErr
-				}
-				if !more {
-					return lipapi.Event{}, io.EOF
-				}
-				return ev, nil
 			}
 			if ok {
 				p.prependRecoveryDrain(ev)
@@ -651,14 +414,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		// receive or terminal decision; never carry the retired B-leg identity
 		// into the replacement.
 		attempt = slot.require()
-		// A continuation published inside this Recv also updates immutable request
-		// facts. Its next candidate must use the same current lineage as its attempt.
-		facts = s.facts
-		if ev, more, drainErr := drainPending(p.pendingPreparedSnapshot(), attempt); drainErr != nil {
-			return lipapi.Event{}, drainErr
-		} else if more {
-			return ev, nil
-		}
 		if toolFinal := attempt.toolCallAssembler(); toolFinal != nil {
 			if ev, ok := toolFinal.popDrain(); ok {
 				out, cont, err := dispatchClientFacingEvent(ev, recvEventPreparation{event: ev})
@@ -677,23 +432,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			// gate-drain site leaked its reserved authority (it had no finalization at all before
 			// centralization).
 			if ev.Kind == lipapi.EventResponseFinished && (terminal == nil || !terminal.accountingFinalized()) {
-				prep, pendingErr := p.preparePendingCompletion(ctx, facts, attempt, ev, nil, terminal.committed())
-				if pendingErr != nil {
-					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, pendingErr)
-					return lipapi.Event{}, pendingErr
+				recording := p.recordClientFacing(ctx, facts, attempt, ev, terminal.committed())
+				if recording.mandatory() {
+					terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err)
+					return lipapi.Event{}, recording.err
 				}
-				recording := responseRecordingResult{}
-				if !prep.prepared.holds() {
-					recording = p.recordClientFacing(ctx, facts, attempt, ev, terminal.committed())
-					if recording.mandatory() {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, true, recording.err)
-						return lipapi.Event{}, recording.err
-					}
-				}
-				// The expected candidate and origin are captured here, before the
-				// terminal runs, and the SAME pair pins the physical drain below.
-				hooks := recvFinishAuthorityInput(ctx, s, attempt, prep.prepared, false, pendingExpectedFence)
-				usageEv, usageOk, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, hooks)
+				usageEv, usageOk, err := terminal.finalizeResponseFinishedAuthority(ctx, ev, facts.terminalFacts(), attempt, p, func(cctx context.Context, intent terminaldecision.ContinuationIntent) (bool, error) {
+					return runContinuationTransaction(cctx, terminal, s, intent)
+				})
 				if errors.Is(err, errTerminalDecisionContinuationPublished) {
 					continue
 				}
@@ -702,17 +448,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 						terminal.finishResponse(p, attempt)
 					}
 					return lipapi.Event{}, err
-				}
-				if p.pendingPublicationActive() {
-					out, more, drainErr := drainPending(hooks.expectedPrepared, attempt)
-					if drainErr != nil {
-						terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, drainErr)
-						return lipapi.Event{}, drainErr
-					}
-					if !more {
-						continue
-					}
-					return out, nil
 				}
 				if usageOk {
 					p.prependRecoveryDrain(ev)

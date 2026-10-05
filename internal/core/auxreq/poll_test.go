@@ -25,29 +25,6 @@ func pollPendingRunner(start, release chan struct{}) backgroundRunner {
 	}
 }
 
-// pollGatedRunner exposes a runner whose job stays non-terminal until release is
-// closed. Tests that assert PollPending immediately after submission must gate
-// the worker this way: a runner that completes on its own leaves the pending
-// assertion dependent on goroutine scheduling.
-func pollGatedRunner(release <-chan struct{}) backgroundRunner {
-	return func(_ context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
-		return &gatedStream{started: make(chan struct{}), release: release}, nil
-	}
-}
-
-// pollFailedRunner delays a terminal failure until release is closed so Poll
-// observes the pending state before the job can fail. The wait is cancellable so
-// scheduler shutdown never blocks on a blocked worker.
-func pollFailedRunner(release <-chan struct{}) backgroundRunner {
-	return func(ctx context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
-		select {
-		case <-release:
-		case <-ctx.Done():
-		}
-		return nil, errors.New("boom")
-	}
-}
-
 func TestBackgroundScheduler_PollPendingWhenQueuedAndInFlight(t *testing.T) {
 	t.Parallel()
 	started := make(chan struct{})
@@ -155,21 +132,19 @@ func TestBackgroundScheduler_PollNotFoundAndEmptyID(t *testing.T) {
 
 func TestBackgroundScheduler_PollFailed(t *testing.T) {
 	t.Parallel()
-	release := make(chan struct{})
 	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
-		return pollFailedRunner(release)
+		return backgroundRunner(func(_ context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
+			return nil, errors.New("boom")
+		})
 	}, auxreq.SchedulerConfig{})
 
 	id, err := s.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "poll-failed"})
 	require.NoError(t, err)
-	// Poll while pending should be pending, not failed yet. The worker cannot
-	// reach its terminal failure before release closes, so this assertion does
-	// not depend on worker scheduling.
+	// Poll while pending should be pending, not failed yet.
 	res, err := s.Poll(context.Background(), id)
 	require.NoError(t, err)
 	require.Equal(t, auxiliary.PollPending, res.State)
 
-	close(release)
 	_, awaitErr := s.Await(context.Background(), id)
 	require.Error(t, awaitErr)
 
@@ -422,9 +397,13 @@ func TestBackgroundScheduler_PollDoesNotConsumeOrForget(t *testing.T) {
 
 func TestBackgroundScheduler_PollPreservesAwaitSemantics(t *testing.T) {
 	t.Parallel()
-	release := make(chan struct{})
 	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
-		return pollGatedRunner(release)
+		return backgroundRunner(func(_ context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
+			return lipapi.NewFixedEventStream([]lipapi.Event{
+				{Kind: lipapi.EventResponseStarted},
+				{Kind: lipapi.EventResponseFinished},
+			}), nil
+		})
 	}, auxreq.SchedulerConfig{})
 
 	id, err := s.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "poll-await-preserve"})
@@ -435,7 +414,6 @@ func TestBackgroundScheduler_PollPreservesAwaitSemantics(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, auxiliary.PollPending, res.State)
 
-	close(release)
 	collected, err := s.Await(context.Background(), id)
 	require.NoError(t, err)
 	assert.True(t, collected.FinishReceived)
@@ -476,12 +454,15 @@ func TestBackgroundScheduler_PollWithCancelledContext(t *testing.T) {
 
 func TestBackgroundScheduler_PollViaBoundClient(t *testing.T) {
 	t.Parallel()
-	release := make(chan struct{})
 	s := newBackground(context.Background(), t, func() auxreq.ExecutorRunner {
-		return pollGatedRunner(release)
+		return backgroundRunner(func(_ context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
+			return finishedStream(), nil
+		})
 	}, auxreq.SchedulerConfig{})
 
-	client := s.BindRunner(pollGatedRunner(release))
+	client := s.BindRunner(backgroundRunner(func(_ context.Context, _ *lipapi.Call) (lipapi.EventStream, error) {
+		return finishedStream(), nil
+	}))
 
 	id, err := client.SubmitCollect(context.Background(), backgroundRequest(), auxiliary.SubmitOptions{CoalesceKey: "poll-bound"})
 	require.NoError(t, err)
@@ -494,7 +475,6 @@ func TestBackgroundScheduler_PollViaBoundClient(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, auxiliary.PollPending, res.State)
 
-	close(release)
 	_, err = client.Await(context.Background(), id)
 	require.NoError(t, err)
 

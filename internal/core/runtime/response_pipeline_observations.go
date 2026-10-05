@@ -36,13 +36,7 @@ type responseEventInput struct {
 
 	// recorded is true for response_finished paths that ran mandatory recorder
 	// preflight before authority finalization.
-	recorded bool
-	// finalObserved is true for private-publication events whose existing
-	// fail-closed final-stream observation already ran as part of the staged batch
-	// preflight. Only that observation is skipped; every other release effect —
-	// local customer observation, PTC traffic, the client accumulator, affinity,
-	// and compaction notification — still runs exactly once, here.
-	finalObserved       bool
+	recorded            bool
 	finishBeforeRelease bool
 	finishAfterRemember bool
 }
@@ -81,14 +75,6 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 	prepared.partMeta, _ = facts.hookMeta(attempt.bleg, attempt.cand)
 	p.emitTraffic(ctx, attempt, sdktraffic.LegBTP, ev, prepared.partMeta)
 	p.emitUsage(ctx, facts, attempt, ev)
-	// Design Response Interception / Placement binds this order: BTP and provider
-	// usage observation see the upstream control traffic first, then the private
-	// capture consumes whatever it claims, and only what it does not claim may
-	// reach the ordinary assembler and the client path below.
-	if swallowed, err := p.divertControlCall(ctx, attempt, ev); swallowed || err != nil {
-		prepared.swallowed, prepared.err = swallowed, err
-		return prepared
-	}
 	if toolFinal := attempt.toolCallAssembler(); toolFinal != nil && toolFinal.enabled() {
 		meta := toolcall.Meta{TraceID: facts.traceID, ALegID: facts.aLegID, BLegID: attempt.bleg.BLegID, AttemptSeq: attempt.bleg.Seq}
 		held, err := toolFinal.ingest(ctx, ev, meta)
@@ -145,7 +131,6 @@ type gatedEventResult struct {
 	event           lipapi.Event
 	replaced        bool
 	finishPreflight bool
-	pending         *pendingCompletion
 	recording       responseRecordingResult
 	err             error
 }
@@ -157,30 +142,6 @@ func (p *responsePipeline) applyCompletionGates(ctx context.Context, gates []com
 	if p == nil || attempt == nil {
 		result.err = errNilRetryRecvStream
 		return result
-	}
-	if ev.Kind == lipapi.EventResponseFinished {
-		// A valid proxy-owned completion prepares its whole evaluated candidate
-		// here, while the already-transformed buffer is still intact. Nothing is
-		// exposed and nothing is recorded: the accepted normal request-terminal
-		// winner owns both, and it records the complete canonical batch itself.
-		prep, err := p.preparePendingCompletion(ctx, facts, attempt, ev, gates, committed)
-		if err != nil {
-			result.err = err
-			return result
-		}
-		if prep.ordinary.Kind != "" {
-			// The evaluated completion-gate output is authoritative and carries no
-			// accepted finish. It is released through the ordinary authoritative
-			// gate-drain path; the chain is never evaluated a second time.
-			return gatedEventResult{event: prep.ordinary, replaced: prep.replaced}
-		}
-		if prep.prepared != nil {
-			// The terminal chokepoint and every downstream effect need the ACTUAL
-			// accepted finish, never a zero event.
-			return gatedEventResult{
-				event: prep.prepared.finish, pending: prep.prepared, finishPreflight: true,
-			}
-		}
 	}
 	snap := p.completionSnapshot(ctx)
 	meta := completion.Meta{TraceID: facts.traceID, ALegID: facts.aLegID, BLegID: attempt.bleg.BLegID, AttemptSeq: attempt.bleg.Seq}
@@ -284,11 +245,9 @@ func (p *responsePipeline) observeClientFacing(ctx context.Context, ev lipapi.Ev
 	// Capture only bounded properties; the provider-origin plane was captured in
 	// prepareRecvEvent before any customer transformation.
 	in.attempt.observeLocalCustomerEvent(ev)
-	if !in.finalObserved {
-		if err := extensions.RunFinalStreamObservationStage(ctx, p.log, p.extensionMetrics, in.attempt.finalStreamObs, ev, in.committed); err != nil {
-			p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeFailed)
-			return lipapi.Event{}, responseRecordingResult{}, err
-		}
+	if err := extensions.RunFinalStreamObservationStage(ctx, p.log, p.extensionMetrics, in.attempt.finalStreamObs, ev, in.committed); err != nil {
+		p.finishFinalStreamObservation(ctx, in.attempt, response.OutcomeFailed)
+		return lipapi.Event{}, responseRecordingResult{}, err
 	}
 
 	recording := responseRecordingResult{outcome: responseRecordingSkipped}
@@ -303,11 +262,6 @@ func (p *responsePipeline) observeClientFacing(ctx context.Context, ev lipapi.Ev
 		}
 	}
 
-	// Release tail: the effects that must run exactly once per DELIVERED event and
-	// never while staging. PTC traffic, the client accumulator, affinity, and
-	// compaction notification run here for the first time, in the established
-	// order, after the final observation. A compaction preserver may rewrite ev
-	// inside that order, so the event the client receives is the released one.
 	releaseDispatch := p.emitTrafficPTCFinal(ctx, in.facts, in.attempt, &ev, in.pm)
 	p.rememberClientEvent(ev)
 	p.commitAffinityIfOutput(ctx, in.recovery, in.facts.terminalFacts(), in.attempt, in.now, ev)

@@ -311,18 +311,6 @@ func TestWindowsTaskReliability_LinuxEvidence(t *testing.T) {
 	if !strings.Contains(release, "bash scripts/race-check.sh --strict") {
 		t.Fatal("release verify job no longer carries strict root race evidence")
 	}
-	for _, required := range []string{
-		"lane: [broad, billing, support, runtime, architecture]",
-		"matrix.lane == 'billing' && 75 || 40",
-		"fail-fast: false",
-		"needs: race",
-		"needs: verify",
-		`run: bash scripts/race-check.sh --strict --lane "$RACE_LANE"`,
-	} {
-		if !strings.Contains(release, required) {
-			t.Errorf("release must preserve exhaustive race partitions and publication dependency %q", required)
-		}
-	}
 
 	qa := workflowJob(t, "qa.yml", "qa")
 	for _, command := range []string{

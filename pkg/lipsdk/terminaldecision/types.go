@@ -133,26 +133,8 @@ type Evidence struct {
 	Actions     [MaxEvidenceActions]ActionFact
 	ActionCount uint8
 
-	// ExplicitCompletion is an observation: the platform saw one trusted
-	// explicit-completion signal for this logical response. It is true either
-	// for an ordinary client/harness-owned completion tool call with a matching
-	// completed result, or for a valid proxy-owned control completion the
-	// platform handled privately. Observation alone never asserts that the
-	// proxy asked for that signal.
 	ExplicitCompletion bool
-	// ExplicitCompletionExpected is an expectation: this response actually ran
-	// with a successfully active proxy-owned model control protocol, so an
-	// explicit completion signal was requested of the model.
-	//
-	// It is additive and independent of ExplicitCompletion. All four
-	// combinations are legal and no platform rule relates the two: an expected
-	// signal may be absent, and a client/harness-owned completion may be
-	// observed with no proxy expectation at all. The zero value is the correct
-	// projection for every provider and generation that never had a proxy-owned
-	// control protocol, so a caller that ignores this field observes exactly the
-	// pre-existing contract.
-	ExplicitCompletionExpected bool
-	Lineage                    EvidenceLineage
+	Lineage            EvidenceLineage
 }
 
 // ActionFact is a compact canonical summary of one message/tool action. Item

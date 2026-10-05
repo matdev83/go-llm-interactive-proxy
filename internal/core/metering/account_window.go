@@ -201,7 +201,6 @@ func accountWindowIdentityForSubjectWithTenant(subject lipsdkmetering.SubjectRef
 func accountWindowLengthPrefixed(values ...string) string {
 	var builder strings.Builder
 	for _, value := range values {
-		// bolt: use strconv instead of reflection-based fmt.Fprintf for performance
 		builder.WriteString(strconv.Itoa(len(value)))
 		builder.WriteByte(':')
 		builder.WriteString(value)

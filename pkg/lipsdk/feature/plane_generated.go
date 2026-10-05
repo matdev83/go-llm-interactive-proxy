@@ -8,7 +8,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -68,9 +67,6 @@ type generatedContributions struct {
 	sessionClassifier                sessionclassification.Classifier
 	sessionClassifierID              string
 	sessionClassifierHasID           bool
-	controlToolProvider              controltool.Provider
-	controlToolProviderID            string
-	controlToolProviderHasID         bool
 }
 
 // generatedFrozen holds immutable typed snapshot storage for all declared feature planes.
@@ -114,9 +110,6 @@ type generatedFrozen struct {
 	sessionClassifier                sessionclassification.Classifier
 	sessionClassifierID              string
 	sessionClassifierHasID           bool
-	controlToolProvider              controltool.Provider
-	controlToolProviderID            string
-	controlToolProviderHasID         bool
 }
 
 // newGeneratedContributions constructs a new empty generatedContributions.
@@ -168,9 +161,6 @@ func (gc *generatedContributions) clone() *generatedContributions {
 	next.sessionClassifier = gc.sessionClassifier
 	next.sessionClassifierID = gc.sessionClassifierID
 	next.sessionClassifierHasID = gc.sessionClassifierHasID
-	next.controlToolProvider = gc.controlToolProvider
-	next.controlToolProviderID = gc.controlToolProviderID
-	next.controlToolProviderHasID = gc.controlToolProviderHasID
 	return next
 }
 
@@ -218,9 +208,6 @@ func (gc *generatedContributions) freeze() *generatedFrozen {
 		sessionClassifier:                gc.sessionClassifier,
 		sessionClassifierID:              gc.sessionClassifierID,
 		sessionClassifierHasID:           gc.sessionClassifierHasID,
-		controlToolProvider:              gc.controlToolProvider,
-		controlToolProviderID:            gc.controlToolProviderID,
-		controlToolProviderHasID:         gc.controlToolProviderHasID,
 	}
 	return gf
 }
@@ -269,9 +256,6 @@ func (gf *generatedFrozen) toContributions() *generatedContributions {
 	gc.sessionClassifier = gf.sessionClassifier
 	gc.sessionClassifierID = gf.sessionClassifierID
 	gc.sessionClassifierHasID = gf.sessionClassifierHasID
-	gc.controlToolProvider = gf.controlToolProvider
-	gc.controlToolProviderID = gf.controlToolProviderID
-	gc.controlToolProviderHasID = gf.controlToolProviderHasID
 	return gc
 }
 
@@ -319,9 +303,6 @@ func (gf *generatedFrozen) freezeRequest() *generatedFrozen {
 		sessionClassifier:                gf.sessionClassifier,
 		sessionClassifierID:              gf.sessionClassifierID,
 		sessionClassifierHasID:           gf.sessionClassifierHasID,
-		controlToolProvider:              gf.controlToolProvider,
-		controlToolProviderID:            gf.controlToolProviderID,
-		controlToolProviderHasID:         gf.controlToolProviderHasID,
 	}
 	return next
 }
@@ -370,9 +351,6 @@ func (gf *generatedFrozen) clone() *generatedFrozen {
 		sessionClassifier:                gf.sessionClassifier,
 		sessionClassifierID:              gf.sessionClassifierID,
 		sessionClassifierHasID:           gf.sessionClassifierHasID,
-		controlToolProvider:              gf.controlToolProvider,
-		controlToolProviderID:            gf.controlToolProviderID,
-		controlToolProviderHasID:         gf.controlToolProviderHasID,
 	}
 	return next
 }
@@ -634,18 +612,6 @@ func (gf *generatedFrozen) validate() error {
 			return newPlaneValidationError(canonicalPlaneSessionClassifierPolicy.planeID, err)
 		}
 	}
-	if gf.controlToolProvider == nil {
-		if gf.controlToolProviderHasID || gf.controlToolProviderID != "" {
-			return newPlaneValidationError(canonicalPlaneControlToolProviderPolicy.planeID, errors.New("malformed metadata without value"))
-		}
-	} else {
-		if !gf.controlToolProviderHasID || gf.controlToolProviderID == "" {
-			return newPlaneValidationError(canonicalPlaneControlToolProviderPolicy.planeID, errors.New("missing cached identity"))
-		}
-		if err := canonicalPlaneControlToolProviderPolicy.validateIdentity(gf.controlToolProviderID); err != nil {
-			return newPlaneValidationError(canonicalPlaneControlToolProviderPolicy.planeID, err)
-		}
-	}
 	return nil
 }
 
@@ -894,15 +860,6 @@ func (gf *generatedFrozen) checkSourceAdmission(source SourceKind, contributorID
 				PluginID: contributorID,
 				PlaneID:  canonicalPlaneSessionClassifierPolicy.planeID,
 				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneSessionClassifierPolicy.planeID),
-			}
-		}
-	}
-	if gf.controlToolProvider != nil {
-		if canonicalPlaneControlToolProviderPolicy.rules.RuleFor(source) == CombUnsupported {
-			return &AttributedError{
-				PluginID: contributorID,
-				PlaneID:  canonicalPlaneControlToolProviderPolicy.planeID,
-				Err:      fmt.Errorf("%w: source %v is not supported on plane %q", ErrUnsupportedSource, source, canonicalPlaneControlToolProviderPolicy.planeID),
 			}
 		}
 	}
@@ -1853,21 +1810,6 @@ func (gf *generatedFrozen) replayAllPlanesTo(gc *generatedContributions, source 
 		gc.sessionClassifierID = gf.sessionClassifierID
 		gc.sessionClassifierHasID = true
 	}
-	if gf.controlToolProvider != nil {
-		if !gf.controlToolProviderHasID || gf.controlToolProviderID == "" {
-			return &AttributedError{
-				PluginID: contributorID,
-				PlaneID:  canonicalPlaneControlToolProviderPolicy.planeID,
-				Err:      fmt.Errorf("%w: frozen exclusive identity is missing", ErrInvalidContribution),
-			}
-		}
-		if gc.controlToolProviderHasID {
-			return makeExclusiveConflictError(contributorID, canonicalPlaneControlToolProviderPolicy.planeID, canonicalPlaneControlToolProviderPolicy.exclusiveConflictError, gc.controlToolProviderID, gf.controlToolProviderID)
-		}
-		gc.controlToolProvider = gf.controlToolProvider
-		gc.controlToolProviderID = gf.controlToolProviderID
-		gc.controlToolProviderHasID = true
-	}
 	return nil
 }
 
@@ -1905,11 +1847,6 @@ func (gf *generatedFrozen) hasIdentityReplayRule(source SourceKind, rule Combina
 	if canonicalPlaneSessionClassifierPolicy.rules.RuleFor(source) == rule {
 		if !isNilValue(gf.sessionClassifier) {
 			return canonicalPlaneSessionClassifierPolicy.planeID, true
-		}
-	}
-	if canonicalPlaneControlToolProviderPolicy.rules.RuleFor(source) == rule {
-		if !isNilValue(gf.controlToolProvider) {
-			return canonicalPlaneControlToolProviderPolicy.planeID, true
 		}
 	}
 	return "", false
@@ -1971,8 +1908,6 @@ var (
 	canonicalPlaneTerminalDecisionProviderAccess         generatedAccess[terminaldecision.Provider]
 	canonicalPlaneSessionClassifierPolicy                *generatedPolicy[sessionclassification.Classifier]
 	canonicalPlaneSessionClassifierAccess                generatedAccess[sessionclassification.Classifier]
-	canonicalPlaneControlToolProviderPolicy              *generatedPolicy[controltool.Provider]
-	canonicalPlaneControlToolProviderAccess              generatedAccess[controltool.Provider]
 )
 
 func init() {
@@ -3197,54 +3132,6 @@ func init() {
 		},
 	}
 	PlaneSessionClassifier.generated = canonicalPlaneSessionClassifierAccess
-
-	canonicalPlaneControlToolProviderPolicy = &generatedPolicy[controltool.Provider]{
-		planeID:                PlaneControlToolProvider.ID,
-		rules:                  PlaneControlToolProvider.Rules,
-		nilPolicy:              PlaneControlToolProvider.NilPolicy,
-		isNil:                  PlaneControlToolProvider.IsNil,
-		validate:               PlaneControlToolProvider.Validate,
-		validateIdentity:       PlaneControlToolProvider.ValidateIdentity,
-		combine:                PlaneControlToolProvider.Combine,
-		identity:               PlaneControlToolProvider.Identity,
-		exclusiveConflictError: PlaneControlToolProvider.ExclusiveConflictError,
-		requestMaterializer:    PlaneControlToolProvider.RequestMaterializer,
-		requestBorrow:          PlaneControlToolProvider.RequestBorrow,
-		hookTarget:             PlaneControlToolProvider.HookTarget,
-		requestAccess:          PlaneControlToolProvider.RequestAccess,
-		diagStageID:            PlaneControlToolProvider.Diagnostics.StageID,
-		diagCoalesceGroup:      PlaneControlToolProvider.Diagnostics.CoalesceGroup,
-		diagOrder:              PlaneControlToolProvider.Diagnostics.Order,
-		diagMaterialize:        PlaneControlToolProvider.Diagnostics.Materialize,
-		diagPrivileges:         PlaneControlToolProvider.Diagnostics.Privileges,
-	}
-	canonicalPlaneControlToolProviderAccess = generatedAccess[controltool.Provider]{
-		policy: canonicalPlaneControlToolProviderPolicy,
-		contribute: func(gc *generatedContributions, source SourceKind, pluginID string, v controltool.Provider) error {
-			combined, err := canonicalPlaneControlToolProviderPolicy.combine(source, gc.controlToolProvider, v)
-			if err != nil {
-				return err
-			}
-			gc.controlToolProvider = combined
-			id, hasID := canonicalPlaneControlToolProviderPolicy.identity(gc.controlToolProvider)
-			gc.controlToolProviderID = id
-			gc.controlToolProviderHasID = hasID
-			return nil
-		},
-		get: func(gf *generatedFrozen) controltool.Provider {
-			if gf == nil {
-				return nil
-			}
-			return gf.controlToolProvider
-		},
-		identity: func(gf *generatedFrozen) (string, bool) {
-			if gf == nil {
-				return "", false
-			}
-			return gf.controlToolProviderID, gf.controlToolProviderHasID
-		},
-	}
-	PlaneControlToolProvider.generated = canonicalPlaneControlToolProviderAccess
 
 }
 

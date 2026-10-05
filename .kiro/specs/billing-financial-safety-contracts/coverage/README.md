@@ -2,11 +2,11 @@
 
 This directory describes what implementation must prove. It contains no passed proxy test results.
 
-The pinned source has five frontend contributions, ten builtin backend contributions and 34 connector modules. The **220** interface pairs each have **4096** base input/output modality-set coordinates, including empty masks: **901120** base obligations. Profile, operation, physical carrier and independent frontend-delivery/backend-mode expansion increases the actual universe and must be derived from the real registry. Revision 3 keeps this denominator exhaustive but uses factored conformance evidence: the base count is neither a performance target nor a requirement to execute 901120 full-stack provider calls.
+The pinned source has five frontend contributions, ten builtin backend contributions and 34 connector modules. The **220** interface pairs each have **4096** base input/output modality-set coordinates, including empty masks: **901120** base obligations. Profile, operation, physical carrier and independent frontend-delivery/backend-mode expansion increases the actual execution universe and must be derived from the real registry. The base count is not a performance target or a claim that those calls all succeed.
 
 ## Required disposition rules
 
-A native-supported finite-priced combination must have a complete immutable proof chain: real frontend contract evidence, real backend/profile contract evidence, common financial-kernel evidence, and a qualifying mandatory real-stack witness. A genuinely impossible native combination must reject before payable work. Missing proxy implementation, absent tariffs, missing proof components, missing mandatory witnesses, unexecuted tests and unavailable infrastructure are blockers, not native limitations. The capability oracle is independent of production readiness. Safe rejection alone cannot earn a required-positive certificate.
+A native-supported finite-priced combination must complete real billing. A genuinely impossible native combination must reject before payable work. Missing proxy implementation, absent tariffs, unexecuted tests and unavailable infrastructure are blockers, not native limitations. The capability oracle is independent of production readiness. Safe rejection alone cannot earn a required-positive certificate.
 
 The primary content vocabulary is text, image, audio, video, document and binary. Tool/JSON/reasoning/cache/candidate/resource/lifecycle modifiers are independently preserved and exercised. Native protocols need not support every set. The canonical finite reference fixture covers the full vocabulary without making unsupported vendor claims.
 
@@ -14,7 +14,7 @@ The primary content vocabulary is text, image, audio, video, document and binary
 
 Run `python tools/coverage_lattice.py --summary` from this specification directory for the exact baseline obligation count. `--frontend frontend:gemini --backend builtin:gemini --output /path/to/pair.jsonl` emits one deterministic 4096-row pair shard. Every row is **NOT_RUN**; this is not a test runner or a support certificate.
 
-Run `python tools/verify_coverage.py` to validate the inventory, explicit expansion policy and independent synthetic arithmetic. `--self-test` runs negative artifact mutations. Actual repository work and release verification are assigned to 11.x-15.x and the original 10.2 gate. Task 15.1 exhaustively classifies coordinates and composes evidence; it runs full-stack witnesses at the stable pair/profile/transport/connector and cross-boundary seams defined by revision 3 rather than repeating the whole stack for every coordinate.
+Run `python tools/verify_coverage.py` to validate the inventory, explicit expansion policy and independent synthetic arithmetic. `--self-test` runs negative artifact mutations. Actual repository work and release verification are assigned to 11.x-15.x and the original 10.2 gate.
 
 ## Concrete connector packet ownership
 

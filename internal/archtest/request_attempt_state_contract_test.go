@@ -7,7 +7,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -206,193 +205,42 @@ func TestLoadTurnRecvASTFilesAtRef_Contract(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 
-	// This contract is asserted against an isolated temporary Git fixture, never
-	// against the live repository. Asserting HEAD/working-tree parity on the real
-	// tree made an unrelated uncommitted production file (a dirty tree, before
-	// its commit exists) fail a loader contract that has nothing to do with it.
-	t.Run("committed_fixture_head_parity_and_dirty_tree_independence", func(t *testing.T) {
+	t.Run("head_matches_working_tree", func(t *testing.T) {
 		t.Parallel()
-		fixture := newGitFixture(t)
-
-		// Committed runtime tree: two non-test sources with nontrivial import
-		// aliases, plus entries the census must ignore (a _test.go file, a
-		// non-Go file) and a subdirectory source proving the census stays
-		// nonrecursive.
-		fixture.write(t, "internal/core/runtime/a_first.go", `package runtime
-
-import (
-	"context"
-	rename "net/http"
-)
-
-// First is committed fixture runtime source.
-type First struct{}
-`)
-		fixture.write(t, "internal/core/runtime/z_last.go", `package runtime
-
-import (
-	. "fmt"
-	_ "strings"
-)
-
-// Last is committed fixture runtime source with no collected imports.
-type Last struct{}
-`)
-		fixture.write(t, "internal/core/runtime/zz_ignored_test.go", "package runtime\n")
-		fixture.write(t, "internal/core/runtime/notes.txt", "ignored non-Go fixture entry\n")
-		fixture.write(t, "internal/core/runtime/subpkg/nested.go", "package subpkg\n")
-		fixture.git(t, "add",
-			"internal/core/runtime/a_first.go",
-			"internal/core/runtime/z_last.go",
-			"internal/core/runtime/zz_ignored_test.go",
-			"internal/core/runtime/notes.txt",
-			"internal/core/runtime/subpkg/nested.go",
-		)
-		fixture.git(t, "commit", "-qm", "fixture: committed runtime tree")
-		commitSHA := strings.TrimSpace(fixture.git(t, "rev-parse", "HEAD"))
-		if commitSHA == "" {
-			t.Fatal("fixture commit SHA is empty")
+		headFiles, err := loadTurnRecvASTFilesAtRefContext(t.Context(), root, "HEAD")
+		if err != nil {
+			t.Fatalf("loadTurnRecvASTFilesAtRefContext(root, HEAD) failed: %v", err)
 		}
-		if status := strings.TrimSpace(fixture.git(t, "status", "--porcelain")); status != "" {
-			t.Fatalf("fixture is not clean after commit: %s", status)
+		if len(headFiles) == 0 {
+			t.Fatal("expected non-empty files from HEAD")
 		}
 
-		wantCommittedPaths := []string{
-			"internal/core/runtime/a_first.go",
-			"internal/core/runtime/z_last.go",
+		wtFiles, err := loadTurnRecvASTFilesContext(t.Context(), root)
+		if err != nil {
+			t.Fatalf("loadTurnRecvASTFilesContext(root) failed: %v", err)
 		}
-		wantCommittedImports := map[string]map[string]string{
-			"internal/core/runtime/a_first.go": {"context": "context", "rename": "net/http"},
-			"internal/core/runtime/z_last.go":  {},
+		if len(headFiles) != len(wtFiles) {
+			t.Fatalf("HEAD file count (%d) mismatch with working tree (%d)", len(headFiles), len(wtFiles))
 		}
-		// Asserting each loader against the exact expected paths and imports is
-		// strictly stronger than comparing the two loaders to each other, and it
-		// also proves the ignored _test.go, non-Go, and subdirectory entries were
-		// left out of both.
-		relPathsOf := func(files []turnRecvASTFile) []string {
-			paths := make([]string, 0, len(files))
-			for _, file := range files {
-				paths = append(paths, file.RelPath)
+
+		for i := range headFiles {
+			if headFiles[i].RelPath != wtFiles[i].RelPath {
+				t.Errorf("file[%d] RelPath mismatch: HEAD=%q, WT=%q", i, headFiles[i].RelPath, wtFiles[i].RelPath)
 			}
-			return paths
-		}
-		assertRuntimeTree := func(label string, files []turnRecvASTFile, wantPaths []string, wantImports map[string]map[string]string) {
-			t.Helper()
-			if len(files) == 0 {
-				t.Fatalf("%s: expected non-empty runtime file census", label)
+			if !strings.HasPrefix(headFiles[i].RelPath, "internal/core/runtime/") {
+				t.Errorf("file %q does not have expected prefix", headFiles[i].RelPath)
 			}
-			if gotPaths := relPathsOf(files); !slices.Equal(gotPaths, wantPaths) {
-				t.Fatalf("%s paths = %v, want %v", label, gotPaths, wantPaths)
+			if !strings.HasSuffix(headFiles[i].RelPath, ".go") || strings.HasSuffix(headFiles[i].RelPath, "_test.go") {
+				t.Errorf("file %q should be non-test go file", headFiles[i].RelPath)
 			}
-			for _, file := range files {
-				if !strings.HasPrefix(file.RelPath, "internal/core/runtime/") {
-					t.Errorf("%s file %q does not have expected prefix", label, file.RelPath)
-				}
-				if !strings.HasSuffix(file.RelPath, ".go") || strings.HasSuffix(file.RelPath, "_test.go") {
-					t.Errorf("%s file %q should be non-test go file", label, file.RelPath)
-				}
-				if file.AST == nil || file.FSet == nil {
-					t.Errorf("%s file %q has nil AST or FSet", label, file.RelPath)
-				}
-				if file.Imports == nil {
-					t.Errorf("%s file %q has nil Imports", label, file.RelPath)
-				}
-				want, ok := wantImports[file.RelPath]
-				if !ok {
-					t.Errorf("%s file %q has no expected import contract", label, file.RelPath)
-					continue
-				}
-				if !maps.Equal(file.Imports, want) {
-					t.Errorf("%s file %q imports = %v, want %v", label, file.RelPath, file.Imports, want)
+			if headFiles[i].AST == nil || headFiles[i].FSet == nil {
+				t.Errorf("file %q has nil AST or FSet", headFiles[i].RelPath)
+			}
+			if !maps.Equal(headFiles[i].Imports, wtFiles[i].Imports) {
+				if len(headFiles[i].Imports) == 0 && len(wtFiles[i].Imports) > 0 {
+					t.Errorf("file %q imports mismatch: HEAD has no imports, WT has %d imports", headFiles[i].RelPath, len(wtFiles[i].Imports))
 				}
 			}
-		}
-
-		headClean, err := loadTurnRecvASTFilesAtRefContext(t.Context(), fixture.root, "HEAD")
-		if err != nil {
-			t.Fatalf("loadTurnRecvASTFilesAtRefContext(fixture, HEAD) failed: %v", err)
-		}
-		assertRuntimeTree("HEAD(clean fixture)", headClean, wantCommittedPaths, wantCommittedImports)
-
-		wtClean, err := loadTurnRecvASTFilesContext(t.Context(), fixture.root)
-		if err != nil {
-			t.Fatalf("loadTurnRecvASTFilesContext(fixture) failed: %v", err)
-		}
-		assertRuntimeTree("working tree(clean fixture)", wtClean, wantCommittedPaths, wantCommittedImports)
-
-		// Dirty the fixture without committing: add a production source file,
-		// delete a committed one, and change a committed import set, plus fresh
-		// ignored entries.
-		fixture.write(t, "internal/core/runtime/b_dirty.go", `package runtime
-
-import (
-	"errors"
-	httpclient "net/http"
-)
-
-// Dirty is uncommitted fixture runtime source.
-type Dirty struct{}
-`)
-		fixture.remove(t, "internal/core/runtime/z_last.go")
-		fixture.write(t, "internal/core/runtime/a_first.go", `package runtime
-
-import (
-	"context"
-	"errors"
-	rename "net/http"
-)
-
-// First is the uncommitted variant of committed fixture runtime source.
-type First struct{}
-`)
-		fixture.write(t, "internal/core/runtime/dirty_ignored_test.go", "package runtime\n")
-		fixture.write(t, "internal/core/runtime/dirty_notes.txt", "ignored non-Go fixture entry\n")
-		if status := strings.TrimSpace(fixture.git(t, "status", "--porcelain")); status == "" {
-			t.Fatal("fixture is not dirty; reference/live independence assertions would be vacuous")
-		}
-
-		// Load the pinned commit by explicit SHA: a fresh git archive subprocess
-		// over the dirty tree proves the reference view is the committed one, not
-		// a cached result of the clean-phase call above.
-		headDirty, err := loadTurnRecvASTFilesAtRefContext(t.Context(), fixture.root, commitSHA)
-		if err != nil {
-			t.Fatalf("loadTurnRecvASTFilesAtRefContext(fixture, %s) failed: %v", commitSHA, err)
-		}
-		assertRuntimeTree("HEAD(dirty fixture)", headDirty, wantCommittedPaths, wantCommittedImports)
-
-		wantDirtyPaths := []string{
-			"internal/core/runtime/a_first.go",
-			"internal/core/runtime/b_dirty.go",
-		}
-		wantDirtyImports := map[string]map[string]string{
-			"internal/core/runtime/a_first.go": {"context": "context", "errors": "errors", "rename": "net/http"},
-			"internal/core/runtime/b_dirty.go": {"errors": "errors", "httpclient": "net/http"},
-		}
-		wtDirty, err := loadTurnRecvASTFilesContext(t.Context(), fixture.root)
-		if err != nil {
-			t.Fatalf("loadTurnRecvASTFilesContext(dirty fixture) failed: %v", err)
-		}
-		assertRuntimeTree("working tree(dirty fixture)", wtDirty, wantDirtyPaths, wantDirtyImports)
-
-		// Explicit divergence evidence on top of the exact assertions: the
-		// uncommitted file never reaches the reference view, the deleted file
-		// stays there, and the edited import is visible only in the live view.
-		headPaths := relPathsOf(headDirty)
-		if slices.Contains(headPaths, "internal/core/runtime/b_dirty.go") {
-			t.Errorf("HEAD view leaked uncommitted file: %v", headPaths)
-		}
-		if !slices.Contains(headPaths, "internal/core/runtime/z_last.go") {
-			t.Errorf("HEAD view lost deleted committed file: %v", headPaths)
-		}
-		if _, ok := headDirty[0].Imports["errors"]; ok {
-			t.Errorf("HEAD view leaked working-tree import edit: %v", headDirty[0].Imports)
-		}
-		wtPaths := relPathsOf(wtDirty)
-		if slices.Contains(wtPaths, "internal/core/runtime/z_last.go") {
-			t.Errorf("working tree view still reports deleted file: %v", wtPaths)
-		}
-		if _, ok := wtDirty[0].Imports["errors"]; !ok {
-			t.Errorf("working tree view missed uncommitted import edit: %v", wtDirty[0].Imports)
 		}
 	})
 

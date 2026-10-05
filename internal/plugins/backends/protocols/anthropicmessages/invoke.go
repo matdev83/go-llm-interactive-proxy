@@ -256,19 +256,7 @@ func messageHasPartKind(m lipapi.Message, kind lipapi.PartKind) bool {
 
 func messageToParam(m lipapi.Message) (anthropic.MessageParam, error) {
 	switch m.Role {
-	case lipapi.RoleUser, lipapi.RoleDeveloper:
-		// lipapi.RoleDeveloper carries proxy-owned continuation steering text
-		// (internal/core/runtime/terminal_decision_continuation.go places it at
-		// AfterIngressTail) and Anthropic's Messages role vocabulary has no
-		// developer value, so it is deliberately coerced onto the user wire role:
-		// the provider reads proxy-owned instruction text as a client utterance,
-		// and the canonical role survives only in the proxy's own record, never
-		// on the provider wire. This is the lossy-but-modeled downgrade; it is not
-		// lifted into System, because a mid-conversation system block is
-		// model-gated, placement-constrained, and would destroy the trajectory
-		// ordering the generic runtime depends on. The NormalizeRoles
-		// compatible-provider shim is intentionally not reused here: it also
-		// rewrites assistant turns, which Anthropic's own wire accepts.
+	case lipapi.RoleUser:
 		return userMessageParam(m)
 	case lipapi.RoleAssistant:
 		return assistantMessageParam(m)

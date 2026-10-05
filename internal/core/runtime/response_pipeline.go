@@ -60,15 +60,6 @@ type responsePipeline struct {
 
 	recoverDrain []lipapi.Event
 
-	// pending owns this turn's private pending-completion publication state as one
-	// cohesive value: the prepared bounded candidate, the once-only accepted
-	// publication claim, the refreshed customer usage, and the already-observed
-	// events that still have to reach the client in canonical order. It is held
-	// until the accepted normal request-terminal winner publishes it, and dropped
-	// whole by every other path. The zero value is already correct, so a directly
-	// constructed pipeline needs no allocation ceremony and every seam is total.
-	pending pendingPublicationState
-
 	// toolClass and committedTools live for the logical response. The active
 	// attempt's assembler/finalizer remains on attemptSession and is replaced
 	// with every B-leg.
@@ -267,17 +258,8 @@ func clearAttemptToolState(p *responsePipeline, attempt *attemptSession) {
 	}
 }
 
-// clearAttemptState is the attempt-retirement cleanup chokepoint. It extends the
-// existing ordinary tool cleanup with the private pending-completion publication,
-// so Close, cancellation, attempt loss, and replacement dispose the prepared
-// candidate, the staged batch, and the undelivered drain together.
-//
-// It is deliberately NOT reached from the winning attempt's ordinary normal
-// cleanup: a legitimately winning pending snapshot survives until its accepted
-// callback, its activation, or its own retirement path disposes it.
 func (p *responsePipeline) clearAttemptState(attempt *attemptSession) {
 	clearAttemptToolState(p, attempt)
-	p.discardPendingCompletion()
 }
 
 func (p *responsePipeline) enrichToolEvent(te *lipapi.ToolEvent) {
@@ -337,13 +319,6 @@ func (p *responsePipeline) markContinuationLifecyclePending() {
 	}
 	p.eventsMu.Lock()
 	p.continuationLifecyclePending = true
-	// Snapshot the attempt boundary now: the newly published attempt has
-	// released nothing yet, so the current cumulative text is exactly the prior
-	// attempts' share. Every continuation re-snapshots, so the boundary always
-	// names the start of the current attempt. A nil customer is a no-op; the
-	// boundary stays unset and the projection falls back to the cumulative
-	// text.
-	p.customer.markAttemptBoundary()
 	p.eventsMu.Unlock()
 }
 
@@ -370,9 +345,6 @@ func (p *responsePipeline) resetForReplacement() {
 	if p == nil {
 		return
 	}
-	// A replacement retires the current attempt, so its private candidate, staged
-	// batch, and drain are disposed before the new B-leg is prepared.
-	p.discardPendingCompletion()
 	p.eventsMu.Lock()
 	p.ensure()
 	p.seenEvents = nil
@@ -395,27 +367,6 @@ func (p *responsePipeline) releasedOutputText() string {
 	if p.customer != nil {
 		text, _, _, _ := p.customer.Snapshot()
 		return text
-	}
-	return p.visibleText.String()
-}
-
-// attemptLocalOutputText reports the assistant text released since the latest
-// continuation boundary, for progress detection only. Delivery, accounting,
-// and history keep reading the cumulative accumulators.
-//
-// The customer buffer is append-only between a boundary snapshot and the next
-// reset, so the boundary is always a prefix of the current text. A boundary
-// that is not a prefix can only mean the buffer was replaced without a reset,
-// in which case the cumulative text is returned unchanged.
-func (p *responsePipeline) attemptLocalOutputText() string {
-	if p == nil {
-		return ""
-	}
-	p.eventsMu.Lock()
-	defer p.eventsMu.Unlock()
-	p.ensure()
-	if p.customer != nil {
-		return p.customer.attemptText()
 	}
 	return p.visibleText.String()
 }
@@ -633,8 +584,10 @@ func (p *responsePipeline) completionGatedEmit(
 	buffered := slices.Clone(p.gateBuf)
 	p.eventsMu.Unlock()
 
-	gateResult, err := p.runCompletionGateChain(ctx, gates, buffered, in)
 	committedForPanic := in.committed || gateBufHasCommittedOutput(buffered)
+	gateResult, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() (extensions.CompletionGateChainResult, error) {
+		return extensions.ApplyCompletionGateChain(ctx, gates, in.meta, buffered, in.committed, in.services, in.stageLog)
+	})
 	if err != nil {
 		p.eventsMu.Lock()
 		p.gateBuf = nil
@@ -654,48 +607,13 @@ func (p *responsePipeline) completionGatedEmit(
 		p.eventsMu.Lock()
 		p.gateBuf = nil
 		p.eventsMu.Unlock()
-		return lipapi.Event{}, false, errCompletionGateEmptyStream
+		return lipapi.Event{}, false, errors.New("runtime: completion gate produced empty stream")
 	}
 	p.eventsMu.Lock()
 	p.gateBuf = nil
 	p.gateDrain = slices.Clone(out[1:])
 	p.eventsMu.Unlock()
 	return out[0], gateResult.Replaced, nil
-}
-
-// errCompletionGateEmptyStream is the bounded failure for a completion-gate
-// chain that produced no canonical stream at all.
-var errCompletionGateEmptyStream = errors.New("runtime: completion gate produced empty stream")
-
-// runCompletionGateChain is the single existing completion-gate evaluation. Both
-// the ordinary buffered release and the private pending-publication preparation
-// run the same chain through this one function, so a response is never gated
-// twice and no second gate engine exists.
-func (p *responsePipeline) runCompletionGateChain(
-	ctx context.Context,
-	gates []completion.Gate,
-	buffered []lipapi.Event,
-	in responseGateInput,
-) (extensions.CompletionGateChainResult, error) {
-	if len(gates) == 0 {
-		return extensions.CompletionGateChainResult{Events: slices.Clone(buffered)}, nil
-	}
-	return safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() (extensions.CompletionGateChainResult, error) {
-		return extensions.ApplyCompletionGateChain(ctx, gates, in.meta, buffered, in.committed, in.services, in.stageLog)
-	})
-}
-
-// gateBufferSnapshot returns a coherent copy of the already-transformed
-// completion-gate buffer and whether that buffer already failed open to live
-// passthrough. It never appends, so preparing a private candidate cannot overflow
-// the existing bounds or expose it early.
-func (p *responsePipeline) gateBufferSnapshot() ([]lipapi.Event, bool) {
-	if p == nil {
-		return nil, false
-	}
-	p.eventsMu.Lock()
-	defer p.eventsMu.Unlock()
-	return slices.Clone(p.gateBuf), p.gateLive
 }
 
 func (p *responsePipeline) popGateDrainHead() (lipapi.Event, bool) {
@@ -759,44 +677,22 @@ func (p *responsePipeline) setGateDrain(events []lipapi.Event) {
 		return
 	}
 	p.eventsMu.Lock()
-	defer p.eventsMu.Unlock()
-	p.setGateDrainLocked(events)
-}
-
-// setGateDrainLocked is the one owner of the gate-drain value. The caller must
-// hold [responsePipeline.eventsMu].
-func (p *responsePipeline) setGateDrainLocked(events []lipapi.Event) {
 	p.gateDrain = slices.Clone(events)
+	p.eventsMu.Unlock()
 }
 
 func (p *responsePipeline) popGateDrain() (lipapi.Event, bool) {
 	return p.popGateDrainHead()
 }
 
-// abandonIncompleteGateBuffer drops an incomplete buffered completion at EOF. It
-// is one half of releaseCompletionGateBuffers: a private pending publication owns
-// the whole evaluated sequence instead, so it releases both the buffer and the
-// drain unconditionally.
 func (p *responsePipeline) abandonIncompleteGateBuffer() {
-	p.releaseCompletionGateBuffers(false)
-}
-
-// releaseCompletionGateBuffers is the one owner of the completion-gate buffer and
-// drain release. all releases an incomplete or completed buffer as well, which is
-// what a prepared private candidate needs because it owns the evaluated sequence
-// itself.
-func (p *responsePipeline) releaseCompletionGateBuffers(all bool) {
 	if p == nil {
 		return
 	}
 	p.eventsMu.Lock()
 	defer p.eventsMu.Unlock()
-	release := all || (!p.gateLive && !extensions.StreamFinished(p.gateBuf))
-	if release {
+	if !p.gateLive && len(p.gateBuf) > 0 && !extensions.StreamFinished(p.gateBuf) {
 		p.gateBuf = nil
-	}
-	if all {
-		p.setGateDrainLocked(nil)
 	}
 }
 

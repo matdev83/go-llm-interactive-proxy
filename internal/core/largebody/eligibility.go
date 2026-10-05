@@ -26,7 +26,7 @@ import (
 
 const (
 	// WireEligibilityPlaneCount is the closed V1 plane census (Task 1.9).
-	WireEligibilityPlaneCount = 28
+	WireEligibilityPlaneCount = 27
 	// maxEligibilityIDChars bounds unfamiliar IDs echoed in diagnostics so
 	// error text stays bounded (Requirement 22.3).
 	maxEligibilityIDChars = 64
@@ -107,7 +107,6 @@ var wireEligibilityPlaneOrder = [WireEligibilityPlaneCount]string{
 	"local_turn_handlers",
 	"terminal_decision_provider",
 	"session_classifier",
-	"control_tool_provider",
 }
 
 // WireEligibilityPlaneID resolves a fixed plane index to its stable ID.
@@ -211,7 +210,7 @@ const (
 )
 
 // PlaneEligibilityInput is one frozen plane fact: stable ID, V1 access
-// class, and generation occupancy. The slice must cover exactly the 28 known
+// class, and generation occupancy. The slice must cover exactly the 27 known
 // planes in any order; unknown, duplicate, missing, or unclassified entries
 // fail compilation.
 type PlaneEligibilityInput struct {
@@ -414,8 +413,7 @@ func compilePlaneBlockers(planes []PlaneEligibilityInput) (uint32, error) {
 // isV1NonNegotiableCanonicalPlane reports whether plane id names a non-negotiable
 // canonical plane in V1 (Requirements 5.4, 13.4, 13.5, 19.4; Tasks 12.4, 12.5).
 func isV1NonNegotiableCanonicalPlane(id string) bool {
-	return id == "local_turn_handlers" || id == "secret_guards" || id == "secret_guard_execution" ||
-		id == "terminal_decision_provider" || id == "control_tool_provider"
+	return id == "local_turn_handlers" || id == "secret_guards" || id == "secret_guard_execution" || id == "terminal_decision_provider"
 }
 
 // compileHookChains records frozen bus occupancy and the occupied

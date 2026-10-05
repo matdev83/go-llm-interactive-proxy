@@ -26,7 +26,7 @@
     {"id":"cline_user_agent_discussion","reference":"https://github.com/cline/cline/discussions/8377","description":"Cline discussion documenting inconsistent and SDK-like User-Agent behavior."},
     {"id":"tool_name_survey","reference":".kiro/specs/archive/tool-call-classification/research.md#External-Harness-Tool-Name-Survey","description":"The archived survey records cross-harness tool names and aliases that informed canonical tool classification."},
     {"id":"canonical_tool_classifier","reference":"pkg/lipapi/tool_classification.go#L10-L69","description":"ClassifyToolName owns the exact name-to-category mapping and ignores descriptions and arguments."},
-    {"id":"explicit_completion_research","reference":".kiro/specs/archive/agent-loop-explicit-completion-protocol/research.md#Cline","description":"Cline and Roo use attempt_completion as a completion signal; this alone is not a client identity rule."},
+    {"id":"explicit_completion_research","reference":".kiro/specs/agent-loop-explicit-completion-protocol/research.md#Cline","description":"Cline and Roo use attempt_completion as a completion signal; this alone is not a client identity rule."},
     {"id":"compaction_agent_research","reference":".kiro/specs/archive/compaction-event-detection/research.md#Agent-Rule-Families","description":"The compaction survey records prompt/summary signatures, including Aider, which are outside session identity evidence."}
   ],
   "harnessIdentitySupport": [

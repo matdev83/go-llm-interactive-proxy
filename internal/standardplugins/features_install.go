@@ -45,18 +45,9 @@ func featureAgentLoopGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if !cfg.Enabled {
 		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
 	}
-	provider, err := agentloopguard.NewConfiguredProvider(cfg)
-	if err != nil {
-		return lipfeature.FeatureBundle{}, err
-	}
 	cs := lipfeature.NewContributionSet()
-	if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, agentloopguard.ID, provider); err != nil {
+	if err := lipfeature.Contribute(cs, lipfeature.PlaneTerminalDecisionProvider, agentloopguard.ID, agentloopguard.NewProvider(cfg)); err != nil {
 		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", agentloopguard.ID, err)
-	}
-	if cfg.Strategy == agentloopguard.StrategyAttemptCompletion {
-		if err := lipfeature.Contribute(cs, lipfeature.PlaneControlToolProvider, agentloopguard.ID, agentloopguard.NewCompletionToolProvider()); err != nil {
-			return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", agentloopguard.ID, err)
-		}
 	}
 	return lipfeature.BundleFromPlanes(cs.Freeze(), nil), nil
 }
