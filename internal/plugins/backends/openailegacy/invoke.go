@@ -149,6 +149,9 @@ func messageToChatParam(m lipapi.Message) (openai.ChatCompletionMessageParamUnio
 	case lipapi.RoleUser, lipapi.RoleSystem:
 		return userOrSystemChatMessage(m)
 
+	case lipapi.RoleDeveloper:
+		return developerChatMessage(m)
+
 	default:
 		return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: unsupported message role %q", m.Role)
 	}
@@ -261,6 +264,21 @@ func assistantPartJSONToToolCall(p lipapi.Part) (openai.ChatCompletionMessageToo
 			},
 		},
 	}, nil
+}
+
+// developerChatMessage encodes a canonical developer-role message.
+//
+// Chat Completions carries OpenAI's own "developer" wire role, so the canonical
+// role maps literally instead of being rejected or re-labelled as a user turn.
+// The generic continuation steering transaction writes its instruction as a
+// developer-role message, so this is what makes a bounded protocol-repair leg
+// encodable on this adapter. The wire role accepts text content only, so a
+// non-text developer message fails explicitly instead of losing parts.
+func developerChatMessage(m lipapi.Message) (openai.ChatCompletionMessageParamUnion, error) {
+	if len(m.Parts) == 1 && m.Parts[0].Kind == lipapi.PartText {
+		return openai.DeveloperMessage(m.Parts[0].Text), nil
+	}
+	return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: developer message must be plain text for this adapter")
 }
 
 func userOrSystemChatMessage(m lipapi.Message) (openai.ChatCompletionMessageParamUnion, error) {

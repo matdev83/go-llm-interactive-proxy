@@ -12,6 +12,136 @@ import (
 
 const sourceCertCycles = 1000
 
+// TestFixedSource_AtomicReplaceWithRecycledInodeIsEligible proves the atomicity
+// gate keys on full file identity, not on the inode number alone. A rejected
+// candidate is still an atomic rename, so it frees the previously accepted
+// file's inode; the following recovery rename can be handed that same inode
+// number back by the filesystem.
+//
+// Reusing an inode number is not by itself proof of a different physical file:
+// birth timestamps can coincide under rapid creation, so a reused inode number
+// can yield the same full identity as the accepted file, and identities from
+// different platform or scheme pairs are not comparable at all. In both cases a
+// distinct-identity precondition is unavailable, the candidate is
+// indistinguishable from an in-place rewrite, and the gate must fail closed.
+// The test therefore compares the candidate's full identity against the
+// accepted one and asserts whichever outcome the platform actually produces.
+func TestFixedSource_AtomicReplaceWithRecycledInodeIsEligible(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cfg.yaml")
+
+	atomicWrite := func(body string) {
+		t.Helper()
+		tmp := path + ".tmp"
+		if err := os.WriteFile(tmp, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	atomicWrite("body-a")
+	info1, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := NewFixedSource(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap1, res1, err := src.ReadStable(ctx, nil)
+	if err != nil || res1 != AtomicEligible {
+		t.Fatalf("startup read: res=%q err=%v", res1, err)
+	}
+	active := &ActiveSourceVersion{
+		HandleIdentity: snap1.HandleIdentity,
+		PrivateDigest:  snap1.PrivateDigest,
+	}
+
+	// A candidate that fails validation is still renamed atomically, freeing the
+	// original inode. The failed content is rejected at read time, but the
+	// rename already happened on disk.
+	atomicWrite("::: not yaml :::{{")
+	if _, res, err := src.ReadStable(ctx, active); err == nil || res != AtomicReject {
+		t.Fatalf("failed candidate read: res=%q err=%v, want rejection", res, err)
+	}
+
+	// The recovery rename may be allocated the freed inode number.
+	atomicWrite("body-b")
+	info2, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only exercise the recycled-inode path when the filesystem actually
+	// reallocated the freed inode number. Otherwise the test would pass
+	// without proving anything, which is worse than an explicit skip.
+	if !os.SameFile(info1, info2) {
+		t.Skipf("filesystem did not recycle the freed inode number; ABA condition not reproducible here")
+	}
+
+	// Inspect the recovery candidate's full identity before asserting an
+	// outcome: birth timestamps can coincide under rapid creation, so a reused
+	// inode number can yield the same full identity as the accepted file, and
+	// identities from different platform or scheme pairs cannot prove the
+	// candidate is a different physical file. Either way there is no
+	// distinct-identity precondition, so the gate must fail closed.
+	candidate, res, err := src.ReadStable(ctx, nil)
+	if err != nil || res != AtomicEligible {
+		t.Fatalf("recovery candidate read: res=%q err=%v", res, err)
+	}
+	if string(candidate.Bytes) != "body-b" {
+		t.Fatalf("recovery candidate bytes=%q want body-b", candidate.Bytes)
+	}
+	comparable := candidate.HandleIdentity.Platform == snap1.HandleIdentity.Platform &&
+		candidate.HandleIdentity.Scheme == snap1.HandleIdentity.Scheme
+	if !comparable || candidate.HandleIdentity == snap1.HandleIdentity {
+		_, gatedRes, gatedErr := src.ReadStable(ctx, active)
+		if gatedErr == nil {
+			t.Fatalf("recycled-inode candidate must be rejected, got res=%q", gatedRes)
+		}
+		if gatedRes != AtomicReject {
+			t.Fatalf("recycled-inode candidate res=%q want %q", gatedRes, AtomicReject)
+		}
+		if cat, _ := CategoryOf(gatedErr); cat != CategoryNonAtomicUpdate {
+			t.Fatalf("recycled-inode candidate category=%v want %v", cat, CategoryNonAtomicUpdate)
+		}
+		t.Logf("recycled inode number did not yield a distinct comparable identity "+
+			"(identical=%v comparable=%v): fail-closed outcome asserted; the positive ABA "+
+			"precondition is not reproducible on this filesystem",
+			candidate.HandleIdentity == snap1.HandleIdentity, comparable)
+		return
+	}
+
+	snap2, res2, err := src.ReadStable(ctx, active)
+	if err != nil {
+		t.Fatalf("recycled-inode atomic replace rejected: %v", err)
+	}
+	if res2 != AtomicEligible {
+		t.Fatalf("recycled-inode atomic replace: res=%q want eligible", res2)
+	}
+	if string(snap2.Bytes) != "body-b" {
+		t.Fatalf("recycled-inode bytes=%q want body-b", snap2.Bytes)
+	}
+
+	// The security gate is preserved: an in-place rewrite of the accepted inode
+	// advances neither identity nor birth time and must stay rejected.
+	active2 := &ActiveSourceVersion{
+		HandleIdentity: snap2.HandleIdentity,
+		PrivateDigest:  snap2.PrivateDigest,
+	}
+	if err := os.WriteFile(path, []byte("body-c"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := src.ReadStable(ctx, active2); err == nil {
+		t.Fatal("in-place rewrite must be rejected")
+	} else if cat, _ := CategoryOf(err); cat != CategoryNonAtomicUpdate {
+		t.Fatalf("in-place rewrite category=%v want %v", cat, CategoryNonAtomicUpdate)
+	}
+}
+
 func TestFixedSource_PinnedAtomicRecovery(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "config.yaml")

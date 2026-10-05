@@ -6,9 +6,7 @@ import (
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/steering"
 )
 
 // conversationViewReader returns the optional narrow reader.
@@ -92,39 +90,6 @@ func (e *Executor) snapshotAndProject(ctx context.Context, aLegID string, call l
 		return conversationprojection.Snapshot{}, nil, lipapi.Call{}, fmt.Errorf("executor: conversation view snapshot: %w", err)
 	}
 
-	// External non-detached ingress stale cleanup (Finding 5 / Req 6.14, 12.14):
-	// Inspect the snapshot for active "alg-rec" overlay. Deactivate ONLY when active.
-	if !execctx.IsSuppressedPluginID(ctx, "agent_loop_guard") {
-		hasActiveAlgRec := false
-		for _, ov := range snap.Steering {
-			if ov.OverlayID == "alg-rec" && ov.Active {
-				hasActiveAlgRec = true
-				break
-			}
-		}
-		if hasActiveAlgRec {
-			if e.SteeringWriterFactory != nil {
-				writer, werr := e.SteeringWriterFactory(ctx, aLegID, nil)
-				if werr == nil && writer != nil {
-					_, derr := writer.Deactivate(ctx, steering.OverlayID("alg-rec"))
-					if derr != nil {
-						if obs := e.conversationViewObserver(); obs != nil {
-							safeObserver{obs: obs}.OnProjectionFailure(conversationprojection.StageEarly)
-						}
-						return conversationprojection.Snapshot{}, nil, lipapi.Call{}, fmt.Errorf("executor: deactivate stale recovery steering: %w", derr)
-					}
-					// Re-read snapshot after deactivation so projection uses clean snapshot
-					snap, err = reader.Snapshot(ctx, aLegID)
-					if err != nil {
-						if obs := e.conversationViewObserver(); obs != nil {
-							safeObserver{obs: obs}.OnProjectionFailure(conversationprojection.StageEarly)
-						}
-						return conversationprojection.Snapshot{}, nil, lipapi.Call{}, fmt.Errorf("executor: conversation view snapshot after stale cleanup: %w", err)
-					}
-				}
-			}
-		}
-	}
 	// Fast path: empty snapshot must remain identity-preserving (no clone)
 	// to keep no-op evidence EffectNone and avoid spurious canonical diff.
 	if len(snap.NeverBackend) == 0 && len(snap.Steering) == 0 {

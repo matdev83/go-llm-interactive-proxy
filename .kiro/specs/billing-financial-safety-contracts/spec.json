@@ -1,7 +1,7 @@
 {
   "feature_name": "billing-financial-safety-contracts",
   "created_at": "2026-10-02T00:00:00Z",
-  "updated_at": "2026-10-02T12:08:16+00:00",
+  "updated_at": "2026-10-03T23:45:00+00:00",
   "language": "en",
   "phase": "tasks-generated",
   "spec_type": "brownfield_refinement",
@@ -63,18 +63,21 @@
     "brownfield_gap_analysis": "performed_requirements_repaired",
     "design_validation": "author_validated_with_upstream_repairs",
     "task_graph": "acyclic_with_explicit_bounded_packets",
-    "artifact_checks": "passed_round2_structure_traceability_packet_freshness_and_coverage",
+    "artifact_checks": "revision3_structure_and_policy_validators_updated; implementation_not_run",
     "repository_kiro_checker": "not_run_no_checkout",
     "implementation_tests": "not_run",
     "production_release": "not_certified",
     "specification_negative_controls": 15,
-    "coverage_negative_controls": 14,
+    "coverage_negative_controls": 17,
     "synthetic_test_event_controls": 6,
-    "lattice_enumeration": "901120_unique_base_coordinates_220_pairs_all_NOT_RUN"
+    "lattice_enumeration": "901120_unique_base_coordinates_220_pairs_all_NOT_RUN",
+    "architecture_simplification_review": "completed_revision3_no_financial_semantics_weakened",
+    "coverage_evidence_model": "exhaustive_coordinate_classification_plus_factored_conformance_and_required_real_stack_witnesses",
+    "packet_overlay": "revision3_narrow_override_over_revision2_materialized_packets"
   },
   "source_review_sha256": "f81632a8b2dec83025ce200a72e25c098a0dfff7166b78dc2df6aeb047e8ddca",
-  "spec_revision": 2,
-  "revision_focus": "All frontend/backend and input/output modality combinations, including mixtures and independent transports",
+  "spec_revision": 3,
+  "revision_focus": "High-ROI architecture simplification: atomic prepared-attempt authorization, factored exhaustive conformance, explicit hexagonal policy placement, and process-vs-financial lifetime ownership",
   "packet_limits": {
     "largest_utf8_bytes": 157722,
     "largest_words": 20211,
@@ -83,5 +86,7 @@
     "context_checkpoint_tokens": 400000,
     "context_hard_stop_tokens": 600000,
     "compaction_allowed": false
-  }
+  },
+  "base_packet_revision": 2,
+  "execution_overlay_revision": 3
 }

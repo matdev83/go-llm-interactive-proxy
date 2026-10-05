@@ -76,6 +76,18 @@ func (a *toolCallAssembler) clear() {
 	a.drain = nil
 }
 
+// hasActiveCalls reports that this assembler is still holding at least one
+// ordinary call whose canonical lifecycle has not been produced yet. Such a call
+// contributed no client-visible boundary at all, so any consumer that must reason
+// about the complete ordinary boundary of a held candidate cannot represent it and
+// has to treat it as unresolved.
+//
+// The assembler is owned by the single receive loop, so this is a plain read at
+// that owner's serialization boundary and takes no lock.
+func (a *toolCallAssembler) hasActiveCalls() bool {
+	return a != nil && len(a.active) > 0
+}
+
 func (a *toolCallAssembler) popDrain() (lipapi.Event, bool) {
 	if a == nil {
 		return lipapi.Event{}, false

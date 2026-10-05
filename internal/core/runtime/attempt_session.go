@@ -24,6 +24,7 @@ import (
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -83,10 +84,15 @@ type attemptSession struct {
 	billingMu          sync.Mutex
 	accountingMu       sync.Mutex
 	sidebandMu         sync.Mutex
-	economicMu         sync.Mutex
-	checkpointMu       sync.Mutex
-	checkpointFlushMu  sync.Mutex
-	checkpointLocalMu  sync.Mutex
+	// controlMu guards the private control-call state only: the capture, the
+	// pending outcome, the handoff bookkeeping, and the released marker. It is held
+	// for bounded field work and never across Provider.Handle, backend
+	// Recv/Cancel/Close, or a terminal effect.
+	controlMu         sync.Mutex
+	economicMu        sync.Mutex
+	checkpointMu      sync.Mutex
+	checkpointFlushMu sync.Mutex
+	checkpointLocalMu sync.Mutex
 
 	internalUsageKeys                     map[string]struct{}
 	accumulatedUsage                      []lipapi.Event
@@ -132,8 +138,35 @@ type attemptSession struct {
 	billingStoreID    string
 	billingCallState  *billingCallState
 
-	accounting            attemptAccountingTracker
-	boundary              *coremetering.BoundaryAccumulator
+	accounting  attemptAccountingTracker
+	boundary    *coremetering.BoundaryAccumulator
+	controlTool *controlToolActivation
+	// controlCapture is the private, mutable response-side state machine for the
+	// one proxy-owned control call. It is derived from the immutable
+	// controlToolActivation above at session construction and never outlives this
+	// attempt. The backend Recv loop is its only observation owner, and controlMu
+	// orders that observation against lifecycle cleanup. The object itself outlives
+	// cleanup so a released attempt stays visible to a late caller, which then fails
+	// closed instead of looking like an attempt that never had a control protocol.
+	controlCapture *controlCallCapture
+	// controlOutcome is the normalized, validated provider outcome awaiting the
+	// later terminal owner. It is private to this attempt: it never publishes
+	// result text, synthesizes a client ToolCall/ToolResult, or asserts native
+	// completion. Losing a race with cleanup means losing it permanently, so a
+	// handler that returns after release cannot restore it.
+	controlOutcome *controltool.Outcome
+	// controlHandled records that the one permitted completion handoff already
+	// happened, so a malformed or duplicate sequence can revoke an outcome without
+	// ever invoking the pinned provider twice. The claim is taken and read under
+	// controlMu, so exactly one handoff can be in flight per attempt.
+	controlHandled bool
+	// controlReleased marks the private control state as disposed. Lifecycle
+	// cleanup — cancellation, Close, attempt loss, replacement — sets it once and
+	// never clears it, so a late backend event or a provider result that arrives
+	// after cleanup cannot revive the capture, re-invoke the provider, or fall
+	// through to ordinary client tool execution.
+	controlReleased bool
+
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
@@ -247,6 +280,11 @@ func (a *attemptSession) promptCacheSideband() (promptcache.ObservationSource, p
 	return a.promptCacheSource, a.promptCacheController
 }
 
+// discardSidebandState is the attempt lifecycle cleanup chokepoint. It detaches
+// the ordinary sideband assemblers and releases the private control-call state
+// together, so every cancellation, Close, attempt loss, and replacement path
+// releases both. The two locks are taken and released separately: no provider,
+// backend, or terminal work runs while either is held.
 func (a *attemptSession) discardSidebandState() {
 	if a == nil {
 		return
@@ -256,6 +294,7 @@ func (a *attemptSession) discardSidebandState() {
 	a.promptCacheSource = nil
 	a.promptCacheController = nil
 	a.sidebandMu.Unlock()
+	a.discardControlState()
 }
 
 type attemptSessionInput struct {
@@ -275,6 +314,7 @@ type attemptSessionInput struct {
 	billingCallState      *billingCallState
 	accounting            attemptAccountingTracker
 	boundary              *coremetering.BoundaryAccumulator
+	controlTool           *controlToolActivation
 	toolFinal             *toolCallAssembler
 	promptCacheSource     promptcache.ObservationSource
 	promptCacheController promptcache.Controller
@@ -307,7 +347,11 @@ func newAttemptSession(in attemptSessionInput) *attemptSession {
 		terminal:   newStreamTerminal(sdkterminal.ScopeAttempt), aScope: in.aScope,
 		releaseKind: authorityapp.ReleaseKindSwallowed, defaultCommand: sdkterminal.CommandBackendOpenFailure, defaultLegOutcome: billing.LegOutcomeFailed,
 		traceID: in.traceID, requestID: in.requestID, boundaryScope: in.boundaryScope, billingCallID: in.billingCallID, submissionID: in.submissionID, billingStoreID: in.billingStoreID, billingCallState: in.billingCallState,
-		accounting: in.accounting, boundary: in.boundary, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
+		accounting: in.accounting, boundary: in.boundary, controlTool: in.controlTool, toolFinal: in.toolFinal, promptCacheSource: in.promptCacheSource,
+		// The capture is derived state, not relayed input: newControlCallCapture
+		// returns nil for an absent or inactive activation, so the ordinary
+		// no-provider path performs zero response work with no extra input field.
+		controlCapture:        newControlCallCapture(in.controlTool),
 		promptCacheController: in.promptCacheController, finalStreamObs: in.finalStreamObs,
 		recordAttemptLoggedFn: in.recordAttemptLoggedFn, emitBackendEgressFn: in.emitBackendEgressFn,
 		appendBillingLegFn: in.appendBillingLegFn, now: in.now, billingEnabled: in.billingEnabled,
@@ -1486,27 +1530,35 @@ const (
 )
 
 type attemptEvidence struct {
-	Command          sdkterminal.Command
-	ReleaseKind      authorityapp.ReleaseKind
-	LegOutcome       billing.LegOutcome
-	Usage            lipapi.Event
-	Err              error
-	ObsOutcome       response.StreamOutcome
-	TraceID          string
-	ALegID           string
-	Snapshot         *coreterm.AccumulatorSnapshot
-	RecordOutcome    lipapi.AttemptOutcome
-	RecordReason     string
-	BillingReason    string
-	StartedAt        time.Time
-	StreamFallback   lipapi.Event
-	BillingState     *billingCallState
-	BillingCallID    billing.BillingCallID
-	Committed        bool
-	BillingLegFn     func(ctx context.Context, started, finished time.Time, outcome billing.LegOutcome)
-	ObserveEvent     *lipapi.Event
-	AuthorityPrepare func(context.Context) (usageEv lipapi.Event, authorityEv lipapi.Event, ok bool, err error)
-	CancelCause      *lipapi.CancelCause
+	Command        sdkterminal.Command
+	ReleaseKind    authorityapp.ReleaseKind
+	LegOutcome     billing.LegOutcome
+	Usage          lipapi.Event
+	Err            error
+	ObsOutcome     response.StreamOutcome
+	TraceID        string
+	ALegID         string
+	Snapshot       *coreterm.AccumulatorSnapshot
+	RecordOutcome  lipapi.AttemptOutcome
+	RecordReason   string
+	BillingReason  string
+	StartedAt      time.Time
+	StreamFallback lipapi.Event
+	BillingState   *billingCallState
+	BillingCallID  billing.BillingCallID
+	Committed      bool
+	BillingLegFn   func(ctx context.Context, started, finished time.Time, outcome billing.LegOutcome)
+	ObserveEvent   *lipapi.Event
+	// DeferFinalStreamObservation hands the final-client observation of the
+	// prepared usage and the finish, plus the finalStreamObs Finish, to the
+	// accepted normal publication that is about to observe additional canonical
+	// events. Attempt accounting, usage authority, billing, and teardown ownership
+	// are unchanged; only the final-client observation is deferred. The observer
+	// stays attempt-owned, is never reopened, and is finished conservatively by
+	// the abandoning caller otherwise.
+	DeferFinalStreamObservation bool
+	AuthorityPrepare            func(context.Context) (usageEv lipapi.Event, authorityEv lipapi.Event, ok bool, err error)
+	CancelCause                 *lipapi.CancelCause
 }
 
 type attemptTerminalResult struct {
@@ -1703,7 +1755,9 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 		}
 
 		// 4. Finish final-stream observation (Finish) - observe before finish inside winner.
-		if a.finalStreamObs != nil {
+		// A deferred accepted normal publication owns this observation instead, so it
+		// can observe its own prepared result before the usage and the finish.
+		if a.finalStreamObs != nil && !evidence.DeferFinalStreamObservation {
 			obsOutcome := response.OutcomeFailed
 			if intent == IntentSuccess {
 				obsOutcome = response.OutcomeSuccessReleased

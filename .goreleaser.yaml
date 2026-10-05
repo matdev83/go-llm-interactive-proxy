@@ -2,6 +2,18 @@ version: 2
 
 project_name: go-llm-interactive-proxy
 
+# Release versioning is driven exclusively by root `v<major>.<minor>.<patch>`
+# tags. Connector and support modules publish under nested namespaces
+# (`connector-support/...`), and ad-hoc recovery tags use `rescue/...`; none of
+# them may participate in root tag discovery, because GoReleaser feeds the
+# resolved tag straight into archive and release names. Glob patterns in
+# `ignore_tags` are supported from v2.15.4 (CI pins v2.17.1).
+git:
+  ignore_tags:
+    - "connector-support/*"
+    - "rescue/*"
+    - "rescue-snapshot/*"
+
 builds:
   - id: lipstd
     main: ./cmd/lipstd

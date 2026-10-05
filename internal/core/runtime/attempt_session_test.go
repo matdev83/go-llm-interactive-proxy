@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/promptcache"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
@@ -336,7 +338,31 @@ func TestAttemptSessionOwnsAttemptLocalResources(t *testing.T) {
 	}
 }
 
+// activeControlToolActivation builds a genuinely active attempt-local control
+// activation so replacement tests can prove the trusted owner is created per
+// attempt and never reused across a replacement.
+func activeControlToolActivation(t *testing.T, toolName string) *controlToolActivation {
+	t.Helper()
+	spec := controltool.Spec{
+		Tool:         lipapi.ToolDef{Name: toolName, Parameters: json.RawMessage(`{"type":"object"}`)},
+		Instruction:  controltool.Instruction{Role: lipapi.RoleSystem, Text: "Call " + toolName + " only when complete."},
+		MaxArgsBytes: controltool.DefaultMaxArgsBytes,
+	}
+	_, projection, err := controltool.Project(lipapi.Call{
+		ID:       "attempt-session-replacement",
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("work")}}},
+	}, spec, lipapi.NewBackendCaps(lipapi.CapabilityTools))
+	if err != nil {
+		t.Fatalf("project generic control spec: %v", err)
+	}
+	if !projection.Active() {
+		t.Fatal("control fixture must be eligible")
+	}
+	return &controlToolActivation{providerID: "generic.control." + toolName, projection: projection}
+}
+
 func TestAttemptSessionReplacementDoesNotReuseAttemptLocalResources(t *testing.T) {
+	oldControl := activeControlToolActivation(t, "old_control")
 	oldAccounting := newAttemptAccountingTracker(time.Unix(1, 0))
 	oldAccounting.observeUsage(lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: 2})
 	oldToolFinal := &toolCallAssembler{
@@ -354,6 +380,7 @@ func TestAttemptSessionReplacementDoesNotReuseAttemptLocalResources(t *testing.T
 		promptCacheSource:     oldPromptSource,
 		promptCacheController: oldPromptController,
 		finalStreamObs:        oldFinalObs,
+		controlTool:           oldControl,
 	})
 	newAccounting := newAttemptAccountingTracker(time.Unix(2, 0))
 	newToolFinal := &toolCallAssembler{}
@@ -390,6 +417,12 @@ func TestAttemptSessionReplacementDoesNotReuseAttemptLocalResources(t *testing.T
 	}
 	if replacement.finalStreamObs == old.finalStreamObs {
 		t.Fatal("replacement final observation must not reuse the old session")
+	}
+	if !oldControl.active() {
+		t.Fatal("the replaced attempt must still own its own active control activation")
+	}
+	if replacement.controlTool != nil || replacement.controlTool.active() {
+		t.Fatal("replacement must not inherit the replaced attempt's control-tool activation")
 	}
 	if len(old.toolFinal.active) != 0 || len(old.toolFinal.drain) != 0 {
 		t.Fatal("old tool finalizer was not discarded during replacement cleanup")
