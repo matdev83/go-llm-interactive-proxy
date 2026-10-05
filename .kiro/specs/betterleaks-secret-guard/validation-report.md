@@ -2,8 +2,8 @@
 
 ## Current disposition
 
-- DECISION: FEATURE_GO (technical implementation; merge remains held for maintainer review).
-- CLAIM: Tasks 11.1 and 11.2 implement the corrected user/tool-output provenance contract and active-redaction incremental response-stream invariant. Focused independent reviews approve both tasks, and all executed remote checks on b31053f8 pass. This report does not authorize merging.
+- DECISION: NO_GO (full-head review remediation tasks 12.1–12.3 pending; merge remains held).
+- CLAIM: Tasks 11.1 and 11.2 correctly implement provenance and incremental streaming, but those focused approvals do not establish full-head readiness. The review at b76407f9 found incomplete multipart projection, quadratic hybrid grouping, repeated JSON scalar decoders, and lost independent exact findings/scan-limit posture in log-mode detector failure. Tasks 12.1–12.3 must receive independent approval and current-head certification before technical GO can be restored.
 - SOURCE_COMMIT: b31053f82d98f7b67cb0998b30922088758fac03 (provenance source eda52560, streaming tests 3eeeb3f2, scoped CI b31053f8). Subsequent changes in this report's delivery commit are documentation and smoke-output capture only.
 - MECHANICAL_RESULTS: Current Windows feature/runtime tests and vet pass. Native Linux quality passed at 3eeeb3f2. Remote CI tests on Linux/macOS/Windows, QA, Security, CodeQL, module synchronization, protocol/cross-platform gates and connector race pass. SecretGuard run 37296483084 additionally passes focused Linux race, make parity-checks, CLI build and CLI help. Detailed evidence and environmental failure limits are in review-remediation.md.
 - REGRESSIONS: One 2 MiB newline-dense fragment with 256 near-tail findings; full-match/value-group normalization and ambiguous-literal allocation controls; actual authenticated credential overlap; 48 access-mode/detector/mask/prefix/content combinations; missed JSON mapping and unrelated-mutation fail-closed controls.
@@ -12,7 +12,7 @@
 - PERFORMANCE: Default-policy full scanning of the new 2 MiB/256-finding topology measured 54,477,314 B/op over three iterations with zero cap failures. Index-inclusive projection measured 8,406,120 B/op; prebuilt-index projection measured 34,816 B/op. The latter excludes the roughly 8 MiB line-start index. This is bounded topology evidence, not a latency SLO; the 64 MiB configurable ceiling was not benchmarked.
 - REVIEW: Independent user PR re-review closed the original four remediation findings. Subsequent task-local reviews approve provenance filtering, corrected canonical fixtures, valid incremental provider streaming, delayed-delivery controls, bounded cleanup, and the scoped Linux workflow. Maintainer re-review of the final provenance/streaming delta remains the PR delivery hold.
 - INTEGRATION: Main 987e1f7d is a parent of merge 7e1827b7 and remains included in the current PR branch. Historical integration evidence is C:/Users/Mateusz/betterleaks-main-integration-7e1827b7/. Current full remote checks at b31053f8 pass; the scoped contract artifact independently records a tested merge whose parents are current main and that PR head.
-- BLOCKED_IMPLEMENTATION_TASKS: None; tasks 11.1 and 11.2 are complete.
+- BLOCKED_IMPLEMENTATION_TASKS: Full-head readiness depends on pending tasks 12.1–12.3; prior task completion remains historical evidence.
 - DELIVERY: PR 726 remains open; no merge or auto-merge is authorized. Archive and merged-main verification remain deferred until a later authorized merge.
 
 ## Evidence limits
