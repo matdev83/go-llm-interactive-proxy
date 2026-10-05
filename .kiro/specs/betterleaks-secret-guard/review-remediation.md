@@ -1,6 +1,6 @@
 # PR 726 focused review remediation
 
-Current disposition: the four original remediation findings remain closed, and tasks 11.1 and 11.2 implement the clarified user/tool-output provenance and incremental response-stream contracts. Independent task reviews approve both areas, and all executed checks at b31053f8 pass. The PR stays open with auto-merge disabled for maintainer re-review.
+Current disposition: tasks 12.1-12.3 close the full-head multipart, hybrid complexity, JSON scalar and log-mode findings with independent task approval. Final-head GitHub certification and focused maintainer re-review control readiness. PR #726 stays open with auto-merge disabled.
 
 ## Repair scope
 
@@ -33,7 +33,7 @@ The index is roughly 8 MiB for this newline density; the 34,816-byte projection-
 
 ## Review and certification provenance
 
-Task 10.1 received an independent structured APPROVED review after ambiguity and value-group negative controls were corrected. Final adapter boundary checks additionally verified that concrete BetterLeaks types stay inside the adapter. The host rejected further delegation with agent thread limit reached; tasks 10.2–10.4 used the kiro-review controller fallback with actual diff inspection, negative controls, and mechanical verification. The subsequent independent user PR re-review at 49eefcfb closed all four remediation findings and identified integration with newer main as the sole remaining blocker.
+Task 10.1 received an independent structured APPROVED review after ambiguity and value-group negative controls were corrected. Final adapter boundary checks additionally verified that concrete BetterLeaks types stay inside the adapter. The host rejected further delegation with agent thread limit reached; tasks 10.2â€“10.4 used the kiro-review controller fallback with actual diff inspection, negative controls, and mechanical verification. The subsequent independent user PR re-review at 49eefcfb closed all four remediation findings and identified integration with newer main as the sole remaining blocker.
 
 Final production revision is 424768c80ba1969e271f6e5adbf1d6c9996d9bdc. make quality-checks, make test-unit, make parity-checks, targeted Linux race, CLI build, and CLI help each exited 0. Race command: go test -race -count=1 ./internal/plugins/features/secretguard/... ./internal/stdhttp/auth ./internal/standardplugins/featurehost/secretguard ./pkg/lipsdk/secretguard. Evidence is /home/ciuser/betterleaks-review-repairs-424768c8/ and C:/Users/Mateusz/betterleaks-review-repairs-424768c8/. Remote checks must be read on the latest PR head; earlier green runs do not authorize merge. Historical daa38a0b/22d7b25b evidence remains historical and does not certify these changed paths.
 
@@ -68,7 +68,7 @@ Artifact secretguard-contracts-37296483084 records tested merge 935ec1b8c11f7cf5
 
 Local Linux quality passed at 3eeeb3f2, but subsequent local certification is failed/interrupted evidence: C: filled, WSL became emergency read-only, and Windows-mounted test temporaries caused Git/chmod and storage permission failures. The retry was stopped before further disk pressure. Logs remain at C:/Users/Mateusz/betterleaks-provenance-3eeeb3f2/ and F:/codex-task-artifacts/betterleaks-secret-guard/provenance-3eeeb3f2-recovered/ (plus native-temp retry). Older task bundles and one generated binary were moved to F: without discarding evidence. Remote full CI supplies current comprehensive test evidence. No tests, limits or existing workflows were weakened to bypass the local environment failure.
 
-## Full-head multipart and complexity remediation (tasks 12.1�12.3)
+## Full-head multipart and complexity remediation (tasks 12.1–12.3)
 
 The full-head review at b76407f9 reopened readiness for three defects plus log-mode partial failure. All repairs were implemented and independently reviewed with the requested gpt-6.1-sol/medium worker route.
 
