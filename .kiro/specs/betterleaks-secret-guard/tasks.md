@@ -305,7 +305,32 @@
   - _Depends: 11.1_
   - _Validation: meaningful buffering negative control; focused runtime test; feature/auth/composition/runtime Linux race; quality/unit/parity and fresh remote CI; focused independent review_
 
+## 12. Full-head review remediation
+
+- [ ] 12.1 Fail closed on incomplete multipart projection and retain independent log findings
+  - Recognize upstream `ComponentSetsTruncated` and local component/occurrence cap exhaustion; incomplete rewrite knowledge must never certify sanitization. Preserve bounded safe metadata and clone-only mutation.
+  - A BetterLeaks failure in log mode must still collect exact/request-credential findings from the admitted fragments and retain `ScanLimitHit` without exposing raw scanner errors or mutating the call.
+  - _Requirements: 5.1, 5.2, 6.2, 6.5, 6.7, 8.4, 8.6, 8.7_
+  - _Boundary: betterleaks_adapter.go, scan.go, guard.go and directly related feature regression tests only_
+  - _Validation: strict TDD for upstream/local truncation and partial detector failure; focused regressions, complete feature tests and vet; independent review_
+
+- [ ] 12.2 Bound hybrid grouping and positional overlap work
+  - Replace repeated exact/discovery group searches with keyed maps and index concrete positional overlap. Preserve safe attribution, deterministic ordering, occurrence deduplication and private value lifetimes.
+  - Add many exact-only small fragments with BetterLeaks enabled and no corresponding discovery findings; record benchmark scaling and an allocation regression that rejects the quadratic implementation.
+  - _Requirements: 4.5, 5.3, 5.4, 5.5, 8.7, 8.8_
+  - _Boundary: hybrid_merge.go and directly related feature tests/benchmarks only_
+  - _Validation: strict TDD allocation/semantic controls; focused and complete feature tests, benchmarks and vet; independent review_
+
+- [ ] 12.3 Map validated JSON scalars without per-token decoders
+  - Advance scalar spans to their delimiters after the outer decoder validates the first JSON value; preserve UseNumber, first-value consumption, duplicate-key semantics, depth handling, and exact raw-to-semantic occurrence mapping.
+  - Add near-2 MiB scalar-dense JSON containing a detectable credential, allocation regressions, and adversarial benchmarks.
+  - _Requirements: 4.2, 5.3, 6.3, 6.4, 6.6, 8.7, 8.8_
+  - _Boundary: json_occurrences.go and directly related feature tests/benchmarks only_
+  - _Validation: strict TDD allocation/semantic controls; focused and complete feature tests, targeted fuzzing, benchmarks and vet; independent review_
+
 ## Implementation Notes
+
+- Tasks 12.1–12.3 reopen technical GO for the full-head review findings. Workers and independent reviewers use the maintainer-requested gpt-6.1-sol at medium reasoning. Prior scope, streaming, projection, policy, positional attribution and coverage fixes remain required and must not regress. PR delivery remains held for maintainer review, with merge and auto-merge unauthorized.
 
 - Task 11.2 received independent APPROVED runtime and scoped-CI reviews. Canonical-valid secret-bearing response deltas arrive unchanged before completion with BetterLeaks/action:redact active; delayed-delivery controls, bounded execution, EOF/close and cancellation joining pass. Remote run 37296483084 at b31053f8 passes feature/auth/SDK/composition/runtime/runtime-bundle Linux race, canonical parity and CLI build/help. All executed same-head PR checks pass. Local quality passed; full local certification was interrupted by C: disk exhaustion and Windows-mounted temporary-file permission failures, retained as failed evidence rather than reported green.
 - Task 11.1 received independent APPROVED review after canonical tool-result fixtures were corrected and validated before evaluation and after redaction. Exact/BetterLeaks/hybrid × message/item × block/log/redact and excluded-only budget matrices pass, along with the full feature suite and affected runtime/composition/auth consumers. Model tool-call JSON carriers are excluded by tool metadata even under an eligible message role. Linux race and final certification remain in 11.2.

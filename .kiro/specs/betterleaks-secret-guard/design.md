@@ -502,6 +502,14 @@ No hard latency SLO is invented here because current secret-guard baseline measu
 
 ## PR Review Repair Commitments
 
+The full-head review adds three bounded repairs within the existing feature boundary:
+
+- Multipart projection retains an explicit incomplete-knowledge condition for upstream component-set truncation or local component/occurrence exhaustion. Redaction fails closed before clone publication whenever this condition prevents proving coverage; bounded metadata alone must not certify sanitization. Log-mode detector failure still scans independent exact/request credentials on admitted fragments and retains scan-limit posture.
+- Hybrid grouping uses private keyed maps for exact and discovery groups and indexes positional overlap, avoiding whole-group searches per finding. Keys remain internal, deterministic safe output ordering is unchanged, and secret values never enter public metadata.
+- JSON occurrence mapping validates the first value once with the canonical UseNumber decoder, then advances scalar spans over the validated raw bytes without constructing decoders for each scalar. Numeric spelling, bool/null tokens, first-value bounds and canonical semantic traversal remain unchanged.
+
+Adversarial many-fragment and scalar-dense JSON allocation regressions and scaling benchmarks are required alongside semantic tests. These commitments implement Requirements 4.2, 4.5, 5.1–5.5, 6.2–6.7 and 8.4–8.8 without adding response-path behavior.
+
 These commitments clarify the existing Requirements 4.4, 5.3, 6.3–6.7, 7.10, and 8.7; they do not change detector defaults or operator policy.
 
 - Location projection is fragment-owned. Construct compact byte-location mapping at most once for an admitted logical fragment and retain validated absolute byte ranges in private occurrences. Literal verification, rewrite planning, and overlap identity reuse those ranges instead of repeatedly splitting or rescanning the whole fragment for every report. Regression evidence includes one 2 MiB newline-dense fragment with near-cap findings, and separates upstream scan cost from private projection/rewrite cost.
