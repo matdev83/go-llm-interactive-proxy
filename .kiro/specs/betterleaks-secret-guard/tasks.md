@@ -307,7 +307,7 @@
 
 ## 12. Full-head review remediation
 
-- [ ] 12.1 Fail closed on incomplete multipart projection and retain independent log findings
+- [x] 12.1 Fail closed on incomplete multipart projection and retain independent log findings
   - Recognize upstream `ComponentSetsTruncated` and local component/occurrence cap exhaustion; incomplete rewrite knowledge must never certify sanitization. Preserve bounded safe metadata and clone-only mutation.
   - A BetterLeaks failure in log mode must still collect exact/request-credential findings from the admitted fragments and retain `ScanLimitHit` without exposing raw scanner errors or mutating the call.
   - _Requirements: 5.1, 5.2, 6.2, 6.5, 6.7, 8.4, 8.6, 8.7_

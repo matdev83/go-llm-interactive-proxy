@@ -133,16 +133,22 @@ func (g *guard) evalRedact(ctx context.Context, call *lipapi.Call, m sdk.Matcher
 }
 
 func (g *guard) evalLog(ctx context.Context, call *lipapi.Call, m sdk.Matcher, generation *GenerationServices) (sdk.Decision, error) {
-	out, err := scanCall(ctx, call, m, modeScan, g.cfg.ScanMaxBytes, generation)
+	out, err := scanCall(ctx, call, m, modeLogScan, g.cfg.ScanMaxBytes, generation)
 	if err != nil {
 		var betterLeaksErr *betterLeaksScanError
 		if errors.As(err, &betterLeaksErr) {
-			return sdk.Decision{
+			d := sdk.Decision{
 				Outcome:       sdk.OutcomeLog,
 				Findings:      out.Findings,
+				ScanLimitHit:  out.ScanLimitHit,
 				FailureKind:   sdk.FailureKindDetectorFailure,
 				FailureReason: "betterleaks scan failed",
-			}, nil
+			}
+			if out.ScanLimitHit {
+				d = scanLimitDecision(d, sdk.OutcomeLog)
+				d.FailureReason = "scan_max_bytes exceeded; betterleaks scan failed"
+			}
+			return d, nil
 		}
 		return sdk.Decision{}, err
 	}

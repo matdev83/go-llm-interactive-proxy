@@ -51,6 +51,9 @@ type betterLeaksFinding struct {
 	// unexported so they cannot be serialized through a safe result or copied
 	// into public findings by accident.
 	occurrences []betterLeaksOccurrence
+	// incompleteCoverage records omitted rewrite inputs without exposing upstream
+	// reports or expanding bounded metadata. It must prevent redaction success.
+	incompleteCoverage bool
 }
 
 type betterLeaksComponent struct {
@@ -488,10 +491,11 @@ func projectBetterLeaksFindingWithFieldIDAndLocationIndex(finding report.Finding
 		return betterLeaksFinding{}, errBetterLeaksProjection
 	}
 	projected := betterLeaksFinding{
-		RuleID:          boundedBetterLeaksField(finding.RuleID),
-		Confidence:      boundedBetterLeaksConfidence(finding.Confidence),
-		Location:        boundedBetterLeaksField(location),
-		OccurrenceCount: 1,
+		RuleID:             boundedBetterLeaksField(finding.RuleID),
+		Confidence:         boundedBetterLeaksConfidence(finding.Confidence),
+		Location:           boundedBetterLeaksField(location),
+		OccurrenceCount:    1,
+		incompleteCoverage: finding.ComponentSetsTruncated,
 	}
 	if occurrence, ok, err := newBetterLeaksOccurrenceWithLocationIndex(
 		betterLeaksOccurrencePrimary,
@@ -509,17 +513,21 @@ func projectBetterLeaksFindingWithFieldIDAndLocationIndex(finding report.Finding
 		return betterLeaksFinding{}, err
 	}
 	seen := make(map[string]int)
+components:
 	for _, set := range finding.ComponentSets {
 		for _, component := range set.Components {
 			if len(component.RuleID) > maxBetterLeaksProjectedField {
 				return betterLeaksFinding{}, errBetterLeaksProjection
 			}
-			if len(projected.Components) >= maxBetterLeaksProjectedComponents || len(projected.occurrences) >= maxBetterLeaksOccurrences {
-				break
-			}
 			ruleID := boundedBetterLeaksField(component.RuleID)
 			if ruleID == "" {
 				continue
+			}
+			_, known := seen[ruleID]
+			if (!known && len(projected.Components) >= maxBetterLeaksProjectedComponents) ||
+				(component.Match.Value != "" && len(projected.occurrences) >= maxBetterLeaksOccurrences) {
+				projected.incompleteCoverage = true
+				break components
 			}
 			if index, ok := seen[ruleID]; ok {
 				if !component.Optional {

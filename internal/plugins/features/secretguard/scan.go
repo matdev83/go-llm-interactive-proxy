@@ -14,6 +14,7 @@ type scanMode int
 const (
 	modeScan scanMode = iota
 	modeRedact
+	modeLogScan
 )
 
 type scanOutcome struct {
@@ -160,13 +161,19 @@ func scanCall(ctx context.Context, call *lipapi.Call, m sdk.Matcher, mode scanMo
 	fragments := walkLogicalFragments(call, budget)
 	out.BytesScanned = budget.used
 	out.ScanLimitHit = budget.limitHit
+	var detectorErr error
 	if generation != nil && generation.betterLeaksEnabled {
 		discovery, err := generation.scanFragments(ctx, fragments)
 		out.discoveryFindings = discovery.Findings
 		out.discoveryFacts = generation.DetectorFacts()
 		if err != nil {
-			_ = finalizeHybridScanOutcome(&out)
-			return out, err
+			// Independent exact/request credentials remain observable on admitted
+			// fragments after discovery failure. Never continue mutation or canceled work.
+			if mode != modeLogScan || (ctx != nil && ctx.Err() != nil) {
+				_ = finalizeHybridScanOutcome(&out)
+				return out, err
+			}
+			detectorErr = err
 		}
 		if mode == modeRedact {
 			if err := validateBetterLeaksRedactionEligibility(fragments, out.discoveryFindings); err != nil {
@@ -193,7 +200,7 @@ func scanCall(ctx context.Context, call *lipapi.Call, m sdk.Matcher, mode scanMo
 			return out, err
 		}
 	}
-	return out, nil
+	return out, detectorErr
 }
 
 // validateBetterLeaksRedactionEligibility is the fail-closed gate before any
@@ -202,7 +209,7 @@ func scanCall(ctx context.Context, call *lipapi.Call, m sdk.Matcher, mode scanMo
 // Required multipart components must also have at least one such occurrence.
 func validateBetterLeaksRedactionEligibility(fragments []LogicalFragment, findings []betterLeaksFinding) error {
 	for _, finding := range findings {
-		if len(finding.occurrences) == 0 {
+		if finding.incompleteCoverage || len(finding.occurrences) == 0 {
 			return errBetterLeaksUnrewritable
 		}
 		for _, occurrence := range finding.occurrences {
@@ -270,7 +277,7 @@ func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Ma
 		}
 	}
 	switch mode {
-	case modeScan:
+	case modeScan, modeLogScan:
 		var (
 			findings []sdk.Finding
 			err      error
