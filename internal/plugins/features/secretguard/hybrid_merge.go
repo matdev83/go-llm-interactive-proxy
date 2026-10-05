@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -55,12 +56,13 @@ func mergeHybridFindings(exact []exactPrivateFinding, discovery []betterLeaksFin
 // remain distinct because location is part of the identity boundary.
 func mergePrivateHybridFindings(exact []exactPrivateFinding, discovery []betterLeaksFinding) []privateHybridFinding {
 	exactGroups := make([]privateHybridFinding, 0, len(exact))
+	exactIndexes := make(map[privateFindingKey]int, len(exact))
 	for _, input := range exact {
 		finding := input.finding
 		if finding.DetectorID == "" {
 			finding.DetectorID = sdk.DetectorIDExact
 		}
-		occurrences := uniquePrivateOccurrences(input.occurrences)
+		occurrences := input.occurrences
 		fallback := positiveOccurrenceCount(input.uncoveredCount)
 		if len(occurrences) == 0 && fallback == 0 {
 			fallback = positiveOccurrenceCount(finding.OccurrenceCount)
@@ -70,21 +72,34 @@ func mergePrivateHybridFindings(exact []exactPrivateFinding, discovery []betterL
 			continue
 		}
 		key := privateFindingGroupKey(finding)
-		index := -1
-		for i := range exactGroups {
-			if privateFindingGroupKey(exactGroups[i].finding) == key {
-				index = i
-				break
-			}
-		}
-		if index < 0 {
-			exactGroups = append(exactGroups, privateHybridFinding{finding: finding, occurrences: occurrences, fallbackCount: fallback})
+		index, exists := exactIndexes[key]
+		if !exists {
+			exactIndexes[key] = len(exactGroups)
+			exactGroups = append(exactGroups, privateHybridFinding{finding: finding, occurrences: append([]betterLeaksOccurrence(nil), occurrences...), fallbackCount: fallback})
 			continue
 		}
 		group := &exactGroups[index]
-		group.occurrences = appendUniquePrivateOccurrences(group.occurrences, occurrences...)
+		group.occurrences = append(group.occurrences, occurrences...)
 		group.fallbackCount += fallback
 		group.finding.OccurrenceCount = len(group.occurrences) + group.fallbackCount
+	}
+
+	// Normalize each accumulated group once. The overlap index contains only
+	// request-private value/field/span identities and lists actual attributions.
+	type overlapKey struct {
+		location   string
+		occurrence privateOccurrenceKey
+	}
+	overlaps := make(map[overlapKey][]int)
+	if len(discovery) > 0 {
+		for i := range exactGroups {
+			group := &exactGroups[i]
+			group.occurrences = uniquePrivateOccurrences(group.occurrences)
+			for _, occurrence := range group.occurrences {
+				key := overlapKey{group.finding.Location, occurrenceKey(occurrence)}
+				overlaps[key] = append(overlaps[key], i)
+			}
+		}
 	}
 
 	// Normalize BetterLeaks reports before matching them against exact spans.
@@ -95,21 +110,28 @@ func mergePrivateHybridFindings(exact []exactPrivateFinding, discovery []betterL
 	})
 
 	discoveryGroups := make([]privateHybridFinding, 0, len(orderedDiscovery))
+	discoveryIndexes := make(map[privateFindingKey]int, len(orderedDiscovery))
 	for _, input := range orderedDiscovery {
 		all := uniquePrivateOccurrences(input.occurrences)
-		primary := primaryPrivateOccurrences(all)
-		residual := make([]betterLeaksOccurrence, 0, len(primary))
+		hasPrimary := false
 		for _, occurrence := range all {
-			matches := false
-			for i := range exactGroups {
-				if exactGroups[i].finding.Location != input.Location || !samePrivateOccurrence(exactGroups[i].occurrences, occurrence) {
-					continue
-				}
-				matches = true
-				attachBetterLeaksProvenance(&exactGroups[i].finding, input)
+			hasPrimary = hasPrimary || occurrence.role == betterLeaksOccurrencePrimary
+		}
+		residual := make([]betterLeaksOccurrence, 0, len(all))
+		for _, occurrence := range all {
+			key := overlapKey{input.Location, occurrenceKey(occurrence)}
+			matches, matched := overlaps[key]
+			for _, index := range matches {
+				attachBetterLeaksProvenance(&exactGroups[index].finding, input)
 			}
-			if !matches && containsPrivateOccurrence(primary, occurrence) {
-				residual = appendUniquePrivateOccurrences(residual, occurrence)
+			// Reports are ordered by rule/confidence, so the first report
+			// supplies the winning provenance. Retain membership but consume
+			// attribution lists once, including duplicate multipart reports.
+			if len(matches) > 0 {
+				overlaps[key] = nil
+			}
+			if !matched && (!hasPrimary || occurrence.role == betterLeaksOccurrencePrimary) {
+				residual = append(residual, occurrence)
 			}
 		}
 
@@ -134,21 +156,15 @@ func mergePrivateHybridFindings(exact []exactPrivateFinding, discovery []betterL
 			Confidence:      input.Confidence,
 		}
 		key := privateFindingGroupKey(finding)
-		index := -1
-		for i := range discoveryGroups {
-			if privateFindingGroupKey(discoveryGroups[i].finding) == key {
-				index = i
-				break
-			}
-		}
-		if index < 0 {
+		index, exists := discoveryIndexes[key]
+		if !exists {
+			discoveryIndexes[key] = len(discoveryGroups)
 			discoveryGroups = append(discoveryGroups, privateHybridFinding{finding: finding, occurrences: residual, fallbackCount: fallback})
 			continue
 		}
 		group := &discoveryGroups[index]
-		group.occurrences = appendUniquePrivateOccurrences(group.occurrences, residual...)
+		group.occurrences = append(group.occurrences, residual...)
 		group.fallbackCount += fallback
-		group.finding.OccurrenceCount = len(primaryPrivateOccurrences(group.occurrences)) + group.fallbackCount
 	}
 
 	merged := append(exactGroups, discoveryGroups...)
@@ -245,11 +261,29 @@ func uniquePrivateOccurrences(in []betterLeaksOccurrence) []betterLeaksOccurrenc
 	return appendUniquePrivateOccurrences(out, in...)
 }
 
+// privateOccurrenceKey encodes complete private identity, not a public hash.
+// String conversion owns its bytes; no unsafe alias or request-external state is used.
+type privateOccurrenceKey struct {
+	fieldID string
+	span    betterLeaksSpan
+	value   string
+}
+
+func occurrenceKey(occurrence betterLeaksOccurrence) privateOccurrenceKey {
+	return privateOccurrenceKey{occurrence.fieldID, occurrence.span, string(occurrence.value)}
+}
+
 func appendUniquePrivateOccurrences(dst []betterLeaksOccurrence, in ...betterLeaksOccurrence) []betterLeaksOccurrence {
+	seen := make(map[privateOccurrenceKey]struct{}, len(dst)+len(in))
+	for _, occurrence := range dst {
+		seen[occurrenceKey(occurrence)] = struct{}{}
+	}
 	for _, occurrence := range in {
-		if samePrivateOccurrence(dst, occurrence) {
+		key := occurrenceKey(occurrence)
+		if _, exists := seen[key]; exists {
 			continue
 		}
+		seen[key] = struct{}{}
 		occurrence.value = bytes.Clone(occurrence.value)
 		dst = append(dst, occurrence)
 	}
@@ -277,16 +311,22 @@ func sortedPrivateOccurrences(in []betterLeaksOccurrence) []betterLeaksOccurrenc
 	return out
 }
 
-func privateFindingGroupKey(finding sdk.Finding) string {
-	return strings.Join([]string{
-		finding.Location,
-		finding.DetectorID,
-		finding.SecretRefName,
-		string(finding.SourceCategory),
-		finding.RuleID,
-		finding.Confidence,
-		strings.Join(finding.Aliases, "\x00"),
-	}, "\x00")
+type privateFindingKey struct {
+	location, detectorID, reference string
+	source                          sdk.SourceCategory
+	ruleID, confidence, aliases     string
+}
+
+func privateFindingGroupKey(finding sdk.Finding) privateFindingKey {
+	// Length prefixes distinguish arbitrary alias bytes and list boundaries.
+	var aliases strings.Builder
+	for _, alias := range finding.Aliases {
+		aliases.WriteString(strconv.Itoa(len(alias)))
+		aliases.WriteByte(':')
+		aliases.WriteString(alias)
+	}
+	return privateFindingKey{finding.Location, finding.DetectorID, finding.SecretRefName,
+		finding.SourceCategory, finding.RuleID, finding.Confidence, aliases.String()}
 }
 
 func comparePrivateFindings(left, right privateHybridFinding) int {
@@ -314,7 +354,7 @@ func comparePrivateFindings(left, right privateHybridFinding) int {
 	if c := cmp.Compare(left.finding.OccurrenceCount, right.finding.OccurrenceCount); c != 0 {
 		return c
 	}
-	return comparePrivateOccurrenceLists(left.occurrences, right.occurrences)
+	return compareSortedPrivateOccurrenceLists(left.occurrences, right.occurrences)
 }
 
 func containsPrivateOccurrence(occurrences []betterLeaksOccurrence, want betterLeaksOccurrence) bool {
@@ -338,6 +378,10 @@ func compareStringSlices(left, right []string) int {
 func comparePrivateOccurrenceLists(left, right []betterLeaksOccurrence) int {
 	left = sortedPrivateOccurrences(left)
 	right = sortedPrivateOccurrences(right)
+	return compareSortedPrivateOccurrenceLists(left, right)
+}
+
+func compareSortedPrivateOccurrenceLists(left, right []betterLeaksOccurrence) int {
 	for i := 0; i < len(left) && i < len(right); i++ {
 		if c := compareBetterLeaksSpans(left[i].span, right[i].span); c != 0 {
 			return c

@@ -25,6 +25,35 @@ type scanOutcome struct {
 	exactPrivateFindings []exactPrivateFinding
 	discoveryFindings    []betterLeaksFinding
 	discoveryFacts       DetectorFacts
+	findingIndexes       map[safeFindingLocationKey]int
+}
+
+type safeFindingLocationKey struct {
+	location, reference string
+}
+
+// mergeFindingsAt retains the exact-only first-attribution contract while
+// indexing accumulated findings once for the lifetime of this scan.
+func (out *scanOutcome) mergeFindingsAt(findings []sdk.Finding, location string) {
+	if len(findings) == 0 {
+		return
+	}
+	if out.findingIndexes == nil {
+		out.findingIndexes = make(map[safeFindingLocationKey]int, len(out.Findings)+len(findings))
+		for i, finding := range out.Findings {
+			out.findingIndexes[safeFindingLocationKey{finding.Location, finding.SecretRefName}] = i
+		}
+	}
+	for _, finding := range findings {
+		key := safeFindingLocationKey{location, finding.SecretRefName}
+		if i, exists := out.findingIndexes[key]; exists {
+			out.Findings[i].OccurrenceCount += finding.OccurrenceCount
+			continue
+		}
+		finding.Location = location
+		out.findingIndexes[key] = len(out.Findings)
+		out.Findings = append(out.Findings, finding)
+	}
 }
 
 type exactOccurrenceMatcher = sdk.PositionalMatcher
@@ -290,7 +319,7 @@ func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Ma
 		if err != nil {
 			return err
 		}
-		out.Findings = mergeFindingsAt(out.Findings, findings, fragment.Location)
+		out.mergeFindingsAt(findings, fragment.Location)
 		out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindings(m, fragment, findings)...)
 	case modeRedact:
 		var (
@@ -310,12 +339,12 @@ func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Ma
 		}
 		if err != nil {
 			if fragment.Kind == FragmentJSON {
-				out.Findings = mergeFindingsAt(out.Findings, findings, fragment.Location)
+				out.mergeFindingsAt(findings, fragment.Location)
 			}
 			out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindingsForRedact(m, fragment, findings)...)
 			return err
 		}
-		out.Findings = mergeFindingsAt(out.Findings, findings, fragment.Location)
+		out.mergeFindingsAt(findings, fragment.Location)
 		out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindingsForRedact(m, fragment, findings)...)
 		if fragment.Kind == FragmentJSON && !bytes.Equal(redacted, fragment.rawBytes()) {
 			fragment.setRaw(redacted)
@@ -338,18 +367,6 @@ func finalizeHybridScanOutcome(out *scanOutcome) error {
 	}
 	out.Findings = findings
 	return nil
-}
-
-func mergeFindingsAt(dst, src []sdk.Finding, loc string) []sdk.Finding {
-	if len(src) == 0 {
-		return dst
-	}
-	tagged := make([]sdk.Finding, len(src))
-	for i, f := range src {
-		f.Location = loc
-		tagged[i] = f
-	}
-	return mergeFindings(dst, tagged)
 }
 
 // mergeFindings merges by Location+SecretRefName, summing OccurrenceCount and

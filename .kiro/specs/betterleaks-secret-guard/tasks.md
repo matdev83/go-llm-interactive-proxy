@@ -314,11 +314,12 @@
   - _Boundary: betterleaks_adapter.go, scan.go, guard.go and directly related feature regression tests only_
   - _Validation: strict TDD for upstream/local truncation and partial detector failure; focused regressions, complete feature tests and vet; independent review_
 
-- [ ] 12.2 Bound hybrid grouping and positional overlap work
+- [x] 12.2 Bound hybrid grouping and positional overlap work
   - Replace repeated exact/discovery group searches with keyed maps and index concrete positional overlap. Preserve safe attribution, deterministic ordering, occurrence deduplication and private value lifetimes.
   - Add many exact-only small fragments with BetterLeaks enabled and no corresponding discovery findings; record benchmark scaling and an allocation regression that rejects the quadratic implementation.
   - _Requirements: 4.5, 5.3, 5.4, 5.5, 8.7, 8.8_
-  - _Boundary: hybrid_merge.go and directly related feature tests/benchmarks only_
+  - Avoid rebuilding the accumulated safe-finding index for every admitted fragment; prove bounded grouping through the actual enabled-BetterLeaks/no-discovery call path as well as the private merger.
+  - _Boundary: hybrid_merge.go, scan.go, the existing feature-private safe-finding merge helper, and directly related feature tests/benchmarks only_
   - _Validation: strict TDD allocation/semantic controls; focused and complete feature tests, benchmarks and vet; independent review_
 
 - [ ] 12.3 Map validated JSON scalars without per-token decoders
