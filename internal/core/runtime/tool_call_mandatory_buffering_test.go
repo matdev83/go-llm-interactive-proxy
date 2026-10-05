@@ -339,7 +339,7 @@ func TestToolCallAssembler_ThreeBufferingDeclarationCases(t *testing.T) {
 			t.Fatalf("case 1 must not raise the effective assembly bound: got %d want %d",
 				a.mandatory.assemblyMaxArgsBytes, a.maxArgsBytes)
 		}
-		if a.mandatory.failClosedPastBound() {
+		if a.mandatory.rejectPastBound || a.mandatory.invalidDeclaration {
 			t.Fatal("case 1 must not arm the fail-closed policy")
 		}
 		args := mandatoryArgsJSON(a.maxArgsBytes + 4096)
@@ -567,10 +567,18 @@ func TestToolCallAssembler_MandatoryBufferingBoundBoundaries(t *testing.T) {
 		}
 	})
 
-	t.Run("declaration_never_lowers_the_shared_bound", func(t *testing.T) {
+	t.Run("declaration_never_lowers_the_shared_assembly_bound_but_is_still_enforced", func(t *testing.T) {
 		t.Parallel()
-		// An operator-raised shared bound stays authoritative for ordinary
-		// finalizers; a smaller mandatory declaration must not narrow it.
+		// REPLACES `declaration_never_lowers_the_shared_bound`, which asserted
+		// only the first half of the rule and therefore ENCODED blocker 2. The
+		// maximum aggregation is sound ONLY if each declarer's own limit is
+		// enforced afterwards; nothing did, because the shipped expansion pass
+		// records `Report.ArgsOverDeclaredBound` for telemetry and never refuses.
+		// So a 64 KiB declaration beside a 128 KiB shared cap was unenforceable.
+		//
+		// The first half is unchanged: an operator-raised shared bound stays
+		// authoritative for ordinary finalizers, so a smaller mandatory
+		// declaration must not narrow what the assembler buffers.
 		fin := &mandatoryExpansionFin{spec: toolcall.BufferingSpec{
 			MaxArgsBytes: toolcall.MinMandatoryMaxArgsBytes,
 			Overflow:     toolcall.OverflowReject,
@@ -583,6 +591,37 @@ func TestToolCallAssembler_MandatoryBufferingBoundBoundaries(t *testing.T) {
 		if a.mandatory.assemblyMaxArgsBytes != raised {
 			t.Fatalf("effective assembly bound: got %d want the operator-raised %d",
 				a.mandatory.assemblyMaxArgsBytes, raised)
+		}
+
+		// The second half, with the real numbers: the call fits the ceiling the
+		// assembler buffers to and exceeds the bound the declarer published, so
+		// the only thing that can refuse it is the consumer enforcing that
+		// declarer's own limit.
+		if err := fin.spec.Validate(); err != nil {
+			t.Fatalf("fixture: the declaration must be well formed: %v", err)
+		}
+		args := mandatoryArgsJSON(toolcall.MinMandatoryMaxArgsBytes + 32*1024)
+		if len(args) <= fin.spec.MaxArgsBytes || len(args) > raised {
+			t.Fatalf("fixture must sit between the declarer's own bound and the shared cap: %d not in (%d, %d]",
+				len(args), fin.spec.MaxArgsBytes, raised)
+		}
+		released, err := streamMandatoryToolCall(t, a, "own-bound-not-raised", args)
+		if released != "" {
+			t.Fatalf("requirements.md 4.5 - released %d bytes past the declarer's own bound", len(released))
+		}
+		var mbe *MandatoryBufferingError
+		if !errors.As(err, &mbe) || mbe == nil {
+			t.Fatalf("requirements.md 4.5 - want a typed MandatoryBufferingError, got %T", err)
+		}
+		if mbe.Reason != ReasonMandatoryBufferingOverflow {
+			t.Fatalf("reason: got %q want %q", mbe.Reason, ReasonMandatoryBufferingOverflow)
+		}
+		if mbe.MaxArgsBytes != toolcall.MinMandatoryMaxArgsBytes {
+			t.Fatalf("the refusal must report the declarer's OWN bound, not the shared one: got %d want %d",
+				mbe.MaxArgsBytes, toolcall.MinMandatoryMaxArgsBytes)
+		}
+		if mbe.FinalizerID != fin.ID() {
+			t.Fatalf("the refusal must name the declarer: got %q want %q", mbe.FinalizerID, fin.ID())
 		}
 	})
 
@@ -602,7 +641,7 @@ func TestToolCallAssembler_MandatoryBufferingBoundBoundaries(t *testing.T) {
 			t.Fatalf("zero spec must not raise the effective assembly bound: got %d want %d",
 				a.mandatory.assemblyMaxArgsBytes, a.maxArgsBytes)
 		}
-		if a.mandatory.failClosedPastBound() {
+		if a.mandatory.rejectPastBound || a.mandatory.invalidDeclaration {
 			t.Fatal("zero spec must not arm the fail-closed policy")
 		}
 	})
@@ -794,9 +833,9 @@ func (f *unusableOrdinaryFin) Finalize(
 }
 
 // failingMandatoryFin declares a mandatory completeness requirement and then
-// fails on its own invocation. It pins the boundary of the requirement 4.6
-// failure clause: once the declaring finalizer has run, the decision — including
-// a failure — is its own, and the pre-existing replay fallback applies.
+// fails on its own invocation. It stands in for the blocker-3 case: the DECLARING
+// finalizer itself produces no usable decision, so nothing may be released and
+// the call is refused closed (requirements.md 8.3, 4.4).
 type failingMandatoryFin struct {
 	order int
 	calls int
@@ -949,10 +988,21 @@ func TestToolCallAssembler_UnrelatedFinalizerFailureCannotSkipMandatoryExpansion
 		}
 	})
 
-	t.Run("declaring_finalizer_failure_keeps_the_pre_existing_replay", func(t *testing.T) {
+	t.Run("declaring_finalizer_own_failure_refuses_closed", func(t *testing.T) {
 		t.Parallel()
-		// Once the declaring finalizer has been invoked, its own failure is the
-		// pre-existing assembler fallback, not an unrelated bypass.
+		// REPLACES `declaring_finalizer_failure_keeps_the_pre_existing_replay`,
+		// which codified the defect the second adversarial review raised as
+		// blocker 3. That characterization asserted the pre-existing error-free
+		// replay when the DECLARING finalizer itself failed, on the ground that
+		// the pending flag was cleared as soon as it was invoked. That is exactly
+		// the hole: no requirement was satisfied, no mandatory-safe document
+		// existed, and the alias-bearing ORIGINALS were released to tool policies
+		// and the client. A requirement is satisfied only when its declarer
+		// returns a usable Pass, Rewrite, or explicit Reject
+		// (requirements.md 8.3, 4.4).
+		//
+		// `failingMandatoryFin` declares a well-formed mandatory bound and then
+		// fails, which is the only way to reach this case.
 		ordinary := &legacyOptOutFin{} // Order 0, rewrites, no declaration
 		mand := &failingMandatoryFin{order: 10}
 		a := newToolCallAssembler([]toolcall.Finalizer{ordinary, mand}, 0, catalog)
@@ -960,19 +1010,31 @@ func TestToolCallAssembler_UnrelatedFinalizerFailureCannotSkipMandatoryExpansion
 			t.Fatal("assembler must be constructed for a non-empty finalizer list and catalog")
 		}
 		if !a.mandatory.mandatoryBoundDeclared {
-			t.Fatal("a declaring finalizer must arm the failure clause until it runs")
+			t.Fatal("a declaring finalizer must arm the failure clause until it decides")
 		}
 
 		args := mandatoryArgsJSON(8 * 1024)
 		released, err := streamMandatoryToolCall(t, a, "declaring-err", args)
-		if err != nil {
-			t.Fatalf("the declaring finalizer's own failure keeps the pre-existing error-free replay: %v", err)
+		if released != "" {
+			t.Fatalf("requirements.md 8.3 - the declaring finalizer's own failure released %d original argument bytes",
+				len(released))
+		}
+		if strings.Contains(released, mandatoryVirtualRoot) {
+			t.Fatal("requirements.md 8.3 - the reserved alias reached the client")
+		}
+		var mbe *MandatoryBufferingError
+		if !errors.As(err, &mbe) || mbe == nil {
+			t.Fatalf("requirements.md 8.3 - want a typed MandatoryBufferingError, got %T", err)
+		}
+		if mbe.Reason != ReasonMandatoryBufferingIncomplete {
+			t.Fatalf("requirements.md 8.3 - reason: got %q want %q", mbe.Reason, ReasonMandatoryBufferingIncomplete)
+		}
+		if mbe.FinalizerID != mand.ID() {
+			t.Fatalf("requirements.md 8.3 - the refusal must name the declarer that never decided: got %q want %q",
+				mbe.FinalizerID, mand.ID())
 		}
 		if mand.calls != 1 {
 			t.Fatalf("the declaring finalizer must have been invoked: got %d invocations", mand.calls)
-		}
-		if released != args {
-			t.Fatalf("released %d bytes, want the original fragments replayed unchanged", len(released))
 		}
 	})
 

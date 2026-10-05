@@ -144,6 +144,11 @@ type Finalizer struct {
 var (
 	_ toolcall.Finalizer            = (*Finalizer)(nil)
 	_ toolcall.BufferingRequirement = (*Finalizer)(nil)
+	// Without this assertion the pass would silently keep the assembler-wide
+	// interpretation of its declared bound, and every test in this package would
+	// still pass because none of them assembles the pass into a real core
+	// assembler. The capability is only real once something checks it.
+	_ toolcall.BufferingApplicability = (*Finalizer)(nil)
 )
 
 // NewFinalizer builds the feature's completed-tool-call expansion pass.
@@ -600,6 +605,37 @@ func reasonForNoAlias(mapping pathvirtualization.Mapping) Reason {
 // near-miss spelling never hands one tool's schema to the inference step on behalf of
 // another (requirement 3.6). A tool that declares no schema gives the step nothing to
 // prove, which is what keeps an unknown tool from acquiring selectors by accident.
+// ToolCallBufferingApplies implements [toolcall.BufferingApplicability].
+//
+// This pass declares a mandatory completeness requirement because it has to see a
+// WHOLE argument document before it can decide: the reserved namespace is
+// recognised lexically across the payload, so a document truncated at any point
+// can hide an alias behind the cut. That need is real only for calls this pass
+// actually acts on.
+//
+// Without this answer the assembler had to assume the requirement governed every
+// call it was invoked for, because it reads this BEFORE the arguments are
+// complete and cannot wait to find out. So enabling path virtualization refused
+// unrelated oversized tool calls outright, which requirements 4.6 and 4.7 forbid:
+// a call carrying no path surface has to keep its existing pass-through.
+//
+// The answer is derived from the tool name, the tool definition, and the catalog
+// only, exactly as the contract requires, and it is the SAME question step 3 of
+// [Finalizer.decide] asks - "does this tool have at least one argument location
+// this pass reads?" - so the bound that gets buffered and the pass that consumes
+// it cannot disagree about which calls they cover.
+//
+// A nil resolver selects nothing, so a nil pass applies to nothing. That is the
+// narrow answer, and it is safe here for the same reason it is safe in decide:
+// with no selectors this pass would answer ReasonNoSelectors and hand the call
+// through untouched anyway.
+func (f *Finalizer) ToolCallBufferingApplies(toolName string, tool lipapi.ToolDef, _ []lipapi.ToolDef) bool {
+	if f == nil || f.resolver == nil {
+		return false
+	}
+	return len(f.resolver.Resolve(toolName, declaredSchema(tool, toolName)).ArgPointers) > 0
+}
+
 func declaredSchema(tool lipapi.ToolDef, toolName string) []byte {
 	if tool.Name != toolName || toolName == "" {
 		return nil

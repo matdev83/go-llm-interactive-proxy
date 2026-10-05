@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -401,5 +402,112 @@ func TestToolcallPackage_ProductionSourcesStayInsidePublicSDK(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("no production sources were scanned")
+	}
+}
+
+// scopedOptInFinalizer adds the per-call applicability capability on top of the
+// single-method declaration capability, so the narrowing contract can be driven
+// against the real shipped types rather than against a local stand-in.
+type scopedOptInFinalizer struct {
+	optInFinalizer
+	selected map[string]struct{}
+}
+
+func (f *scopedOptInFinalizer) ToolCallBufferingApplies(toolName string, _ lipapi.ToolDef, _ []lipapi.ToolDef) bool {
+	_, ok := f.selected[toolName]
+	return ok
+}
+
+var _ toolcall.BufferingApplicability = (*scopedOptInFinalizer)(nil)
+
+// TestBufferingApplicability_IsASeparateSingleMethodCapability pins the shape of
+// the narrowing capability the same way the declaration capability's shape is
+// pinned: one method, the prescribed name, and no addition to either existing
+// interface. Both facts are load-bearing, because a required method would break
+// every already-shipped finalizer and a second method would make the answer
+// ambiguous.
+func TestBufferingApplicability_IsASeparateSingleMethodCapability(t *testing.T) {
+	t.Parallel()
+
+	applType := reflect.TypeFor[toolcall.BufferingApplicability]()
+	method, ok := applType.MethodByName("ToolCallBufferingApplies")
+	if !ok {
+		t.Fatalf("narrowing capability must declare method ToolCallBufferingApplies, got %v", methodNames(applType))
+	}
+	if got := applType.NumMethod(); got != 1 {
+		t.Fatalf("narrowing capability method count = %d, want exactly 1 %v", got, methodNames(applType))
+	}
+	if got, want := method.Type.String(),
+		"func(string, lipapi.ToolDef, []lipapi.ToolDef) bool"; got != want {
+		t.Errorf("narrowing capability method signature = %q, want %q", got, want)
+	}
+
+	// Neither existing interface grows: that is what keeps every already-shipped
+	// finalizer compiling unchanged.
+	for _, frozen := range []struct {
+		name string
+		typ  reflect.Type
+		want []string
+	}{
+		{name: "Finalizer", typ: reflect.TypeFor[toolcall.Finalizer](), want: []string{"Finalize", "ID", "Order"}},
+		{name: "BufferingRequirement", typ: reflect.TypeFor[toolcall.BufferingRequirement](), want: []string{"ToolCallBufferingRequirement"}},
+	} {
+		if got := methodNames(frozen.typ); !slices.Equal(got, frozen.want) {
+			t.Errorf("%s methods = %v, want %v (the pre-existing method set is frozen)", frozen.name, got, frozen.want)
+		}
+	}
+
+	// The capability's inputs are exactly the three the consumer is permitted to
+	// derive applicability from. A payload or request view here would make the
+	// answer depend on state the consumer cannot have when it decides how much of
+	// a call to buffer.
+	inputs := method.Type.NumIn()
+	if inputs != 3 {
+		t.Fatalf("narrowing capability input count = %d, want 3 (tool name, tool definition, catalog)", inputs)
+	}
+	if got := method.Type.In(0).String(); got != "string" {
+		t.Errorf("narrowing capability input 0 = %q, want the tool name (string)", got)
+	}
+	if got := method.Type.In(1).String(); got != "lipapi.ToolDef" {
+		t.Errorf("narrowing capability input 1 = %q, want lipapi.ToolDef", got)
+	}
+	if got := method.Type.In(2).String(); got != "[]lipapi.ToolDef" {
+		t.Errorf("narrowing capability input 2 = %q, want []lipapi.ToolDef", got)
+	}
+}
+
+// TestBufferingApplicability_IsOptionalAndDefaultsToEveryCall pins the opt-in
+// half: a finalizer that does not implement it must fail the assertion, so the
+// capability is inert rather than silently satisfied, and a finalizer that
+// implements only the DECLARATION must keep its declared bound applying to every
+// call it receives. That default is the conservative direction and the one the
+// requirements forbid weakening.
+func TestBufferingApplicability_IsOptionalAndDefaultsToEveryCall(t *testing.T) {
+	t.Parallel()
+
+	plain := &plainFinalizer{}
+	if _, narrowed := toolcall.Finalizer(plain).(toolcall.BufferingApplicability); narrowed {
+		t.Error("a finalizer that does not implement the narrowing capability must fail the type assertion")
+	}
+	declaredOnly := &optInFinalizer{spec: toolcall.BufferingSpec{
+		MaxArgsBytes: toolcall.DefaultMandatoryMaxArgsBytes,
+		Overflow:     toolcall.OverflowReject,
+	}}
+	if _, narrowed := toolcall.Finalizer(declaredOnly).(toolcall.BufferingApplicability); narrowed {
+		t.Error("a finalizer that declares a bound but implements no narrowing must fail the type assertion")
+	}
+
+	scoped := &scopedOptInFinalizer{selected: map[string]struct{}{"selected-tool": {}}}
+	scoped.spec = declaredOnly.spec
+	if !scoped.ToolCallBufferingApplies("selected-tool", lipapi.ToolDef{Name: "selected-tool"}, nil) {
+		t.Error("a configured tool must be selected")
+	}
+	if scoped.ToolCallBufferingApplies("other-tool", lipapi.ToolDef{Name: "other-tool"}, nil) {
+		t.Error("an unconfigured tool must not be selected")
+	}
+	// The answer never consults the spec, so narrowing cannot silently weaken the
+	// declared bound: it can only decide which calls that bound governs.
+	if !scoped.spec.DeclaresMandatoryBound() {
+		t.Error("narrowing must leave the published bound itself well formed")
 	}
 }

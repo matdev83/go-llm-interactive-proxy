@@ -29,8 +29,8 @@ package runtime
 //     ReasonMandatoryBufferingIncomplete, whatever the later finalizer does;
 //   - a call with NO declared requirement replays the originals byte-identically
 //     and error-free;
-//   - the declaring finalizer's OWN failure is left exactly as it was, because
-//     then no mandatory-safe result exists to preserve.
+//   - the declaring finalizer's OWN failure also refuses closed: it produced no
+//     decision, so nothing was satisfied and nothing may be preserved (blocker 3).
 //
 // IT IS NOT AN ORDERING RULE. Every order here is an absolute fixture constant,
 // the assembler still iterates the list MaterializeSorted produced, and the
@@ -357,11 +357,16 @@ func TestToolCallAssembler_PreserveDecisionBoundaries(t *testing.T) {
 		}
 	})
 
-	t.Run("the_declaring_finalizer_s_own_failure_is_unchanged", func(t *testing.T) {
+	t.Run("the_declaring_finalizer_s_own_failure_refuses_closed", func(t *testing.T) {
 		t.Parallel()
-		// There is no mandatory-safe result to preserve when the DECLARING
-		// finalizer itself failed, so the pre-existing fallback still applies and
-		// this fix must not have widened itself into that case.
+		// CHANGED from "is unchanged", which codified the defect the second
+		// adversarial review raised as blocker 3: the pending flag was cleared as
+		// soon as the DECLARING finalizer was invoked, so its own error produced
+		// neither a pending requirement nor a document to preserve, and the
+		// fallback replayed the ORIGINAL alias-bearing fragments. A requirement
+		// becomes satisfied only on a usable decision (requirements.md 8.3, 4.4),
+		// and the preserve answer below is only reachable once something was
+		// actually decided.
 		ordinary := &legacyOptOutFin{}
 		mand := &failingMandatoryFin{order: postDeclaringOrder}
 		a := newToolCallAssembler([]toolcall.Finalizer{ordinary, mand}, 0, catalog)
@@ -370,14 +375,25 @@ func TestToolCallAssembler_PreserveDecisionBoundaries(t *testing.T) {
 		}
 
 		released, err := streamMandatoryToolCall(t, a, "declaring-own-failure", args)
-		if err != nil {
-			t.Fatalf("the declaring finalizer's own failure keeps the pre-existing error-free replay: %T", err)
+		if released != "" {
+			t.Fatalf("requirements.md 8.3 - released %d original argument bytes", len(released))
+		}
+		if strings.Contains(released, mandatoryVirtualRoot) {
+			t.Fatal("requirements.md 8.3 - the reserved namespace reached the client")
+		}
+		var mbe *MandatoryBufferingError
+		if !errors.As(err, &mbe) || mbe == nil {
+			t.Fatalf("requirements.md 8.3 - want a typed MandatoryBufferingError, got %T", err)
+		}
+		if mbe.Reason != ReasonMandatoryBufferingIncomplete {
+			t.Fatalf("requirements.md 8.3 - reason: got %q want %q", mbe.Reason, ReasonMandatoryBufferingIncomplete)
+		}
+		if mbe.FinalizerID != mand.ID() {
+			t.Fatalf("requirements.md 8.3 - the refusal must name the declarer that never decided: got %q want %q",
+				mbe.FinalizerID, mand.ID())
 		}
 		if mand.calls != 1 {
 			t.Fatalf("fixture: the declaring finalizer must have been invoked: got %d invocations", mand.calls)
-		}
-		if released != args {
-			t.Fatalf("released %d bytes, want the %d original bytes replayed unchanged", len(released), len(args))
 		}
 	})
 }

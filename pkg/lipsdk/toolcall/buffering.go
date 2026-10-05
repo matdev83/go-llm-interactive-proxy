@@ -74,12 +74,54 @@ const (
 //
 // The contract is feature-neutral: it names argument size and overflow
 // behavior only, never any concrete feature, payload domain, or target
-// namespace.
+// namespace. A declarer that needs its bound to govern only part of the traffic
+// it receives narrows that scope with the separate optional
+// [BufferingApplicability] capability rather than by weakening this one.
 type BufferingRequirement interface {
 	// ToolCallBufferingRequirement returns the declared completeness
 	// requirement. It must be deterministic and side-effect free: it is read
 	// during composition and must not depend on request state.
 	ToolCallBufferingRequirement() BufferingSpec
+}
+
+// BufferingApplicability is the optional capability a finalizer implements when
+// its declared completeness requirement applies to only SOME of the calls it
+// receives.
+//
+// It exists because a declared bound is a statement about the calls a finalizer
+// must decide COMPLETELY, not about every call that happens to arrive on the
+// same chain. A finalizer that inspects only operator-selected argument
+// locations of one tool decides nothing at all about a call to another tool, so
+// a consumer that applies such a declaration to every call would enforce - and
+// potentially refuse - calls its declarer never claimed.
+//
+// It is deliberately NOT part of [Finalizer] or [BufferingRequirement], so every
+// already-shipped implementation keeps compiling. A finalizer that does not
+// implement it keeps the conservative answer: its declared requirement applies
+// to EVERY call it is invoked for, which is exactly the pre-existing
+// interpretation of a [BufferingSpec] and the one direction requirements forbid
+// weakening.
+//
+// The answer must be derived from the three arguments and from nothing else. In
+// particular it must not depend on request state, on the assembled argument
+// bytes, or on anything a per-call decision varies, because the consumer reads
+// it BEFORE the arguments are complete in order to decide how much of the call
+// to buffer at all:
+//
+//	if appl, ok := f.(toolcall.BufferingApplicability); ok {
+//	    if appl.ToolCallBufferingApplies(call.ToolName, tool, catalog) {
+//	        // this finalizer's declared bound governs this call
+//	    }
+//	}
+//
+// The contract is feature-neutral, exactly as [BufferingRequirement] is: it names
+// a tool name, a tool definition, and a catalog, and nothing about any concrete
+// feature, payload domain, or target namespace.
+type BufferingApplicability interface {
+	// ToolCallBufferingApplies reports whether this finalizer's declared
+	// completeness requirement governs one tool call. It must be deterministic,
+	// side-effect free, and independent of the call's argument bytes.
+	ToolCallBufferingApplies(toolName string, tool lipapi.ToolDef, catalog []lipapi.ToolDef) bool
 }
 
 // BufferingSpec is a declared completeness requirement: the largest completed

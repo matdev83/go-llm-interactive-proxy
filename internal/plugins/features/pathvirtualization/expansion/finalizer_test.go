@@ -1537,3 +1537,80 @@ func quote(s string) string {
 	}
 	return string(b)
 }
+
+// TestFinalizerToolCallBufferingAppliesMatchesTheSelectorsItReads is requirement
+// 4.6 and 4.7 on the shipped pass, and the reason the capability exists at all.
+//
+// The assembler reads applicability BEFORE the arguments are complete, so a pass
+// that does not answer is assumed to govern every call it is invoked for. That
+// made enabling path virtualization refuse unrelated oversized tool calls: this
+// pass had declared a whole-document completeness requirement, and the assembler
+// had no way to learn the requirement only concerns calls with a path surface.
+//
+// The answer has to be the SAME question the pass asks itself when it runs, or the
+// bound that gets buffered and the pass that consumes it disagree about which
+// calls they cover. So this asserts the two agree rather than restating the rule:
+// for each tool, whether the pass applies must equal whether decide() would find
+// an argument location to read.
+func TestFinalizerToolCallBufferingAppliesMatchesTheSelectorsItReads(t *testing.T) {
+	t.Parallel()
+
+	selected := expansionToolName
+	// A tool this pass has no policy for at all: no explicit, built-in, or inferred
+	// argument location. A mandatory bound governing it would refuse an unrelated
+	// call for a feature that never touches it.
+	unselected := "custom_tool_with_no_path_surface"
+
+	fin := newFinalizer(t, expansionResolver(t, selected, "/file_path"))
+	applier, ok := any(fin).(toolcall.BufferingApplicability)
+	if !ok {
+		t.Fatal("the shipped pass must publish its applicability, or the assembler keeps the assembler-wide reading")
+	}
+
+	for _, tc := range []struct {
+		name    string
+		tool    string
+		schema  []byte
+		want    bool
+		explain string
+	}{
+		{
+			name:    "selected_tool_applies",
+			tool:    selected,
+			want:    true,
+			explain: "a tool with an argument location is the only case this pass reads",
+		},
+		{
+			name:    "unselected_tool_does_not_apply",
+			tool:    unselected,
+			want:    false,
+			explain: "requirement 4.7 - a call with no path surface keeps existing pass-through behavior",
+		},
+		{
+			name:    "empty_tool_name_does_not_apply",
+			tool:    "",
+			want:    false,
+			explain: "no name resolves no selector",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := applier.ToolCallBufferingApplies(tc.tool, lipapi.ToolDef{Name: tc.tool, Parameters: tc.schema}, nil)
+			if got != tc.want {
+				t.Fatalf("applies=%v want %v: %s", got, tc.want, tc.explain)
+			}
+		})
+	}
+}
+
+// TestFinalizerWithNoResolverAppliesToNothing pins the degenerate composition
+// root. A pass holding no policy selects nothing when it runs, so it must not
+// claim a mandatory bound over every call either.
+func TestFinalizerWithNoResolverAppliesToNothing(t *testing.T) {
+	t.Parallel()
+
+	var fin *expansion.Finalizer
+	if fin.ToolCallBufferingApplies(expansionToolName, lipapi.ToolDef{Name: expansionToolName}, nil) {
+		t.Fatal("a nil pass resolves no selector, so it must not claim every call")
+	}
+}

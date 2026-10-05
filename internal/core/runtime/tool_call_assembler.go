@@ -22,16 +22,22 @@ type toolCallBuffer struct {
 	originals    []lipapi.Event
 	args         []byte
 
-	// mandatorySafe is the document a finalizer that published a declared mandatory
-	// completeness requirement was shown, and returned a usable result for. It is
-	// retained so a LATER finalizer's unusable result can never fall back on the
-	// original fragments over a decision that was already made on it.
+	// requirements is the set of APPLICABLE mandatory completeness requirements for
+	// this call, derived once at call start from the tool name, the tool
+	// definition, and the catalog. It is nil for a call no declaration governs,
+	// which is what keeps that call byte-identical to the pre-existing behavior.
+	requirements *callRequirements
+
+	// mandatorySafe is the document a declarer that published an applicable
+	// mandatory completeness requirement was shown, and returned a usable result
+	// for. It is retained so a LATER finalizer's unusable result can never fall
+	// back on the original fragments over a decision that was already made on it.
 	//
 	// It is nil until such a requirement has actually been satisfied for this call,
 	// so the retention is exactly ONE bounded reference per active tool call and
-	// never a growing store: it is written at most once, by the declaring finalizer,
-	// and it dies with the buffer. See [toolCallAssembler.unusableResult] for the
-	// decision it drives.
+	// never a growing store: it is written only by a declarer that has just
+	// decided, and it dies with the buffer. See
+	// [toolCallAssembler.unusableResult] for the decision it drives.
 	mandatorySafe *toolCallDocument
 }
 
@@ -49,11 +55,12 @@ type toolCallDocument struct {
 // retainMandatorySafe records the document the assembler is carrying as this call's
 // mandatory-safe result.
 //
-// It is called only on the declaring finalizer's own usable result, so it is called
-// at most once per call. The arguments it stores are the private copy the assembler
-// already hands to the next finalizer, so nothing is copied here and nothing the
-// stored slice aliases can still be mutated: every later rewrite REPLACES the
-// assembler's arguments with a fresh copy rather than editing them in place.
+// It is called only on an applicable DECLARER's own usable result, so it is called
+// at most once per declarer and at most once per call in the single-declarer case.
+// The arguments it stores are the private copy the assembler already hands to the
+// next finalizer, so nothing is copied here and nothing the stored slice aliases
+// can still be mutated: every later rewrite REPLACES the assembler's arguments
+// with a fresh copy rather than editing them in place.
 func (b *toolCallBuffer) retainMandatorySafe(name string, args []byte, rewrote bool) {
 	b.mandatorySafe = &toolCallDocument{name: name, args: args, rewrote: rewrote}
 }
@@ -85,20 +92,21 @@ type toolCallAssembler struct {
 	catalog      []lipapi.ToolDef
 
 	// mandatory is the projection of every finalizer that publishes the
-	// optional toolcall.BufferingRequirement capability. It owns the effective
-	// assembly bound and the refusal policy; maxArgsBytes keeps its pre-existing
-	// meaning as the clamped legacy shared bound, which is the FLOOR of the
-	// effective assembly bound, not something any finalizer reads here.
+	// optional toolcall.BufferingRequirement capability: one table entry per
+	// declarer, holding that declarer's own validated bound and its own
+	// applicability capability. It owns no per-call state; maxArgsBytes keeps its
+	// pre-existing meaning as the clamped legacy shared bound, which is the FLOOR
+	// of every per-call buffering ceiling, not something any finalizer reads here.
 	mandatory mandatoryBuffering
 
 	active      map[string]*toolCallBuffer
 	passThrough map[string]struct{}
 	completed   map[string]struct{}
-	// refusing holds tool calls already refused closed past the effective
-	// assembly bound. Every later fragment is held and dropped so that no
-	// possibly alias-bearing argument is released, and only the finished event
-	// produces the typed refusal.
-	refusing map[string]struct{}
+	// refusing holds tool calls already refused closed past their applicable
+	// buffering ceiling, together with the refusal they will produce. Every later
+	// fragment is held and dropped so that no possibly alias-bearing argument is
+	// released, and only the finished event yields the typed refusal.
+	refusing map[string]error
 	drain    []lipapi.Event
 }
 
@@ -116,7 +124,7 @@ func newToolCallAssembler(finalizers []toolcall.Finalizer, maxArgsBytes int, cat
 		active:       make(map[string]*toolCallBuffer),
 		passThrough:  make(map[string]struct{}),
 		completed:    make(map[string]struct{}),
-		refusing:     make(map[string]struct{}),
+		refusing:     make(map[string]error),
 	}
 }
 
@@ -141,7 +149,7 @@ func (a *toolCallAssembler) clear() {
 	a.active = make(map[string]*toolCallBuffer)
 	a.passThrough = make(map[string]struct{})
 	a.completed = make(map[string]struct{})
-	a.refusing = make(map[string]struct{})
+	a.refusing = make(map[string]error)
 	a.drain = nil
 }
 
@@ -232,21 +240,72 @@ func (a *toolCallAssembler) ingestStarted(ev lipapi.Event, id string) bool {
 		name:         ev.ToolName,
 		messageIndex: ev.MessageIndex,
 		originals:    []lipapi.Event{ev},
+		// Applicability is decided HERE, at call start, because it is what decides how
+		// much of this call the assembler has to buffer at all. Deriving it later
+		// could no longer change the buffering, which is exactly how a call a
+		// selective declarer never inspects ended up refused for a bound that never
+		// governed it.
+		requirements: a.deriveCallRequirements(ev.ToolName),
 	}
 	return true
 }
 
+// deriveCallRequirements resolves the APPLICABLE mandatory completeness
+// requirements for one tool call, from the tool name, the tool definition, and the
+// catalog - and from nothing else.
+//
+// The three inputs are the only ones a declarer's own applicability answer is
+// allowed to read, so no payload byte, request view, or leg identity can make a
+// declarer enforce or skip its bound on this call. Reading them here rather than
+// at composition time is what makes the result per call: the same chain answers
+// differently for a tool one declarer was configured for and a tool it was not.
+//
+// A nil answer means no declaration governs the call, which is the signal for the
+// whole call to keep its byte-identical pre-existing behavior: the shared legacy
+// cap, the pre-existing release-the-fragments fallback, and no refusal.
+func (a *toolCallAssembler) deriveCallRequirements(toolName string) *callRequirements {
+	if !a.mandatory.declaresAny() {
+		// No finalizer opted in at all: nothing about the pre-existing assembly
+		// behavior can change for any call.
+		return nil
+	}
+	tool := lookupToolDef(a.catalog, toolName)
+	reqs := &callRequirements{limitBytes: a.maxArgsBytes}
+	for _, decl := range a.mandatory.declarations {
+		if !decl.appliesToTool(toolName, tool, a.catalog) {
+			continue
+		}
+		reqs.items = append(reqs.items, callRequirement{decl: decl, pending: true})
+		if decl.valid && decl.spec.MaxArgsBytes > reqs.limitBytes {
+			reqs.limitBytes = decl.spec.MaxArgsBytes
+		}
+	}
+	if len(reqs.items) == 0 {
+		return nil
+	}
+	// The per-call ceiling is the same maximum as the assembler-wide one taken over
+	// a SUBSET of the same declarations, so it can never exceed it. Stating the
+	// relationship here rather than assuming it keeps a future change to either
+	// computation from quietly raising a call's buffering past the documented cap.
+	if reqs.limitBytes > a.mandatory.assemblyMaxArgsBytes {
+		reqs.limitBytes = a.mandatory.assemblyMaxArgsBytes
+	}
+	return reqs
+}
+
 // ingestRefused keeps a tool call that is already refused closed entirely away
 // from the client: every further fragment is held and dropped, and only the
-// finished event yields the typed refusal. Nothing alias-bearing can therefore
-// be released on a call whose mandatory requirement was not honored.
+// finished event yields the typed refusal that was already decided when the call
+// outgrew its applicable ceiling. Nothing alias-bearing can therefore be released
+// on a call whose mandatory requirement was not honored.
 func (a *toolCallAssembler) ingestRefused(ev lipapi.Event, id string) (bool, error) {
 	if ev.Kind != lipapi.EventToolCallFinished {
 		return true, nil
 	}
+	err := a.refusing[id]
 	delete(a.refusing, id)
 	a.completed[id] = struct{}{}
-	return true, a.refusal(id)
+	return true, err
 }
 
 func (a *toolCallAssembler) ingestDelta(ev lipapi.Event, id string) bool {
@@ -256,17 +315,24 @@ func (a *toolCallAssembler) ingestDelta(ev lipapi.Event, id string) bool {
 		return false
 	}
 	delta := ev.Delta
+	// The ceiling is this CALL's: the shared legacy bound, raised only by a
+	// declaration that actually governs the tool this call names. A call no
+	// declaration governs is bounded exactly as it was before the capability
+	// existed, and can never be refused on account of a bound it never governed.
+	limit := a.maxArgsBytes
+	if reqs := buf.requirements; reqs != nil {
+		limit = reqs.limitBytes
+	}
 	// Overflow-safe: never add len(buf.args)+len(delta) (can wrap on extreme caps).
-	limit := a.mandatory.assemblyMaxArgsBytes
 	if len(buf.args) > limit || len(delta) > limit-len(buf.args) {
-		// A mandatory finalizer must never see the fragments replayed unchanged
-		// past its own bound, and an unusable declaration can never be honored at
-		// any bound. Refuse the call closed: the buffer is dropped without being
-		// released, and the typed refusal is deferred to the finished event so no
-		// alias-bearing argument reaches the client in the meantime.
-		if a.mandatory.failClosedPastBound() {
+		if reqs := buf.requirements; reqs != nil && reqs.refusesPastLimit() {
+			// An applicable declarer must never see the fragments replayed unchanged
+			// past its own bound, and an unusable declaration can never be honored at
+			// any bound. Refuse the call closed: the buffer is dropped without being
+			// released, and the typed refusal is deferred to the finished event so no
+			// alias-bearing argument reaches the client in the meantime.
 			delete(a.active, id)
-			a.refusing[id] = struct{}{}
+			a.refusing[id] = refusal(reqs.refusalPastLimit(id))
 			return true
 		}
 		buf.originals = append(buf.originals, ev)
@@ -306,32 +372,47 @@ func (a *toolCallAssembler) ingestFinished(ctx context.Context, ev lipapi.Event,
 }
 
 func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffer, meta toolcall.Meta) ([]lipapi.Event, error) {
-	// A finalizer that published a present-but-unusable mandatory declaration
+	// An APPLICABLE declarer that published a present-but-unusable declaration
 	// cannot be honored at any bound, and treating it as "did not opt in" would
 	// downgrade a mandatory completeness requirement into optional pass-through
 	// handling. Refuse this call closed before any finalizer runs and before any
-	// original fragment is released.
-	if a.mandatory.invalidDeclaration {
-		return nil, a.refusal(buf.id)
+	// original fragment is released. A declarer whose scope does not cover this
+	// call has no entry here and cannot refuse it.
+	if err := buf.requirements.unusableDeclarationRefusal(buf.id); err != nil {
+		return nil, refusal(err)
 	}
 
 	name := buf.name
 	args := append([]byte(nil), buf.args...)
 	rewrote := false
-	// mandatoryPending records that a well-formed mandatory completeness
-	// requirement applies to this call and the finalizer that declared it has
-	// not been invoked yet. Requirement 4.6's failure clause: an unrelated
-	// finalizer that fails first must not silently skip it, because replaying the
-	// original fragments is exactly what releases possibly alias-bearing
-	// arguments no declaring finalizer ever decided on. The flag is cleared as
-	// soon as the declaring finalizer is invoked; from that point the requirement
-	// is satisfied by that finalizer's own usable result and the decision belongs
-	// to [toolCallAssembler.unusableResult].
-	mandatoryPending := a.mandatory.mandatoryBoundDeclared
 
-	for _, fin := range a.finalizers {
+	for index, fin := range a.finalizers {
 		if fin == nil {
 			continue
+		}
+		// req is this finalizer's own requirement for THIS call, or nil when it
+		// declared none that covers it. Nothing about it changes the finalizer's
+		// position in the chain or the order the chain runs in.
+		req := buf.requirements.requirementFor(index)
+		if req != nil {
+			// Requirement 4.5: each declarer's OWN bound is enforced here, for this
+			// call, rather than being assumed from the widest bound on the chain.
+			// Without this, a declarer's smaller limit would be unenforceable
+			// whenever a larger shared cap or a second declarer existed, because
+			// aggregation can only ever take the maximum.
+			switch req.enforcementFor(len(args)) {
+			case enforcementReject:
+				return nil, refusal(overflowRefusal(buf.id, req.decl.id, req.decl.spec.MaxArgsBytes))
+			case enforcementPassThrough:
+				// The declarer published OverflowPassThrough, whose promise is the
+				// pre-existing behavior past its own bound: it is not invoked for this
+				// call. Its requirement is discharged rather than left pending, since
+				// waiting for a decision that will never be asked for would refuse
+				// every such call instead of preserving it.
+				req.pending = false
+				continue
+			case enforcementInvoke:
+			}
 		}
 		// Defensive catalog copy per Finalize (ADR); assembler catalog is owned.
 		catalogCopy := cloneToolCatalog(a.catalog)
@@ -341,47 +422,48 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 			ToolName:   name,
 			ArgsJSON:   append([]byte(nil), args...),
 		}
-		// declares is this finalizer's own capability answer, read once and used for
-		// both halves of the requirement: clearing the pending flag before it runs,
-		// and retaining its result as the call's mandatory-safe document afterwards.
-		declares := declaresMandatoryBound(fin)
-		if mandatoryPending && declares {
-			mandatoryPending = false
-		}
 		op := "tool_call_finalizer:" + fin.ID()
 		res, err := safety.CallValue(safety.BoundaryExtension, op, func() (toolcall.Result, error) {
 			return fin.Finalize(ctx, call, tool, catalogCopy, meta)
 		})
 		if err != nil {
-			return a.unusableResult(buf, mandatoryPending, err)
+			return a.unusableResult(buf, err)
 		}
 		switch res.Action {
 		case toolcall.ActionPass:
-			if declares {
-				// The declaring finalizer saw these arguments and accepted them, so
-				// they are this call's mandatory-safe document whatever happens to a
-				// later finalizer.
+			if req != nil {
+				// A requirement is satisfied HERE, by a usable decision on the complete
+				// arguments - never by having been invoked. The declarer saw these
+				// arguments and accepted them, so they are this call's mandatory-safe
+				// document whatever happens to a later finalizer.
+				req.pending = false
 				buf.retainMandatorySafe(name, args, rewrote)
 			}
 			continue
 		case toolcall.ActionReject:
+			if req != nil {
+				req.pending = false
+			}
 			return nil, &toolcall.RejectError{ReasonCode: res.ReasonCode, ToolCallID: buf.id}
 		case toolcall.ActionRewrite:
 			if !rewriteEnvelopeValid(res) {
 				// No error: the finalizer returned a well-formed Result the assembler
-				// cannot use, so there is no failure of its own to surface.
-				return a.unusableResult(buf, mandatoryPending, nil)
+				// cannot use, so there is no failure of its own to surface. It is NOT a
+				// decision either, so any requirement it declared is still pending.
+				return a.unusableResult(buf, nil)
 			}
 			name = strings.TrimSpace(res.ToolName)
 			args = append([]byte(nil), res.ArgsJSON...)
 			rewrote = true
-			if declares {
+			if req != nil {
+				req.pending = false
 				buf.retainMandatorySafe(name, args, true)
 			}
 		default:
 			// Likewise for an action outside the closed vocabulary: unusable, but not
-			// reported as an error by the finalizer that produced it.
-			return a.unusableResult(buf, mandatoryPending, nil)
+			// reported as an error by the finalizer that produced it, and not a
+			// decision either.
+			return a.unusableResult(buf, nil)
 		}
 	}
 	if !rewrote {
@@ -394,34 +476,39 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 // panicked, or returned a result it cannot use. It has exactly three answers, and
 // the pre-existing replay is the last of them:
 //
-//  1. an UNDECIDED mandatory completeness requirement refuses closed. The declaring
-//     finalizer has not decided on these arguments, so releasing them is exactly
-//     the bypass the capability exists to prevent (requirement 4.6);
-//  2. a SATISFIED requirement releases the document the declaring finalizer was
-//     shown and accepted, PRESERVING the mandatory-safe result rather than
-//     discarding it and replaying the original - possibly alias-bearing - fragments
-//     over it. cause is the later finalizer's own failure and still surfaces;
-//  3. anything else - no declared requirement, or a declaring finalizer that itself
-//     failed and therefore produced no decision to preserve - replays the original
-//     fragments unchanged. For a call with no declared requirement that is the
-//     pre-existing assembler behavior, byte for byte.
+//  1. an UNDECIDED applicable requirement refuses closed. The declarer has not
+//     decided on these arguments, so releasing them is exactly the bypass the
+//     capability exists to prevent (requirements 4.6 and 8.3). A declarer's OWN
+//     error or panic lands here too, because being invoked is not deciding - which
+//     is why the flag is cleared on the usable result rather than on the call;
+//  2. every applicable requirement SATISFIED releases the document those declarers
+//     were shown and accepted, PRESERVING the mandatory-safe result rather than
+//     discarding it and replaying the original - possibly alias-bearing -
+//     fragments over it. cause is the later finalizer's own failure and still
+//     surfaces;
+//  3. anything else - no applicable requirement, or requirements discharged by a
+//     declarer's own pass-through policy - replays the original fragments
+//     unchanged. For a call no declaration governs that is the pre-existing
+//     assembler behavior, byte for byte.
 //
 // WHY THIS IS NOT AN ORDERING RULE. It reads no finalizer's position, reorders
 // nothing, and changes nothing about how the chain is materialized: answer 2 is
-// decided entirely from the document a declaring finalizer produced, so it holds
-// for a later finalizer at any order above the declaring one, and answer 3 is
-// unchanged for every call that published no such requirement. Refusing instead of
-// preserving was considered and is worse: it converts a correctly expanded call
-// into a hard client reject because of a failure that has nothing to do with the
-// decision already made.
-func (a *toolCallAssembler) unusableResult(buf *toolCallBuffer, mandatoryPending bool, cause error) ([]lipapi.Event, error) {
-	if mandatoryPending {
-		return nil, a.refusalIncomplete(buf.id)
+// decided entirely from the requirements that are already satisfied, so it holds
+// for a later finalizer at any order above the last satisfied declarer, and answer
+// 3 is unchanged for every call that published no such requirement. Refusing
+// instead of preserving was considered and is worse: it converts a correctly
+// expanded call into a hard client reject because of a failure that has nothing to
+// do with the decision already made.
+func (a *toolCallAssembler) unusableResult(buf *toolCallBuffer, cause error) ([]lipapi.Event, error) {
+	if reqs := buf.requirements; reqs != nil {
+		if pending := reqs.pendingCount(); pending > 0 {
+			return nil, refusal(refusalIncomplete(buf.id, reqs.firstPendingID()))
+		}
+		if buf.mandatorySafe != nil {
+			return buf.mandatorySafeRelease(), cause
+		}
 	}
-	if buf.mandatorySafe == nil {
-		return slices.Clone(buf.originals), nil
-	}
-	return buf.mandatorySafeRelease(), cause
+	return slices.Clone(buf.originals), nil
 }
 
 func cloneToolCatalog(catalog []lipapi.ToolDef) []lipapi.ToolDef {
