@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,21 +18,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// pollTestPoller is a test poller driven concurrently by the concurrent
+// attach/clear tests, so every field it mutates from Poll is guarded. The
+// counters are atomic; the observable fields share one mutex. Reading lastID
+// directly from a test would race with Poll, so use lastJobID instead.
 type pollTestPoller struct {
 	pollCalls   atomic.Int32
-	result      auxiliary.PollResult
-	err         error
-	lastID      auxiliary.JobID
 	forgetCalls atomic.Int32
+
+	mu     sync.Mutex
+	result auxiliary.PollResult
+	err    error
+	lastID auxiliary.JobID
 }
 
 func (f *pollTestPoller) Poll(_ context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
 	f.pollCalls.Add(1)
+	f.mu.Lock()
 	f.lastID = id
-	if f.err != nil {
-		return auxiliary.PollResult{}, f.err
+	result, err := f.result, f.err
+	f.mu.Unlock()
+	if err != nil {
+		return auxiliary.PollResult{}, err
 	}
-	return f.result, nil
+	return result, nil
+}
+
+// lastJobID reports the most recently polled job under the lock.
+func (f *pollTestPoller) lastJobID() auxiliary.JobID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastID
 }
 
 func (f *pollTestPoller) SubmitCollect(context.Context, auxiliary.Request, auxiliary.SubmitOptions) (auxiliary.JobID, error) {
@@ -292,7 +309,7 @@ func TestPollOnce_PreservedSkipped_SecondMissingPicked(t *testing.T) {
 	res := reasoningpreservation.PollOnceForMatchingArtifact(context.Background(), &call, cs, p, snap, pollTestSupport, svc)
 	require.Equal(t, reasoningpreservation.PollKindPending, res.Kind)
 	require.Equal(t, 1, poller.PollCount())
-	require.Equal(t, auxiliary.JobID("job-art-b"), poller.lastID, "must poll job-B, first is preserved not missing")
+	require.Equal(t, auxiliary.JobID("job-art-b"), poller.lastJobID(), "must poll job-B, first is preserved not missing")
 }
 
 func TestPollOnce_UnsupportedDialectSkipped(t *testing.T) {
@@ -324,7 +341,7 @@ func TestPollOnce_UnsupportedDialectSkipped(t *testing.T) {
 	res := reasoningpreservation.PollOnceForMatchingArtifact(context.Background(), &call, cs, p, snap, pollTestSupport, svc)
 	require.Equal(t, reasoningpreservation.PollKindPending, res.Kind)
 	require.Equal(t, 1, poller.PollCount())
-	require.Equal(t, auxiliary.JobID("job-art-b2"), poller.lastID, "must skip unsupported first missing, pick supported second")
+	require.Equal(t, auxiliary.JobID("job-art-b2"), poller.lastJobID(), "must skip unsupported first missing, pick supported second")
 }
 
 // Transform integration tests — verify chain without active replay.

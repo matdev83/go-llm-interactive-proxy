@@ -136,7 +136,7 @@ func TestTDD_Adoption_SuccessAttach_StatsCorrelationShadow(t *testing.T) {
 	require.Nil(t, st.Pending, "pending must be cleared after attach")
 	require.NotNil(t, st.Surrogate, "surrogate must be attached")
 	require.Equal(t, 10, st.Surrogate.Bytes)
-	require.Equal(t, jobID, poller.lastID)
+	require.Equal(t, jobID, poller.lastJobID())
 	_ = resID
 	// Telemetry content-free distinct raw/decoded/saved
 	m := tel.CompressionMeasurementsSnapshot()

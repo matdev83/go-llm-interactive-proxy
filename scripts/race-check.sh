@@ -141,8 +141,18 @@ if [[ "$STAGED" == true || "$LANE" == all || "$LANE" == broad ]]; then
 fi
 if [[ "$STAGED" != true ]]; then
 	if [[ "$LANE" == all || "$LANE" == billing ]]; then
-		echo "Running billing race scan separately (60m package timeout)"
-		run_race_scan -timeout=60m -skip '^TestSupportAgreementShadowPredicate$' ./internal/core/billing
+		# The exhaustive schema sweeps are pure computation: they contain no
+		# goroutine and no shared mutable state, so the race detector has nothing
+		# to observe in them and only multiplies their cost. Measured on an idle
+		# 8-CPU host they finish in ~390s WITHOUT -race and were still running
+		# past 68 minutes WITH it, so scanning them here fails on cost, never on a
+		# race. They remain fully certified without the race detector by the
+		# dedicated `make test-billing-schema` gate (BILLING_SCHEMA_TIMEOUT) and
+		# by qa-tests; what this lane drops is the duplicate run under an
+		# expensive instrument, not any coverage. TestSupportAgreementShadowPredicate
+		# is excluded here as before and still gets its own 25m race scan below.
+		echo "Running billing race scan separately (25m package timeout)"
+		run_race_scan -timeout=25m -skip '^(TestSupportAgreementShadowPredicate$|TestGeneratedSchema|TestSchemaModel(Structure|Commercial)Sweep|TestSchemaModelOrderInvariance|TestMetamorphic(PricingMetamorphism|StructuralVerdictAgreesWithModel)|TestReplayDeepestPublishableChainTraversalIsBounded)' ./internal/core/billing
 	fi
 	if [[ "$LANE" == all || "$LANE" == support ]]; then
 		echo "Running exhaustive support-agreement race scan separately (25m package timeout)"
