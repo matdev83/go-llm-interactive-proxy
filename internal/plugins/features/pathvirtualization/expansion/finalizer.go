@@ -353,6 +353,32 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, met
 		// no mapping exists - would make one deployment-wide configuration gap fail every
 		// tool call that carries an absolute path, which is a strictly worse failure than
 		// the one it would prevent.
+		//
+		// That reasoning only covers arguments that are NOT aliases, so the pass-through
+		// is now conditional on there being no reserved namespace in the payload at all.
+		// Where aliases came from is not the question requirement 4.4 asks: it asks what
+		// happens when a path-bearing argument DOES carry the reserved namespace and no
+		// mapping can resolve it, and the answer is fail closed. The comment above
+		// concedes that a model may emit an alias on its own initiative, which is
+		// precisely the case this branch was releasing.
+		//
+		// The lexical scanner is the right instrument even though the payload is
+		// unparseable here, because an unparseable payload is exactly where an alias can
+		// hide from selector-guided inspection. Only a well-formed answer or a malformed
+		// one is a namespace presence; ABSENT means there is nothing to protect.
+		//
+		// A reserved-namespace COLLISION root is deliberately exempt. There the project
+		// root really does occupy the reserved namespace, requirement 1.8 disables
+		// virtualization for it, and a path beneath it is an ordinary real path rather
+		// than an undecidable alias, so refusing would break a supported deployment
+		// instead of protecting one.
+		if rootReason != pathvirtualization.SkipReasonReservedNamespaceCollision &&
+			pathvirtualization.ScanReservedAlias(call.ArgsJSON) != pathvirtualization.ReservedAliasAbsent {
+			// No mapping exists to expand the alias against, so it cannot be shown to
+			// name this workspace. Releasing it would hand the reserved namespace to the
+			// client unresolved.
+			return decision{reason: ReasonWorkspaceMismatch, rootReason: rootReason}
+		}
 		return decision{reason: ReasonRootUnusable, rootReason: rootReason}
 	}
 

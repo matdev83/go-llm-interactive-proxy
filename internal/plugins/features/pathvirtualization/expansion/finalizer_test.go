@@ -1437,3 +1437,103 @@ func TestExpansionFinalizerAuditModeReportsTheOverLimitConditionWithoutRefusing(
 		t.Fatal("audit mode must publish nothing")
 	}
 }
+
+// TestExpansionFinalizerFailsClosedWhenAnUnusableRootCannotResolveAnAlias is
+// requirement 4.4 on the branch the pass used to take unconditionally.
+//
+// Deriving the workspace mapping happens BEFORE selector resolution, so an
+// unusable project root returned a pass for every argument. That is right for an
+// ordinary path - requirement 4.7 keeps a call with no virtual root on its
+// existing pass-through - and wrong for an argument carrying the reserved
+// namespace, which no mapping can resolve and which therefore reached the client
+// unresolved. The distinction the payload makes, not where the alias came from.
+//
+// Each case is stated as a property of the ACTION, because the action is the
+// fail-closed invariant; the reason is asserted too so a future change cannot
+// pass by refusing for an unrelated reason.
+func TestExpansionFinalizerFailsClosedWhenAnUnusableRootCannotResolveAnAlias(t *testing.T) {
+	t.Parallel()
+
+	mapping, reason := pathvirtualization.DeriveMapping(expansionProjectRoot)
+	if reason != pathvirtualization.SkipReasonNone {
+		t.Fatalf("derive fixture root: reason %v", reason)
+	}
+	// A well-formed alias of a root this build CAN derive, so the only thing
+	// stopping it from expanding is the empty/relative root under test.
+	alias := mapping.VirtualRoot + "src/main.go"
+	malformedAlias := "/.__lip_v1__/w_short/src/main.go"
+
+	for _, tc := range []struct {
+		name       string
+		args       string
+		project    string
+		wantAction toolcall.Action
+		wantReason expansion.Reason
+	}{
+		{
+			name:       "well_formed_alias_with_no_project_root",
+			args:       `{"file_path":` + quote(alias) + `}`,
+			project:    "",
+			wantAction: toolcall.ActionReject,
+			wantReason: expansion.ReasonWorkspaceMismatch,
+		},
+		{
+			name:       "well_formed_alias_with_relative_project_root",
+			args:       `{"file_path":` + quote(alias) + `}`,
+			project:    "relative/project",
+			wantAction: toolcall.ActionReject,
+			wantReason: expansion.ReasonWorkspaceMismatch,
+		},
+		{
+			name:       "malformed_alias_with_no_project_root",
+			args:       `{"file_path":` + quote(malformedAlias) + `}`,
+			project:    "",
+			wantAction: toolcall.ActionReject,
+			wantReason: expansion.ReasonWorkspaceMismatch,
+		},
+		{
+			name:       "malformed_alias_malformed_payload",
+			args:       `{"file_path":` + quote(malformedAlias),
+			project:    "",
+			wantAction: toolcall.ActionReject,
+			wantReason: expansion.ReasonWorkspaceMismatch,
+		},
+		{
+			// Requirement 4.7: with no reserved namespace present there is nothing to
+			// protect, so the pre-existing pass must survive this change untouched.
+			name:       "ordinary_path_with_no_project_root_still_passes",
+			args:       `{"file_path":"/home/dev/somewhere-else/a.go"}`,
+			project:    "",
+			wantAction: toolcall.ActionPass,
+			wantReason: expansion.ReasonRootUnusable,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/file_path"))
+			res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, tc.args),
+				lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(tc.project))
+			if err != nil {
+				t.Fatalf("Finalize returned a Go error: %v", err)
+			}
+			if res.Action != tc.wantAction {
+				t.Fatalf("action=%v want %v (reason %q)", res.Action, tc.wantAction, res.ReasonCode)
+			}
+			if res.ArgsJSON != nil {
+				t.Fatalf("no branch here may publish a document: %q", res.ArgsJSON)
+			}
+			if expansionReason(t, res.ReasonCode) != tc.wantReason {
+				t.Fatalf("reason=%q want %q", res.ReasonCode, tc.wantReason)
+			}
+		})
+	}
+}
+
+// quote renders one JSON string literal for the table above.
+func quote(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
