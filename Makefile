@@ -1,4 +1,4 @@
-.PHONY: help test test-cost test-fast test-unit billing-convergence-certify profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install check-change-size backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
+.PHONY: help test test-cost test-fast test-unit billing-convergence-certify profile-only-check precommit-full test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks parity-acp-plugin parity-cursorcliacp-plugin parity-cli-acp-plugins parity-openrouter-plugin parity-hosted-compatible-plugins parity-ollama-plugins parity-opencode-plugins parity-codex-plugins parity-local-compatible-plugins test-local-compatible-plugin-modules release-gates bench pgo-profile pgo-build node-independence quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install check-change-size backend-plugin-module-checks backend-plugin-absence-checks backend-plugin-security-checks backend-plugin-cross-platform-qa backend-plugin-release-gates-static backend-plugin-release-gates package-minimal package-full package-plugin-smoke docs-check knowledge-check example-config-check backend-plugin-example-check kiro-spec-check isolated-root-qa installed-plugin-smoke test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report tmp-clean test-openresponses-compliance test-openresponses-compliance-static
 
 GO ?= go
 
@@ -100,6 +100,7 @@ help:
 	@echo "  make check-change-size - reject staged changes over 100 modified Go files (LIP_ALLOW_LARGE_CHANGE=1 to override)"
 	@echo "  make kiro-spec-check SPEC=<name> - validate a Kiro spec development gate"
 	@echo "  make isolated-root-qa - GOWORK=off QA on a temp root copy without connectors/support/Node/artifacts"
+	@echo "  make node-independence - Linux: host build/unit/quality/package/CLI/smoke with every Node entry point masked out"
 	@echo "  make installed-plugin-smoke - one lipstd binary; install release artifacts; same-binary inspect/doctor/invoke"
 	@echo "  make docs-check      - backend-plugin and extension-authoring documentation tests"
 	@echo "  make knowledge-check - steering/ADR hybrid consistency"
@@ -706,6 +707,18 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/isolated-root-qa.ps1
 else
 	@bash scripts/isolated-root-qa.sh
+endif
+
+# Host no-Node verification (spec cursor-sdk-standalone, task 5.1): replays the
+# documented host build/verification surface with every Node entry point removed
+# inside an unprivileged private mount namespace, proven by negative controls.
+# Linux-authoritative: no Windows host can provide the required namespaces, so the
+# Windows route reports that instead of degrading to a PATH-only proof.
+node-independence:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-node-independence.ps1
+else
+	@bash scripts/check-node-independence.sh --set full
 endif
 
 # Phase 8.5: unchanged lipstd binary gains optional kinds solely via installed artifacts.
