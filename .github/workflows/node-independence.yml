@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  LIP_ALLOW_LARGE_CHANGE: ${{ contains(github.event.pull_request.labels.*.name, 'allow-large-change') && '1' || '' }}
+
 concurrency:
   # Share the branch/PR group so a new push cancels the superseded no-Node run
   # instead of consuming another hosted runner.
