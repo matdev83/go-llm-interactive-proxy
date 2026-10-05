@@ -30,7 +30,7 @@ func TestAccountingCutoverStatesAreDistinct(t *testing.T) {
 			t.Fatalf("state %q must be valid", s)
 		}
 	}
-	if (AccountingCutoverState("bogus")).Valid() {
+	if AccountingCutoverState("bogus").Valid() {
 		t.Fatalf("bogus state must be invalid")
 	}
 }

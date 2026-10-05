@@ -78,9 +78,12 @@ func TestObserver_PanicIsolated(t *testing.T) {
 
 type panickingObserver struct{}
 
-func (panickingObserver) OnProjection(string, ProjectionSummary)                   { panic("projection") }
-func (panickingObserver) OnProjectionFailure(string)                               { panic("failure") }
-func (panickingObserver) OnAnchorFallback(string, AnchorMissingPolicy)             { panic("fallback") }
+func (panickingObserver) OnProjection(string, ProjectionSummary) { panic("projection") }
+
+func (panickingObserver) OnProjectionFailure(string) { panic("failure") }
+
+func (panickingObserver) OnAnchorFallback(string, AnchorMissingPolicy) { panic("fallback") }
+
 func (panickingObserver) OnAnchorFailure(AnchorMissingPolicy)                      { panic("anchor") }
 func (panickingObserver) OnSteeringMutation(CacheDiscontinuityKind, PlacementKind) { panic("mut") }
 

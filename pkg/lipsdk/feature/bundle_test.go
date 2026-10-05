@@ -556,6 +556,7 @@ func (c callCountingAttemptTransform) ID() string {
 }
 func (c callCountingAttemptTransform) Order() int                        { return 0 }
 func (c callCountingAttemptTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+
 func (c callCountingAttemptTransform) HandleAttempt(context.Context, *lipapi.Call, request.AttemptMeta, request.Services) (request.AttemptDecision, error) {
 	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 }

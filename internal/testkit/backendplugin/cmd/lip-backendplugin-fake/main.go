@@ -41,15 +41,10 @@ func main() {
 	backendpluginv1.RegisterBackendPluginServer(gs, backendplugin.NewGRPCServer(offer, svc))
 
 	if pipe := os.Getenv("LIP_PLUGIN_CHANNEL_PIPE"); pipe != "" {
-		c, err := dialNamedPipe(pipe)
-		if err != nil {
+		if err := serveNamedPipe(gs, pipe, dialNamedPipe); err != nil {
 			fmt.Fprintf(os.Stderr, "pipe dial: %v\n", err)
 			os.Exit(1)
 		}
-		if os.Getenv("LIP_BACKENDPLUGIN_FAKE_READY") != "" {
-			fmt.Fprintf(os.Stderr, "READY pipe %s\n", pipe)
-		}
-		_ = gs.Serve(&singleConnListener{conn: c, closed: make(chan struct{})})
 		return
 	}
 
@@ -69,6 +64,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func serveNamedPipe(server *grpc.Server, name string, dial func(string) (net.Conn, error)) error {
+	conn, err := dial(name)
+	if err != nil {
+		return err
+	}
+	if os.Getenv("LIP_BACKENDPLUGIN_FAKE_READY") != "" {
+		fmt.Fprintf(os.Stderr, "READY pipe %s\n", name)
+	}
+	_ = server.Serve(&singleConnListener{conn: conn, closed: make(chan struct{})})
+	return nil
 }
 
 type singleConnListener struct {
