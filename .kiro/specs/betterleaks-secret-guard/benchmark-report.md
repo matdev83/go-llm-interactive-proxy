@@ -245,3 +245,7 @@ Focused verification after the remediation passed:
 - Windows `-race` was not retried because the known local cgo tool failure occurs before tests; Linux race evidence for task 8.2 is inherited from parent commit `b2084b41`, with no new race claim here.
 
 The full test output and normalized measurements above contain no raw synthetic secret payloads.
+
+## Newline-dense review regression
+
+The historical matrix above omits the single-fragment, near-cap newline topology raised in PR 726 review. See review-remediation.md for index-inclusive projection and complete scanner measurements over one 2 MiB fragment with 256 near-tail findings. The default-policy full scanner measured 54,477,314 B/op over three iterations with zero cap failures; projection alone is 34,816 B/op and must not be presented as including its roughly 8 MiB line-start index. The prior generic-heavy fixture remains a separate-fragment bounded-failure bucket.

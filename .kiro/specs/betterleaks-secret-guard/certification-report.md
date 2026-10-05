@@ -1,3 +1,5 @@
+> Historical certification: the current disposition and PR review repairs are recorded in validation-report.md and review-remediation.md. The GO below applies only to its recorded earlier revision and does not authorize merging PR 726.
+
 # BetterLeaks Secret Guard Whole-Feature Certification
 
 ## Verification Result

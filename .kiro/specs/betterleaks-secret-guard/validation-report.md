@@ -1,25 +1,19 @@
-> Current disposition: NO-GO. The PR review at 845d4376 identified newline-dense location-projection amplification, ineffective multi-user/BetterLeaks redaction policy, and missing positional request-credential deduplication. Tasks 10.1–10.4 track the repairs and stronger post-redaction coverage invariant. The assessment below is historical evidence and is superseded pending fresh verification.
 # BetterLeaks Secret Guard Integration Validation
 
-## Validation Report
+## Current disposition
 
-- DECISION: GO
-- SOURCE_COMMIT: daa38a0ba9d87f10f78aea7a451dd2380ca524c7
-- MECHANICAL_RESULTS: Current canonical unit, configured quality, parity, QA, strict broad Linux race, real CLI build, and CLI help exited 0. The other four applicable race lanes passed at 22d7b25b with unchanged source and configuration. See certification-after-billing-repair.md for exact commands, exits, logs, and lane identities.
-- INTEGRATION: Generation-owned opaque capability, shared fragment admission, authoritative items, private merge/projection, span-eligible rewrite, validated decisions, audit, quarantine, ingress credential attribution, and request-local lazy buffers align across tasks. The independently reviewed upstream test repairs add no production coupling or boundary violation.
-- COVERAGE: All 73 acceptance criteria across 10 original requirement sections are covered. All implementation and certification tasks 1–9.5 are complete; no task retains a blocked annotation.
-- DESIGN: Dependency direction and component placement match the approved boundary map. No BetterLeaks concrete types or provider policy escape into generic core or SDK contracts. Whole-fragment context, exact attribution, byte accounting, clone-only mutation, and decoded fail-closed semantics remain verified. Production Go source is unchanged since the previously reviewed fb7032d7 implementation.
-- PERFORMANCE: SATISFIED by independent design review for the bounded opt-in security profile. Remaining upstream positive-match CPU and JSON mapping costs are explicit in performance-assessment.md. Detector defaults, admission, workers, decode depth, finding cap, cancellation, and operator controls remain unchanged. No deployment latency guarantee or numeric SLO is asserted.
-- OWNERSHIP: The prior billing measurement, fixture placement, spool fixture, and reasoning-preservation test-poller blockers were repaired at their owning test boundaries in tasks 9.2–9.5. Production billing and reasoning preservation were not changed.
-- BLOCKED_TASKS: None within implementation-branch certification.
-- REMEDIATION: None required for the certified scope.
-- DELIVERY_LIMITS: GitHub CI, PR submission, merge, merged-main verification, and archiving remain outside this local certification.
+- DECISION: MANUAL_VERIFY_REQUIRED
+- CLAIM: The four PR review repair areas are implemented and mechanically verified. Independent focused PR re-review remains required before merge; this report does not override the reviewer NO-GO or authorize merging.
+- SOURCE_COMMIT: 424768c80ba1969e271f6e5adbf1d6c9996d9bdc
+- MECHANICAL_RESULTS: Native Linux make test-unit, make quality-checks, make parity-checks, targeted race, CLI build, and CLI help each exited 0. Affected Windows feature/auth/SDK/composition/runtime/runtime-bundle/architecture tests and vet pass. Detailed commands and evidence paths are in review-remediation.md.
+- REGRESSIONS: One 2 MiB newline-dense fragment with 256 near-tail findings; full-match/value-group normalization and ambiguous-literal allocation controls; actual authenticated credential overlap; 48 access-mode/detector/mask/prefix/content combinations; missed JSON mapping and unrelated-mutation fail-closed controls.
+- COVERAGE: The original 73 acceptance criteria remain the approved coverage baseline. Tasks 10.1–10.4 add direct coverage for the concrete gaps identified in PR review. Completion checkboxes refer to implementation and controller verification, not independent merge approval.
+- DESIGN: Resolved redaction policy is generation-owned. Optional SDK positions carry safe attribution only; auth does not import the feature engine. Upstream concrete types remain inside the private adapter. Literal candidates reuse validated offsets, and redaction commits only after complete occurrence coverage.
+- PERFORMANCE: Default-policy full scanning of the new 2 MiB/256-finding topology measured 54,477,314 B/op over three iterations with zero cap failures. Index-inclusive projection measured 8,406,120 B/op; prebuilt-index projection measured 34,816 B/op. The latter excludes the roughly 8 MiB line-start index. This is bounded topology evidence, not a latency SLO; the 64 MiB configurable ceiling was not benchmarked.
+- REVIEW: Location repair received independent APPROVED review. The host rejected further agent dispatch with agent thread limit reached; remaining task-local review used the kiro-review controller fallback and fresh negative controls. Independent focused PR re-review is still outstanding.
+- BLOCKED_IMPLEMENTATION_TASKS: None.
+- DELIVERY: PR 726 remains open; no merge or auto-merge is authorized. Archive and merged-main verification remain deferred until a later authorized merge.
 
-## Completion Verification
+## Evidence limits
 
-- STATUS: VERIFIED
-- CLAIM_TYPE: FEATURE_GO
-- CLAIM: BetterLeaks secret guard is certified for GO on its implementation branch.
-- EVIDENCE: Independent final review inspected actual diff, approved specifications, raw gate logs, clean native clone, and unchanged-lane source identity. Current evidence is /home/ciuser/betterleaks-cert-daa38a0b-evidence/ and C:/Users/Mateusz/betterleaks-cert-daa38a0b-evidence/. The complementary four-lane race evidence is /home/ciuser/betterleaks-cert-22d7b25b-evidence/09-make-test-race.log.
-- GAPS: None within that scope. This is full applicable race coverage assembled from unchanged successful lanes and the repaired current broad lane; it is not a claim that one current-SHA all-lane invocation exited 0.
-- NOTES: Canonical configured lint and protobuf checks passed. Only local opt-in module-cache verification is skipped. Standalone staticcheck fallback findings and historical failed gates remain disclosed in certification-after-billing-repair.md. This report supersedes the prior fb7032d7 NO-GO assessment.
+This report supersedes the historical FEATURE_GO assessment at daa38a0b. Historical billing/other race lanes and earlier green GitHub runs do not prove the correctness of these changed paths. Current native race coverage is targeted to the feature, its exact engine, auth, host composition, and SDK; it is not an all-lane race invocation. Final remote results must be checked against the latest PR head.

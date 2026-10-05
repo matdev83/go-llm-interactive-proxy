@@ -282,15 +282,17 @@
   - _Depends: 10.1_
   - _Validation: strict TDD; multi-user exact/BetterLeaks overlap and repeated occurrence tests; auth/SDK/feature regressions; architecture checks_
 
-- [ ] 10.4 Enforce complete post-redaction occurrence coverage
+- [x] 10.4 Enforce complete post-redaction occurrence coverage
   - Require each BetterLeaks occurrence to be covered by actual rewrite or exact overlap; any missed occurrence blocks with unrewritable_detected_secret even if another mutation succeeds.
   - Update design and certification artifacts with current evidence for all four review areas; historical green checks do not certify these repairs.
   - _Requirements: 6.3, 6.4, 6.5, 6.6, 6.7, 10.1_
   - _Boundary: feature rewrite/evaluation and targeted tests; parent-owned spec artifacts_
   - _Depends: 10.2_
-  - _Validation: strict TDD; partial/zero rewrite and JSON mapping negative controls; feature/integration/race checks; current remote CI; independent focused review_
+  - _Validation: strict TDD; partial/zero rewrite and JSON mapping negative controls; feature/integration/race checks; current remote CI; focused kiro-review fallback when delegation is unavailable; independent PR re-review before merge_
 
 ## Implementation Notes
+
+- Tasks 10.1–10.4 repair PR 726 review findings. Task 10.1 received independent APPROVED review; subsequent delegation hit the host agent thread limit and used the kiro-review controller fallback. Current native Linux unit, quality, parity, targeted race, build, and CLI smoke pass at 424768c8. The PR remains open for independent focused re-review; technical verification is not merge authorization. See review-remediation.md for negative controls, performance scope, and raw evidence.
 
 - Task 9.5 makes recorded poller job IDs atomic and preserves all three ID assertions and concurrent adoption coverage. Independent current Linux package race, focused repeated race, lint, and vet pass. Final strict broad race passes at daa38a0b; the other four lanes passed at 22d7b25b with unchanged source and configuration.
 
