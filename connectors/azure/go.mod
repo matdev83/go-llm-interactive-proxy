@@ -7,7 +7,7 @@ replace github.com/matdev83/go-llm-interactive-proxy => ../..
 replace github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat => ../../connector-support/openaicompat
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/matdev83/go-llm-interactive-proxy v0.0.0
