@@ -134,6 +134,12 @@ func TestSyntheticSecretGuardCorpus_FrontendParityMatrix(t *testing.T) {
 					if string(after) != string(before) {
 						t.Fatalf("block action mutated the decoded canonical call")
 					}
+					if tc.name == "tool-schema" {
+						if decision.Outcome != sdk.OutcomePass || len(decision.Findings) != 0 {
+							t.Fatalf("excluded tool definition produced outcome=%q findings=%d", decision.Outcome, len(decision.Findings))
+						}
+						return
+					}
 					if decision.Outcome != sdk.OutcomeBlock {
 						t.Fatalf("frontend %s did not block corpus case %s", frontendID, tc.name)
 					}
@@ -400,13 +406,13 @@ func decodeCorpusJSONContext(frontendID, value string) (*lipapi.Call, error) {
 	quoted := mustJSONQuote(value)
 	switch frontendID {
 	case "openresponses":
-		return decodeCorpusBody(frontendID, []byte(`{"model":"gpt-4o-mini","input":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":`+mustJSONQuote(`{"github_token":`+quoted+`}`)+`},{"type":"function_call_output","call_id":"call_1","output":"{}"}]}`))
+		return decodeCorpusBody(frontendID, []byte(`{"model":"gpt-4o-mini","input":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":`+mustJSONQuote(`{"github_token":`+quoted+`}`)+`}]}`))
 	case "openai-responses":
 		return decodeCorpusBody(frontendID, []byte(`{"model":"gpt-4o-mini","input":[{"type":"function_call_output","call_id":"call_1","output":{"github_token":`+quoted+`}}]}`))
 	case "openai-legacy":
 		return decodeCorpusBody(frontendID, []byte(`{"model":"gpt-4o-mini","messages":[{"role":"tool","tool_call_id":"call_1","content":{"github_token":`+quoted+`}}]}`))
 	case "anthropic":
-		return decodeCorpusBody(frontendID, []byte(`{"model":"claude-3-5-haiku-20241022","max_tokens":64,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"lookup","input":{"github_token":`+quoted+`}}]}]}`))
+		return decodeCorpusBody(frontendID, []byte(`{"model":"claude-3-5-haiku-20241022","max_tokens":64,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"lookup","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":[{"type":"text","text":`+mustJSONQuote(`{"github_token":`+quoted+`}`)+`}]}]}]}`))
 	case "gemini":
 		return decodeCorpusBody(frontendID, []byte(`{"contents":[{"role":"user","parts":[{"functionResponse":{"name":"lookup","response":{"github_token":`+quoted+`}}}]}]}`))
 	default:

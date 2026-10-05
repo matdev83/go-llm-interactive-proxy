@@ -6,6 +6,8 @@ AIProxer's existing `secrets-guard` provides a strong live-proxy enforcement env
 
 This specification implements issue #714 by making secret detection hybrid. AIProxer retains its exact-known-secret detector where the proxy legitimately knows a value and embeds the BetterLeaks Go SDK as a second, expert-maintained discovery detector for unknown credentials. BetterLeaks performs detection only; AIProxer remains authoritative for canonical traversal, policy, mutation, audit, quarantine, fail-closed behavior, access-mode isolation, and observability.
 
+The maintainer-approved provenance contract in 4.7 supersedes the issue's original broader request-field scope: only user prompts and tool execution output are eligible. Historical assistant responses and model-generated tool calls remain untouched when replayed. Provider response streams are outside SecretGuard ownership under 10.9.
+
 The feature is brownfield. Existing stage ordering, `block`/`redact`/`log` actions, request-credential matching, single-user environment catalog, secure-session quarantine, scan-byte limit, audit policy, token-safe JSON rewriting, and runtime-generation composition must remain intact unless this specification explicitly changes them.
 
 ## Boundary Context
@@ -87,7 +89,7 @@ The feature is brownfield. Existing stage ordering, `block`/`redact`/`log` actio
 
 4.1. **When** BetterLeaks scans textual canonical content, AIProxer shall provide a complete logical text fragment rather than decomposing it into unrelated scalar tokens first.
 
-4.2. **When** BetterLeaks scans JSON-shaped canonical content such as tool arguments, tool results, or tool schemas, AIProxer shall provide the original logical raw JSON fragment needed to preserve key/value and multipart context.
+4.2. **When** BetterLeaks scans JSON-shaped user prompt or tool execution output content, AIProxer shall provide the original logical raw JSON fragment needed to preserve key/value and multipart context. Config snippets and schemas are eligible only when embedded in that content; model-generated tool-call arguments and tool definitions are excluded.
 
 4.3. **If** a generic secret is detectable from contextual JSON such as an `api_key` key adjacent to an opaque value, the BetterLeaks path shall retain that context and shall not rely solely on scalar-value scanning.
 
@@ -96,6 +98,8 @@ The feature is brownfield. Existing stage ordering, `block`/`redact`/`log` actio
 4.5. **When** the canonical scanner encounters repeated logical fragments or repeated findings, AIProxer shall preserve deterministic location attribution and shall not multiply enforcement decisions merely because more than one detector reports the same concrete secret occurrence.
 
 4.6. **The** request-level `scan_max_bytes` limit shall bound unique canonical request bytes admitted to secret detection, not cumulative bytes inspected across detectors. AIProxer shall charge each logical fragment occurrence once, using its original text or raw JSON byte length, before either detector inspects it; identical content in different request fields shall count separately. Exact matching and BetterLeaks shall share the same admitted content and budget, with no separate detector allowance. A fragment that would exceed the remaining budget shall not be scanned by either detector and shall trigger the existing scan-limit behavior.
+
+4.7. **The** SecretGuard feature shall inspect and mutate only user prompt content and tool execution output. For message-authoritative calls, only `Messages` with `RoleUser` or `RoleTool` are eligible. For item-authoritative calls, only message items with `RoleUser` or `RoleTool`, and `ItemKindToolResult` output/parts, are eligible. All `Instructions`, assistant/system/developer or unknown-role messages, model-generated tool calls, reasoning/refusal/reference items, and tool definitions (names, descriptions, schemas) shall remain byte-for-byte unchanged and shall not consume scan budget, produce findings, or trigger enforcement. The same provenance restriction applies to exact-only, BetterLeaks-only, and hybrid detection and every action, including replayed conversation history.
 
 ### Requirement 5: Safe Finding Projection and Hybrid Merge
 
@@ -222,3 +226,5 @@ The feature is brownfield. Existing stage ordering, `block`/`redact`/`log` actio
 10.7. **The** implementation shall add architecture ratchets that prevent BetterLeaks CLI/subprocess integration, provider validation/analysis/revocation imports on the secret-guard request path, BetterLeaks type leakage across the private adapter boundary, and user-controlled allow-signature reintroduction.
 
 10.8. **When** the feature is disabled or both detector paths are deliberately off, unrelated routing, billing, continuity, frontend/backend translation, and response-stream semantics shall remain unchanged.
+
+10.9. **The** SecretGuard feature shall operate exclusively before backend dispatch on the eligible client-to-provider canonical request content defined in 4.7, including while enabled and actively redacting. It MUST NOT inspect, scan, redact, transform, collect, buffer, delay for inspection, or otherwise interpose on provider response events or streams. A provider event containing a detectable secret shall reach downstream unchanged before stream completion; subsequent events and normal stream termination shall remain observable incrementally.

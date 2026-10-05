@@ -108,8 +108,9 @@ func (b *scanBudget) admit(n int) bool {
 	return true
 }
 
-// walkLogicalFragments emits whole text and raw JSON units in the same stable
-// order as the existing exact scanner. A rejected fragment is never emitted.
+// walkLogicalFragments emits whole text and raw JSON units from eligible user
+// prompts and tool output in stable canonical order. Instructions, model
+// tool-call arguments, and tool definitions are never admitted or emitted.
 func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragment {
 	if call == nil {
 		return nil
@@ -173,6 +174,9 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 	}
 	appendMessage := func(messages []lipapi.Message, prefix string) bool {
 		for i := range messages {
+			if messages[i].Role != lipapi.RoleUser && messages[i].Role != lipapi.RoleTool {
+				continue
+			}
 			for j := range messages[i].Parts {
 				loc := fmt.Sprintf("%s[%d].parts[%d]", prefix, i, j)
 				part := &messages[i].Parts[j]
@@ -182,6 +186,9 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 						return true
 					}
 				case lipapi.PartJSON:
+					if part.ToolCallID != "" || part.ToolName != "" {
+						continue
+					}
 					if appendJSON(loc, &part.Content) {
 						return true
 					}
@@ -203,14 +210,13 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 			item := &items[i]
 			switch item.Kind {
 			case lipapi.ItemKindMessage:
+				if item.Role != lipapi.RoleUser && item.Role != lipapi.RoleTool {
+					continue
+				}
 				for j := range item.Content {
 					if appendContentPart(fmt.Sprintf("items[%d].content[%d]", i, j), &item.Content[j]) {
 						return true
 					}
-				}
-			case lipapi.ItemKindToolCall:
-				if item.ToolCall != nil && appendJSON(fmt.Sprintf("items[%d].tool_call.arguments", i), &item.ToolCall.Arguments) {
-					return true
 				}
 			case lipapi.ItemKindToolResult:
 				if item.ToolResult == nil {
@@ -233,16 +239,8 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 		if appendItems(call.Items) {
 			return fragments
 		}
-	} else if appendMessage(call.Instructions, "instructions") || appendMessage(call.Messages, "messages") {
+	} else if appendMessage(call.Messages, "messages") {
 		return fragments
-	}
-	for i := range call.Tools {
-		tool := &call.Tools[i]
-		if appendText(fmt.Sprintf("tools[%d].name", i), &tool.Name) ||
-			appendText(fmt.Sprintf("tools[%d].description", i), &tool.Description) ||
-			appendJSON(fmt.Sprintf("tools[%d].schema", i), &tool.Parameters) {
-			return fragments
-		}
 	}
 	return fragments
 }

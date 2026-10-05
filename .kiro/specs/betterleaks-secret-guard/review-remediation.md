@@ -1,6 +1,6 @@
 # PR 726 focused review remediation
 
-Current disposition: independent PR re-review at 49eefcfb closed all four SecretGuard repair areas. Its sole remaining blocker, integration with main, is resolved locally with fresh focused Linux race evidence. Remote checks on the delivered integration head remain required. The PR stays open with auto-merge disabled.
+Current disposition: the four original remediation findings remain closed, and main integration is complete with green checks at 9b8649d5. The newly clarified user/tool-output provenance contract requires tasks 11.1 and 11.2; feature GO is withheld until their implementation, focused review and fresh certification. The PR stays open with auto-merge disabled.
 
 ## Repair scope
 

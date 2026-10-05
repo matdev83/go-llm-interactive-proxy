@@ -391,7 +391,7 @@ func TestScanCall_RetainsExactPrivateOccurrencesAlongsideSDKFindings(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{lipapi.TextPart("prefix " + testkit.SyntheticOpenAIAPIKey)}}}}
+	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("prefix " + testkit.SyntheticOpenAIAPIKey)}}}}
 	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
 	if err != nil {
 		t.Fatal(err)
@@ -410,8 +410,8 @@ func TestScanCall_HybridMergeDistinguishesToolResultTextAndJSONFields(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{{
-		Kind: lipapi.PartToolResult, Text: "123456789", Content: json.RawMessage(`123456789`),
+	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleTool, Parts: []lipapi.Part{{
+		Kind: lipapi.PartToolResult, ToolCallID: "call-1", Text: "123456789", Content: json.RawMessage(`123456789`),
 	}}}}}
 	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
 	if err != nil {
@@ -435,7 +435,7 @@ func TestScanCall_HybridMergePreservesEscapedJSONCardinality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{{
+	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 		Kind: lipapi.PartJSON, Content: json.RawMessage(`["abcdefgh9","a\u0062cdefgh9"]`),
 	}}}}}
 	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
@@ -460,7 +460,7 @@ func TestScanCall_HybridMergeDeduplicatesEscapedBetterLeaksOccurrence(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{{
+	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(`{"token":"\u0067hp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5"}`),
 	}}}}}
@@ -499,7 +499,7 @@ func TestScanCall_HybridMergeNumericEscapedExactOccurrenceCardinality(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{{
+	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(`["123456789","\u003123456789"]`),
 	}}}}}
@@ -525,7 +525,7 @@ func TestScanCall_HybridMergeEscapedJSONKeyWithBetterLeaksProvenance(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{{
+	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(`{"\u0067hp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5":"value"}`),
 	}}}}}
@@ -564,7 +564,7 @@ func TestScanCall_RedactJSONShortCircuitDoesNotCollectUnvisitedTokens(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{{
+	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(`{"first":123456789,"later":"123456789"}`),
 	}}}}}
@@ -601,7 +601,7 @@ func TestScanCall_ExactJSONSemanticTokenMappingMatchesCanonicalTraversal(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{{
+			call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 				Kind:    lipapi.PartJSON,
 				Content: json.RawMessage(tc.raw),
 			}}}}}
@@ -643,7 +643,7 @@ func TestScanCall_ExactJSONSemanticTokenMappingCanonicalEdgeFixtures(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{{
+			call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 				Kind: lipapi.PartJSON, Content: json.RawMessage(tc.raw),
 			}}}}}
 			out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)

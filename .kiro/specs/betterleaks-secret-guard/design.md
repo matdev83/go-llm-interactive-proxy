@@ -43,13 +43,13 @@ The top-level `secrets-guard` registration remains explicit and action-required.
 | 1.1-1.9 | detector switches/defaults/access-mode safety | Config Resolver, SecretGuard Composer | resolved detector policy | Generation composition |
 | 2.1-2.5 | preserve exact known-secret protection | Exact Resolver, Request Credential Matcher | existing `MatcherResolver` | Hybrid request scan |
 | 3.1-3.8 | embedded detection-only BetterLeaks | BetterLeaks Adapter | private `DiscoveryDetector` | Generation construction |
-| 4.1-4.6 | whole logical fragment scanning | Logical Fragment Walker | `LogicalFragment` | Hybrid request scan |
+| 4.1-4.7 | provenance-restricted whole logical fragment scanning | Logical Fragment Walker | `LogicalFragment` | Hybrid request scan |
 | 5.1-5.6 | safe projection/dedup | Discovery Result Projector, Hybrid Merger | safe finding DTO | Finding projection |
 | 6.1-6.7 | enforcement/redaction ownership | Guard, Rewrite Bridge | existing exact rewriter | Block/log/redact |
 | 7.1-7.10 | operator tuning | Config Resolver, BetterLeaks Builder | resolved BetterLeaks config | Candidate publication |
 | 8.1-8.8 | lifecycle/errors/resource bounds | BetterLeaks Builder, Scanner Handle | error-returning scan | Generation/request lifecycle |
 | 9.1-9.6 | diagnostics/upgrade ratchet | Diagnostics Projector, Policy Ratchet | bounded inventory | Diagnostics/audit |
-| 10.1-10.8 | brownfield certification | tests/benchmarks/archtests | existing matrices | QA/certification |
+| 10.1-10.9 | brownfield certification and response passthrough | tests/benchmarks/archtests | existing matrices | QA/certification |
 
 ## Architecture
 
@@ -318,7 +318,7 @@ type LogicalFragment struct {
 
 `Location` is a bounded canonical locator already derivable from the request traversal. `Kind` is a closed enum such as text or JSON. Text fragments retain the original immutable string; JSON fragments retain their original raw representation. These are alternative private representations, not duplicated payload buffers. Byte materialization is deferred until occurrence mapping or mutation needs it, without unsafe aliasing. Neither representation may appear in diagnostics.
 
-V1 emits whole logical units where BetterLeaks context is meaningful: text parts, raw JSON tool arguments/results/schemas, and bounded tool descriptions/names where those are already canonical content. It does not concatenate the complete request.
+V1 emits whole logical text and JSON units exclusively from user prompts and tool execution output. Message traversal admits only RoleUser/RoleTool in Call.Messages; Instructions are never visited. Item-authoritative traversal admits RoleUser/RoleTool message content and ItemKindToolResult output/parts. Assistant/system/developer/unknown-role messages, tool calls, reasoning/refusal/reference items, and Call.Tools are excluded. JSON config snippets and schemas remain detectable when embedded in eligible prompt/output content. The same walker controls exact and BetterLeaks scanning, budget admission, and redaction replacement handles, so excluded content cannot be mutated by a second traversal. It does not concatenate the complete request or infer provenance from data shape.
 
 The walker and existing exact traversal use the same scan-budget owner.
 
@@ -473,7 +473,7 @@ No hard latency SLO is invented here because current secret-guard baseline measu
 
 ### Streaming-first / retry semantics
 
-**PASS.** This is a pre-dispatch request-stage feature. It does not alter response streaming, output commitment, retry, failover, or B2BUA semantics.
+**Required invariant (10.9).** This is exclusively a pre-dispatch request-stage feature, even while enabled and actively redacting. It MUST NOT inspect, scan, redact, transform, collect, buffer, delay for inspection, or otherwise interpose on provider response events or streams. It does not alter output commitment, retry, failover, or B2BUA semantics. A controllable EventStream regression must release a first secret-bearing provider event while completion remains blocked, prove downstream observes the unchanged event, then release subsequent events and termination. This test must run with action:redact and BetterLeaks enabled and prove the provider received the redacted eligible request.
 
 ### Public SDK leakage
 

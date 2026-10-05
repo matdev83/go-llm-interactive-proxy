@@ -8,17 +8,29 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func requireValidCanonicalCall(t *testing.T, call *lipapi.Call) {
+	t.Helper()
+	if err := call.Validate(); err != nil {
+		t.Fatalf("canonical fixture is invalid: %v", err)
+	}
+}
+
 func TestWalkLogicalFragments_PreservesCanonicalContextAndLocations(t *testing.T) {
 	t.Parallel()
 
 	toolSchema := json.RawMessage(`{"type":"object","properties":{"api_key":{"type":"string"}}}`)
 	toolResult := json.RawMessage(`{"api_key":"opaque-result"}`)
 	call := &lipapi.Call{
-		Instructions: []lipapi.Message{{
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser,
 			Parts: []lipapi.Part{
-				lipapi.TextPart("instruction text"),
-				{Kind: lipapi.PartJSON, Content: json.RawMessage(`{"api_key":"opaque-argument"}`)},
-				{Kind: lipapi.PartToolResult, Text: "tool result text", Content: toolResult},
+				lipapi.TextPart("user prompt text"),
+				{Kind: lipapi.PartJSON, Content: json.RawMessage(`{"api_key":"opaque-prompt"}`)},
+			},
+		}, {
+			Role: lipapi.RoleTool,
+			Parts: []lipapi.Part{
+				{Kind: lipapi.PartToolResult, ToolCallID: "call-1", Text: "tool result text", Content: toolResult},
 			},
 		}},
 		Tools: []lipapi.ToolDef{{
@@ -27,19 +39,17 @@ func TestWalkLogicalFragments_PreservesCanonicalContextAndLocations(t *testing.T
 			Parameters:  toolSchema,
 		}},
 	}
+	requireValidCanonicalCall(t, call)
 
 	want := []struct {
 		location string
 		kind     FragmentKind
 		raw      string
 	}{
-		{location: "instructions[0].parts[0]", kind: FragmentText, raw: "instruction text"},
-		{location: "instructions[0].parts[1]", kind: FragmentJSON, raw: `{"api_key":"opaque-argument"}`},
-		{location: "instructions[0].parts[2]", kind: FragmentText, raw: "tool result text"},
-		{location: "instructions[0].parts[2]", kind: FragmentJSON, raw: `{"api_key":"opaque-result"}`},
-		{location: "tools[0].name", kind: FragmentText, raw: "lookup"},
-		{location: "tools[0].description", kind: FragmentText, raw: "lookup description"},
-		{location: "tools[0].schema", kind: FragmentJSON, raw: `{"type":"object","properties":{"api_key":{"type":"string"}}}`},
+		{location: "messages[0].parts[0]", kind: FragmentText, raw: "user prompt text"},
+		{location: "messages[0].parts[1]", kind: FragmentJSON, raw: `{"api_key":"opaque-prompt"}`},
+		{location: "messages[1].parts[0]", kind: FragmentText, raw: "tool result text"},
+		{location: "messages[1].parts[0]", kind: FragmentJSON, raw: `{"api_key":"opaque-result"}`},
 	}
 
 	budget := newScanBudget(1024)
@@ -69,6 +79,153 @@ func TestWalkLogicalFragments_PreservesCanonicalContextAndLocations(t *testing.T
 	}
 }
 
+func TestWalkLogicalFragments_MessageAuthorityRestrictsProvenanceAndBudget(t *testing.T) {
+	t.Parallel()
+
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "instruction secret"}},
+		}},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleSystem, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "system secret"}}},
+			{Role: lipapi.RoleDeveloper, Parts: []lipapi.Part{{Kind: lipapi.PartJSON, Content: json.RawMessage(`{"token":"developer secret"}`)}}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "assistant secret"}}},
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{
+				lipapi.TextPart("user prompt"),
+				{Kind: lipapi.PartJSON, Content: json.RawMessage(`{"api_key":"user json"}`)},
+			}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{
+				lipapi.TextPart("tool output"),
+				{Kind: lipapi.PartToolResult, ToolCallID: "call-1", Text: "tool result text", Content: json.RawMessage(`{"token":"tool result json"}`)},
+			}},
+		},
+		Tools: []lipapi.ToolDef{{
+			Name:        "tool secret",
+			Description: "tool description secret",
+			Parameters:  json.RawMessage(`{"api_key":"tool schema secret"}`),
+		}},
+	}
+	requireValidCanonicalCall(t, call)
+
+	budget := newScanBudget(len("user prompt") + len(`{"api_key":"user json"}`) + len("tool output") + len("tool result text") + len(`{"token":"tool result json"}`))
+	fragments := walkLogicalFragments(call, budget)
+	want := []string{
+		"user prompt",
+		`{"api_key":"user json"}`,
+		"tool output",
+		"tool result text",
+		`{"token":"tool result json"}`,
+	}
+	if len(fragments) != len(want) {
+		t.Fatalf("fragment count: got %d want %d: %#v", len(fragments), len(want), fragments)
+	}
+	for i, fragment := range fragments {
+		if got := fragment.textValue(); got != want[i] {
+			t.Errorf("fragment %d: got %q want %q", i, got, want[i])
+		}
+	}
+	if budget.limitHit {
+		t.Fatal("eligible fragments should fit the shared budget")
+	}
+	if got, wantBytes := budget.used, budget.maxBytes; got != wantBytes {
+		t.Fatalf("budget used: got %d want %d", got, wantBytes)
+	}
+}
+
+func TestWalkLogicalFragments_ItemAuthoritySkipsUnknownRoleRobustness(t *testing.T) {
+	t.Parallel()
+
+	// Unknown item roles are rejected by the canonical item schema. Keep this
+	// direct walker robustness fixture separate from validated SDK cases.
+	call := &lipapi.Call{Items: []lipapi.Item{
+		{Kind: lipapi.ItemKindMessage, Role: lipapi.Role("unknown"), Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "unknown secret"}}},
+		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleUser, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "user prompt"}}},
+	}}
+	fragments := walkLogicalFragments(call, newScanBudget(1024))
+	if len(fragments) != 1 || fragments[0].Location != "items[1].content[0]" || fragments[0].textValue() != "user prompt" {
+		t.Fatalf("unknown role traversal: got %#v", fragments)
+	}
+}
+
+func TestWalkLogicalFragments_ItemAuthorityRestrictsProvenanceAndBudget(t *testing.T) {
+	t.Parallel()
+
+	call := &lipapi.Call{Items: []lipapi.Item{
+		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleAssistant, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "assistant history"}}},
+		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleUser, Content: []lipapi.ContentPart{
+			{Kind: lipapi.ContentPartText, Text: "item user prompt"},
+			{Kind: lipapi.ContentPartJSON, Text: `{"api_key":"item prompt json"}`},
+		}},
+		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleTool, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "item tool message"}}},
+		{Kind: lipapi.ItemKindToolCall, ToolCall: &lipapi.ToolCallItem{CallID: "call-1", Name: "lookup", Arguments: json.RawMessage(`{"token":"model argument"}`)}},
+		{Kind: lipapi.ItemKindToolResult, ToolResult: &lipapi.ToolResultItem{
+			CallID: "call-1", Name: "lookup", Output: `{"token":"item tool output"}`,
+		}},
+		{Kind: lipapi.ItemKindToolCall, ToolCall: &lipapi.ToolCallItem{CallID: "call-2", Name: "lookup", Arguments: json.RawMessage(`{"token":"model argument 2"}`)}},
+		{Kind: lipapi.ItemKindToolResult, ToolResult: &lipapi.ToolResultItem{
+			CallID: "call-2", Name: "lookup",
+			Parts: []lipapi.ContentPart{
+				{Kind: lipapi.ContentPartText, Text: "item tool result text"},
+				{Kind: lipapi.ContentPartJSON, Text: `{"api_key":"item result json"}`},
+			},
+		}},
+		{Kind: lipapi.ItemKindItemReference, Reference: &lipapi.ItemReference{ID: "prior"}},
+	}}
+	requireValidCanonicalCall(t, call)
+
+	want := []string{
+		"item user prompt",
+		`{"api_key":"item prompt json"}`,
+		"item tool message",
+		`{"token":"item tool output"}`,
+		"item tool result text",
+		`{"api_key":"item result json"}`,
+	}
+	budget := newScanBudget(len("item user prompt") + len(`{"api_key":"item prompt json"}`) + len("item tool message") + len(`{"token":"item tool output"}`) + len("item tool result text") + len(`{"api_key":"item result json"}`))
+	fragments := walkLogicalFragments(call, budget)
+	if len(fragments) != len(want) {
+		t.Fatalf("fragment count: got %d want %d: %#v", len(fragments), len(want), fragments)
+	}
+	for i, fragment := range fragments {
+		if got := fragment.textValue(); got != want[i] {
+			t.Errorf("fragment %d: got %q want %q", i, got, want[i])
+		}
+	}
+	if budget.limitHit {
+		t.Fatal("eligible item fragments should fit the shared budget")
+	}
+	if got, wantBytes := budget.used, budget.maxBytes; got != wantBytes {
+		t.Fatalf("budget used: got %d want %d", got, wantBytes)
+	}
+}
+
+func TestWalkLogicalFragments_ExcludedOnlyContentDoesNotConsumeBudget(t *testing.T) {
+	t.Parallel()
+
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "instruction only"}}}},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleSystem, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "system only"}}},
+			{Role: lipapi.RoleDeveloper, Parts: []lipapi.Part{{Kind: lipapi.PartJSON, Content: json.RawMessage(`{"token":"developer only"}`)}}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "assistant only"}}},
+		},
+		Tools: []lipapi.ToolDef{{Name: "tool only", Description: "description only", Parameters: json.RawMessage(`{"token":"schema only"}`)}},
+	}
+	requireValidCanonicalCall(t, call)
+
+	budget := newScanBudget(1)
+	if fragments := walkLogicalFragments(call, budget); len(fragments) != 0 {
+		t.Fatalf("excluded content produced fragments: %#v", fragments)
+	}
+	if budget.used != 0 {
+		t.Fatalf("excluded content consumed budget: got %d", budget.used)
+	}
+	if budget.limitHit {
+		t.Fatal("excluded content must not trigger the scan limit")
+	}
+}
+
 func TestWalkLogicalFragments_TextUsesImmutableStringRepresentation(t *testing.T) {
 	const content = "immutable text fragment"
 	call := &lipapi.Call{Messages: []lipapi.Message{{
@@ -92,7 +249,7 @@ func TestWalkLogicalFragments_TextUsesImmutableStringRepresentation(t *testing.T
 	}
 }
 
-func TestWalkLogicalFragments_ItemAuthorityCoversMessagesAndToolPayloads(t *testing.T) {
+func TestWalkLogicalFragments_ItemAuthorityCoversMessagesAndToolResults(t *testing.T) {
 	t.Parallel()
 
 	call := &lipapi.Call{Items: []lipapi.Item{
@@ -111,8 +268,18 @@ func TestWalkLogicalFragments_ItemAuthorityCoversMessagesAndToolPayloads(t *test
 		{
 			Kind: lipapi.ItemKindToolResult,
 			ToolResult: &lipapi.ToolResultItem{
-				CallID: "call-1",
+				CallID: "call-1", Name: "lookup",
 				Output: `{"token":"item-output"}`,
+			},
+		},
+		{
+			Kind:     lipapi.ItemKindToolCall,
+			ToolCall: &lipapi.ToolCallItem{CallID: "call-2", Name: "lookup", Arguments: json.RawMessage(`{"token":"item-arguments-2"}`)},
+		},
+		{
+			Kind: lipapi.ItemKindToolResult,
+			ToolResult: &lipapi.ToolResultItem{
+				CallID: "call-2", Name: "lookup",
 				Parts: []lipapi.ContentPart{
 					{Kind: lipapi.ContentPartText, Text: "item result text"},
 					{Kind: lipapi.ContentPartJSON, Text: `{"token":"item-result-json"}`},
@@ -120,6 +287,7 @@ func TestWalkLogicalFragments_ItemAuthorityCoversMessagesAndToolPayloads(t *test
 			},
 		},
 	}}
+	requireValidCanonicalCall(t, call)
 	want := []struct {
 		location string
 		kind     FragmentKind
@@ -127,10 +295,9 @@ func TestWalkLogicalFragments_ItemAuthorityCoversMessagesAndToolPayloads(t *test
 	}{
 		{location: "items[0].content[0]", kind: FragmentText, raw: "item message text"},
 		{location: "items[0].content[1]", kind: FragmentJSON, raw: `{"credentials":{"token":"item-json"}}`},
-		{location: "items[1].tool_call.arguments", kind: FragmentJSON, raw: `{"token":"item-arguments"}`},
 		{location: "items[2].tool_result.output", kind: FragmentText, raw: `{"token":"item-output"}`},
-		{location: "items[2].tool_result.parts[0]", kind: FragmentText, raw: "item result text"},
-		{location: "items[2].tool_result.parts[1]", kind: FragmentJSON, raw: `{"token":"item-result-json"}`},
+		{location: "items[4].tool_result.parts[0]", kind: FragmentText, raw: "item result text"},
+		{location: "items[4].tool_result.parts[1]", kind: FragmentJSON, raw: `{"token":"item-result-json"}`},
 	}
 
 	fragments := walkLogicalFragments(call, newScanBudget(1024))
@@ -160,6 +327,7 @@ func TestWalkLogicalFragments_AdmitsWholeFragmentsAgainstSharedBudget(t *testing
 	second := `{"api_key":"second"}`
 	call := &lipapi.Call{
 		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser,
 			Parts: []lipapi.Part{
 				lipapi.TextPart(first),
 				{Kind: lipapi.PartJSON, Content: json.RawMessage(second)},
@@ -196,7 +364,7 @@ func TestWalkLogicalFragments_IdenticalBytesInDistinctFieldsCountSeparately(t *t
 
 	value := "same logical bytes"
 	call := &lipapi.Call{
-		Messages: []lipapi.Message{{Parts: []lipapi.Part{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{
 			lipapi.TextPart(value),
 			lipapi.TextPart(value),
 		}}},
@@ -216,7 +384,7 @@ func TestScanCall_UsesOneAdmissionForJSONScalarInspection(t *testing.T) {
 	t.Parallel()
 
 	raw := `{"api_key":"opaque"}`
-	call := &lipapi.Call{Messages: []lipapi.Message{{Parts: []lipapi.Part{{
+	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(raw),
 	}}}}}

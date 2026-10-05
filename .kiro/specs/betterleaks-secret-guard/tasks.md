@@ -54,7 +54,7 @@
   - [x] 3.1 Define and RED-test the logical fragment traversal
     - Characterize current canonical locations and JSON raw representations used by secret guard.
     - Produce one bounded fragment per logical text/JSON unit without concatenating the complete request or exposing fragments outside the feature.
-    - Prove contextual JSON detection remains possible for generic key/value rules and tool schema/result content.
+    - Prove contextual JSON detection remains possible for generic key/value rules in user prompts and tool results; tool definitions and model-generated arguments are excluded under 4.7.
     - Share the existing request-level byte budget instead of creating a second independent scan allowance.
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.6, 10.3, 10.4_
     - _Boundary: secret-guard canonical traversal_
@@ -164,9 +164,9 @@
 
 - [x] 8. Certify protocol parity, concurrency, fuzz safety, and performance
   - [x] 8.1 Build the synthetic detector corpus and frontend parity matrix
-    - Cover OpenAI, Anthropic, GitHub, Slack, Stripe, AWS multipart, generic API key/password/credential URI, private key, public/non-secret negatives, JSON key context, tool schemas/results, repeated overlaps, allow markers, and decoded forms.
+    - Cover OpenAI, Anthropic, GitHub, Slack, Stripe, AWS multipart, generic API key/password/credential URI, private key, public/non-secret negatives, JSON key context, schema snippets within user prompts/tool outputs, repeated overlaps, allow markers, and decoded forms.
     - Run equivalent canonical payload cases through every bundled frontend flavor that can represent them.
-    - Consume authoritative `Call.Items` within the feature-private logical fragment walker, including message text/JSON, tool-call arguments, and tool-result output/parts. Preserve shared byte-budget accounting, stable locations, and clone-only replacement closures without projecting duplicate legacy messages or changing frontend/API contracts.
+    - Consume authoritative `Call.Items` within the feature-private logical fragment walker, including eligible user/tool message text/JSON and tool-result output/parts. Exclude model-generated tool-call arguments under 4.7. Preserve shared byte-budget accounting, stable locations, and clone-only replacement closures without projecting duplicate legacy messages or changing frontend/API contracts.
     - Exercise real BetterLeaks under the unchanged resolved default policy for positive and negative frontend cases; assert detector/rule provenance, JSON/canonical validity after literal redaction, and hybrid repeat/overlap counts. Do not skip representable item-authoritative payloads.
     - Use synthetic credentials only and avoid printing fixture values in test failures.
     - _Requirements: 10.3, 10.4_
@@ -290,7 +290,25 @@
   - _Depends: 10.2_
   - _Validation: strict TDD; partial/zero rewrite and JSON mapping negative controls; feature/integration/race checks; current remote CI; focused kiro-review fallback when delegation is unavailable; independent PR re-review before merge_
 
+## 11. Content provenance and streaming contract correction
+
+- [x] 11.1 Restrict canonical scanning and redaction by content provenance
+  - Admit only user messages and genuine tool output across message/item authority. Preserve assistant history, model tool calls, instructions, unknown roles and tool definitions without findings or budget accounting. Apply uniformly to all detectors and actions; adapt older broad-scope fixtures to the corrected contract without removing detector/JSON assertions.
+  - _Requirements: 4.1–4.7, 6.1–6.7_
+  - _Boundary: feature logical-fragment traversal and directly affected feature fixtures/regressions; parent-owned approved spec correction_
+  - _Validation: strict TDD; mixed history, excluded-only budget/enforcement, exact/BetterLeaks/hybrid text/JSON and message/item tests; complete affected suites and vet_
+
+- [ ] 11.2 Ratchet incremental response passthrough while request redaction is active
+  - Use a controllable provider stream to prove unchanged secret-bearing response events are observed before completion, with BetterLeaks enabled and action:redact. Prove eligible request content is redacted before dispatch and preserve normal termination/cancellation cleanup.
+  - _Requirements: 4.7, 10.8, 10.9_
+  - _Boundary: runtime SecretGuard integration tests only; no response-path production changes_
+  - _Depends: 11.1_
+  - _Validation: meaningful buffering negative control; focused runtime test; feature/auth/composition/runtime Linux race; quality/unit/parity and fresh remote CI; focused independent review_
+
 ## Implementation Notes
+
+- Task 11.1 received independent APPROVED review after canonical tool-result fixtures were corrected and validated before evaluation and after redaction. Exact/BetterLeaks/hybrid × message/item × block/log/redact and excluded-only budget matrices pass, along with the full feature suite and affected runtime/composition/auth consumers. Model tool-call JSON carriers are excluded by tool metadata even under an eligible message role. Linux race and final certification remain in 11.2.
+- The maintainer's scope correction authorizes Requirements 4.7 and 10.9 and supersedes earlier broad request-field coverage, including tool definitions and model arguments. Tasks 11.1–11.2 are required before the current branch can claim feature GO. Response streaming remains outside SecretGuard ownership.
 
 - Tasks 10.1–10.4 repair PR 726 review findings. Task 10.1 received independent APPROVED review; subsequent delegation hit the host agent thread limit and used the kiro-review controller fallback. Current native Linux unit, quality, parity, targeted race, build, and CLI smoke pass at 424768c8. The PR remains open for independent focused re-review; technical verification is not merge authorization. See review-remediation.md for negative controls, performance scope, and raw evidence.
 
