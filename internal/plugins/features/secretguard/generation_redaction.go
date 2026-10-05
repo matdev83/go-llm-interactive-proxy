@@ -32,7 +32,7 @@ func (m generationRedactionMatcher) RedactBytes(ctx context.Context, input []byt
 	if configured, ok := m.Matcher.(interface{ RedactionOptions() engine.MatcherOptions }); ok && configured.RedactionOptions() == m.options {
 		return m.Matcher.RedactBytes(ctx, input)
 	}
-	findings, err := m.Matcher.ScanBytes(ctx, input)
+	findings, err := m.ScanBytes(ctx, input)
 	if err != nil {
 		return nil, findings, err
 	}

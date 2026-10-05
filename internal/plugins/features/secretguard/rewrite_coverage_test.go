@@ -63,7 +63,10 @@ func TestBetterLeaksRedactionCoverageRejectsMissedJSONMappingAfterAnotherRewrite
 	if err != nil {
 		t.Fatal(err)
 	}
-	bridge := matcher.(*betterLeaksRewriteMatcher)
+	bridge, ok := matcher.(*betterLeaksRewriteMatcher)
+	if !ok {
+		t.Fatal("expected a BetterLeaks rewrite bridge")
+	}
 	first, _, err := bridge.RedactString(t.Context(), text)
 	if err != nil || strings.Contains(first, adapterGitHubToken) {
 		t.Fatal("first rewrite did not apply")

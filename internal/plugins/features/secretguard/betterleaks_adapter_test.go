@@ -220,6 +220,29 @@ func BenchmarkBetterLeaksScan_NewlineDenseNearCap(b *testing.B) {
 	}
 }
 
+func BenchmarkBetterLeaksScan_NewlineDenseDefaultPolicy(b *testing.B) {
+	_, fragments := newlineDenseNearCapScannerFixture(b)
+	scanner, err := newBetterLeaksScanner(BetterLeaksPolicy{Enabled: true, MinimumConfidence: DefaultBetterLeaksConfidence, MaxDecodeDepth: DefaultBetterLeaksDecodeDepth, Workers: 1, MaxFindings: 256})
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.SetBytes(DefaultScanMaxBytes)
+	b.ResetTimer()
+	capFailures := 0
+	for i := 0; i < b.N; i++ {
+		result, err := scanner.scanFragments(b.Context(), fragments)
+		if (err != nil && !errors.Is(err, errBetterLeaksFindingCap)) || len(result.Findings) != 256 {
+			b.Fatalf("scan err=%v finding count=%d", err, len(result.Findings))
+		}
+		if err != nil {
+			capFailures++
+		}
+		releaseBetterLeaksOccurrenceBytes(result.Findings)
+	}
+	b.ReportMetric(float64(capFailures)/float64(b.N), "cap-failures/op")
+}
+
 func newlineDenseTailLocationFixture() ([]byte, report.Location, int) {
 	const targetBytes = 2 * 1024 * 1024
 	tail := []byte("prefix=tail-secret;suffix\n")
