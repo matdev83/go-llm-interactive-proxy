@@ -139,7 +139,7 @@ make test-precommit-extra  # precommit-tagged hygiene + executor matrices
 make test-fast             # cached guard checks + complete root test graph (safe reverse-dependency coverage)
 make parity-checks         # conformance package with -tags=precommit,integration
 make test-fuzz             # short fuzz smoke over release-gate fuzz targets
-make test-race             # skipped on Windows; strict race runs in nightly CI on Linux
+make test-race             # skipped on Windows and dev hosts (DESKTOP-I2CAJ6V/agent-dev, even with --strict); strict race runs in nightly CI on Linux
 make bench                 # benchmark smoke for hot packages
 make pgo-profile           # collect default.pgo from core benches (optional; move under cmd/lipstd)
 make pgo-build             # build cmd/lipstd (auto-applies cmd/lipstd/default.pgo when present)
