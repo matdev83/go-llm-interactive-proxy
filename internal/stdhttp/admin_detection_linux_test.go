@@ -5,6 +5,8 @@ package stdhttp
 import (
 	"os"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 )
 
 // TestDetectRunningAsAdminMatchesTheProcessCredential is the negative half of the
