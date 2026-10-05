@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,21 +18,42 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// pollTestPoller stands in for auxreq.BackgroundScheduler, whose Poll,
+// Forget and SubmitCollect are all safe for concurrent use. Tests that share
+// one poller across concurrent HandleAttempt calls therefore require this
+// double to be concurrency-safe as well: every field it mutates per call is
+// guarded, never left as a bare write.
 type pollTestPoller struct {
 	pollCalls   atomic.Int32
 	result      auxiliary.PollResult
 	err         error
-	lastID      atomic.Value
+	lastIDMu    sync.Mutex
+	lastID      auxiliary.JobID
 	forgetCalls atomic.Int32
 }
 
 func (f *pollTestPoller) Poll(_ context.Context, id auxiliary.JobID) (auxiliary.PollResult, error) {
 	f.pollCalls.Add(1)
-	f.lastID.Store(id)
+	f.setLastID(id)
 	if f.err != nil {
 		return auxiliary.PollResult{}, f.err
 	}
 	return f.result, nil
+}
+
+func (f *pollTestPoller) setLastID(id auxiliary.JobID) {
+	f.lastIDMu.Lock()
+	defer f.lastIDMu.Unlock()
+	f.lastID = id
+}
+
+// LastID reports the job id the poll path observed most recently. Concurrent
+// adoption tests read it only after the attempts have joined, so the observed
+// value stays deterministic while the write itself stays race-free.
+func (f *pollTestPoller) LastID() auxiliary.JobID {
+	f.lastIDMu.Lock()
+	defer f.lastIDMu.Unlock()
+	return f.lastID
 }
 
 func (f *pollTestPoller) SubmitCollect(context.Context, auxiliary.Request, auxiliary.SubmitOptions) (auxiliary.JobID, error) {
@@ -44,17 +66,6 @@ func (f *pollTestPoller) Await(context.Context, auxiliary.JobID) (lipapi.Collect
 func (f *pollTestPoller) Forget(id auxiliary.JobID) { f.forgetCalls.Add(1) }
 func (f *pollTestPoller) PollCount() int            { return int(f.pollCalls.Load()) }
 func (f *pollTestPoller) ForgetCount() int          { return int(f.forgetCalls.Load()) }
-func (f *pollTestPoller) LastID() auxiliary.JobID {
-	value := f.lastID.Load()
-	if value == nil {
-		return ""
-	}
-	id, ok := value.(auxiliary.JobID)
-	if !ok {
-		return ""
-	}
-	return id
-}
 
 type pollTestEgress struct{}
 
