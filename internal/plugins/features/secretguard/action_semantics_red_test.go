@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -283,41 +284,23 @@ func TestGuard_BetterLeaksExistingNonStringJSONTokenFailsClosedWithoutMutation(t
 }
 
 func TestGuard_BetterLeaksScanFailureActionMatrix(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		action      string
-		wantOutcome sdk.Outcome
-		wantErr     bool
-	}{
-		{name: "block", action: ActionBlock, wantErr: true},
-		{name: "redact", action: ActionRedact, wantErr: true},
-		{name: "log", action: ActionLog, wantOutcome: sdk.OutcomeLog},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			guard, services := newBetterLeaksActionGuard(t, tc.action, 0, 0)
+	for _, action := range []string{ActionBlock, ActionRedact, ActionLog} {
+		t.Run(action, func(t *testing.T) {
+			guard, services := newBetterLeaksActionGuard(t, action, 0, 0)
 			call := betterLeaksTextCall("GITHUB_TOKEN=" + adapterGitHubToken)
 			before := lipapi.CloneCall(call)
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
 			decision, err := guard.Evaluate(ctx, &call, sdk.Meta{}, services)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("canceled BetterLeaks scan did not fail closed")
-				}
-				if strings.Contains(err.Error(), adapterGitHubToken) {
-					t.Fatal("canceled scan error exposed detector source material")
-				}
-				if !reflect.DeepEqual(call, before) {
-					t.Fatal("scan failure mutated the canonical call")
-				}
-				return
+			if !errors.Is(err, context.Canceled) {
+				t.Fatal("canceled BetterLeaks scan did not propagate cancellation")
 			}
-			if err != nil || decision.Outcome != tc.wantOutcome || decision.FailureKind == "" {
-				fatalDecisionSummary(t, decision)
+			if strings.Contains(err.Error(), adapterGitHubToken) {
+				t.Fatal("canceled scan error exposed detector source material")
 			}
 			assertBetterLeaksDecisionSafe(t, decision)
 			if !reflect.DeepEqual(call, before) {
-				t.Fatal("log scan failure mutated the canonical call")
+				t.Fatal("canceled scan mutated the canonical call")
 			}
 		})
 	}

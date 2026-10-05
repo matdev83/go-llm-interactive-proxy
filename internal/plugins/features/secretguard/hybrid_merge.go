@@ -325,8 +325,10 @@ func privateFindingGroupKey(finding sdk.Finding) privateFindingKey {
 		aliases.WriteByte(':')
 		aliases.WriteString(alias)
 	}
-	return privateFindingKey{finding.Location, finding.DetectorID, finding.SecretRefName,
-		finding.SourceCategory, finding.RuleID, finding.Confidence, aliases.String()}
+	return privateFindingKey{
+		finding.Location, finding.DetectorID, finding.SecretRefName,
+		finding.SourceCategory, finding.RuleID, finding.Confidence, aliases.String(),
+	}
 }
 
 func comparePrivateFindings(left, right privateHybridFinding) int {

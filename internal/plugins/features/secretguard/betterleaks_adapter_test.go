@@ -1000,7 +1000,10 @@ func TestMultipartProjectionRepair_ComponentCapStillAdmitsKnownRuleOccurrences(t
 
 func TestMultipartProjectionRepair_RealScannerTruncationBlocksClonePublication(t *testing.T) {
 	guard, services := newBetterLeaksActionGuard(t, ActionRedact, 0, 0)
-	generation := services.Capability.(*GenerationServices)
+	generation, ok := services.Capability.(*GenerationServices)
+	if !ok {
+		t.Fatal("fixture capability is not generation services")
+	}
 	scanner, err := blscan.New(&blconfig.Config{Rules: []blconfig.Rule{
 		{ID: "github-pat", Regex: `ghp_[A-Za-z0-9]{36}`, Components: []blconfig.Component{{RuleID: "github-fine-grained-pat"}}},
 		{ID: "github-fine-grained-pat", Regex: `companion-[0-9]{3}`, SkipReport: true},

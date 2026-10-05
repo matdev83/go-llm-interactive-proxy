@@ -73,8 +73,11 @@ type Finding struct {
 }
 
 // PositionalOccurrence is safe positional attribution for one exact match.
-// It carries only caller-provided byte offsets and bounded finding metadata;
-// implementations must not expose secret bytes, hashes, or detector objects.
+// Start and End are byte offsets into the input passed to ScanOccurrences and
+// describe the half-open span input[Start:End], with
+// 0 <= Start < End <= len(input). Finding.OccurrenceCount is 1; DetectorID may
+// be empty for legacy exact matchers. Implementations must not expose secret
+// bytes, hashes, or detector objects.
 type PositionalOccurrence struct {
 	Start   int
 	End     int
@@ -83,7 +86,8 @@ type PositionalOccurrence struct {
 
 // PositionalMatcher is an optional Matcher capability. Feature-owned code may
 // use it to deduplicate detector reports by admitted-content span while the
-// Matcher contract remains safe-finding based.
+// Matcher contract remains safe-finding based. Each returned occurrence refers
+// to the supplied input bytes; positions must not refer to another buffer.
 type PositionalMatcher interface {
 	Matcher
 	ScanOccurrences(input []byte) []PositionalOccurrence

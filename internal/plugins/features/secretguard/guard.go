@@ -135,6 +135,9 @@ func (g *guard) evalRedact(ctx context.Context, call *lipapi.Call, m sdk.Matcher
 func (g *guard) evalLog(ctx context.Context, call *lipapi.Call, m sdk.Matcher, generation *GenerationServices) (sdk.Decision, error) {
 	out, err := scanCall(ctx, call, m, modeLogScan, g.cfg.ScanMaxBytes, generation)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return sdk.Decision{}, err
+		}
 		var betterLeaksErr *betterLeaksScanError
 		if errors.As(err, &betterLeaksErr) {
 			d := sdk.Decision{

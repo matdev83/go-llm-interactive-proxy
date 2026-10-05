@@ -230,6 +230,8 @@ func BenchmarkJSONScalarMappingRepair(b *testing.B) {
 func FuzzJSONScalarMappingRepair_CanonicalFirstValue(f *testing.F) {
 	f.Add([]byte(`[12345678901234567890,1.0e+02,true,false,null,"\u0061"] trailing`))
 	f.Add([]byte(`{"a":1,"a":false,"b":null}`))
+	f.Add([]byte(`{"\u0061":"discarded","a":["\uD800","café-\uD83D\uDE00",true]} trailing`))
+	f.Add([]byte{'"', 0xff, '-', 's', 'e', 'c', 'r', 'e', 't', '"'})
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		if len(raw) > 16<<10 {
 			return
@@ -239,13 +241,18 @@ func FuzzJSONScalarMappingRepair_CanonicalFirstValue(f *testing.F) {
 		var canonical any
 		canonicalErr := dec.Decode(&canonical)
 		root, err := decodedJSONOccurrenceValue(raw)
+		var streamed []string
+		streamErr := walkJSONOccurrenceTokens(raw, func(mapping jsonStringMapping, _, _ bool) bool {
+			streamed = append(streamed, string(mapping.decoded))
+			return true
+		})
 		if canonicalErr != nil {
-			if err == nil {
+			if err == nil || streamErr == nil {
 				t.Fatal("mapping accepted invalid canonical first value")
 			}
 			return
 		}
-		if err != nil {
+		if err != nil || streamErr != nil {
 			t.Fatal("mapping rejected valid canonical first value")
 		}
 		var mappings []jsonStringMapping
@@ -263,6 +270,25 @@ func FuzzJSONScalarMappingRepair_CanonicalFirstValue(f *testing.F) {
 		canonicalScalarMappingTokens(canonical, &want)
 		if !reflect.DeepEqual(got, want) {
 			t.Fatal("mapping differs from canonical semantic tokens")
+		}
+		if !reflect.DeepEqual(streamed, want) {
+			t.Fatal("streaming mapping differs from canonical semantic tokens")
+		}
+		index := 0
+		if err := walkJSONOccurrenceTokens(raw, func(mapping jsonStringMapping, _, _ bool) bool {
+			oracle := mappings[index]
+			index++
+			if !mapping.materializeBoundaries() {
+				t.Fatal("streaming candidate detail rejected valid token")
+			}
+			for boundary := 0; boundary <= len(mapping.decoded); boundary++ {
+				if mapping.boundaryAt(boundary) != oracle.boundaryAt(boundary) {
+					t.Fatal("streaming candidate detail differs from eager boundary oracle")
+				}
+			}
+			return true
+		}); err != nil {
+			t.Fatal("streaming candidate detail rejected valid first value")
 		}
 	})
 }

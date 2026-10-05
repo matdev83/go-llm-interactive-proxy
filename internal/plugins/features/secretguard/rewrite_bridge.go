@@ -182,19 +182,21 @@ func releaseBetterLeaksOccurrenceBytes(findings []betterLeaksFinding) {
 // existing exact matcher. It never turns a value into a fragment-wide pattern:
 // every transient rewrite retains the original byte range and field identity.
 type betterLeaksRewriteMatcher struct {
-	exact       sdk.Matcher
-	raw         []byte
-	kind        FragmentKind
-	options     engine.MatcherOptions
-	occurrences []betterLeaksOccurrence
-	covered     []betterLeaksOccurrence
-	jsonTokens  []betterLeaksJSONToken
-	jsonIndex   int
+	exact              sdk.Matcher
+	raw                []byte
+	kind               FragmentKind
+	options            engine.MatcherOptions
+	occurrences        []betterLeaksOccurrence
+	covered            []betterLeaksOccurrence
+	jsonTokens         []betterLeaksJSONToken
+	jsonIndex          int
+	jsonCandidateIndex int
 }
 
 type betterLeaksJSONToken struct {
 	mapping     jsonStringMapping
 	stringValue bool
+	index       int
 }
 
 type betterLeaksRewriteRange struct {
@@ -249,8 +251,20 @@ func newBetterLeaksRewriteMatcher(exact sdk.Matcher, fragment LogicalFragment, o
 		occurrences: verified,
 	}
 	if fragment.Kind == FragmentJSON {
-		if root, err := decodedJSONOccurrenceValue(raw); err == nil {
-			collectBetterLeaksJSONTokens(root, &m.jsonTokens)
+		index := 0
+		if err := walkJSONOccurrenceTokens(raw, func(mapping jsonStringMapping, stringValue, _ bool) bool {
+			rawStart, rawEnd, valid := mapping.rawRange(0, len(mapping.decoded))
+			if valid {
+				for _, occurrence := range verified {
+					if occurrence.start >= rawStart && occurrence.end <= rawEnd {
+						m.jsonTokens = append(m.jsonTokens, betterLeaksJSONToken{mapping: mapping, stringValue: stringValue, index: index})
+						break
+					}
+				}
+			}
+			index++
+			return true
+		}); err == nil {
 			for _, occurrence := range verified {
 				if !betterLeaksJSONOccurrenceHasToken(m.raw, occurrence, m.jsonTokens) {
 					return nil, errBetterLeaksUnrewritable
@@ -273,33 +287,6 @@ func betterLeaksJSONOccurrenceHasToken(raw []byte, occurrence betterLeaksOccurre
 		}
 	}
 	return false
-}
-
-func collectBetterLeaksJSONTokens(value jsonOccurrenceValue, out *[]betterLeaksJSONToken) {
-	if value.token != nil {
-		*out = append(*out, betterLeaksJSONToken{mapping: value.token.mapping, stringValue: value.token.stringValue})
-		return
-	}
-	if value.object != nil {
-		effective := make(map[string]jsonOccurrenceObjectEntry, len(value.object))
-		for _, entry := range value.object {
-			effective[string(entry.key.decoded)] = entry
-		}
-		keys := make([]string, 0, len(effective))
-		for key := range effective {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			entry := effective[key]
-			*out = append(*out, betterLeaksJSONToken{mapping: entry.key, stringValue: true})
-			collectBetterLeaksJSONTokens(entry.value, out)
-		}
-		return
-	}
-	for _, child := range value.array {
-		collectBetterLeaksJSONTokens(child, out)
-	}
 }
 
 func betterLeaksRewriteOptions(exact sdk.Matcher) engine.MatcherOptions {
@@ -438,11 +425,16 @@ func (m *betterLeaksRewriteMatcher) rangesForInput(input []byte) []betterLeaksRe
 	if m.kind != FragmentJSON || len(m.jsonTokens) == 0 {
 		return m.rangesForRawInput(input)
 	}
-	if m.jsonIndex >= len(m.jsonTokens) {
+	index := m.jsonIndex
+	m.jsonIndex++
+	if m.jsonCandidateIndex >= len(m.jsonTokens) {
 		return nil
 	}
-	token := m.jsonTokens[m.jsonIndex]
-	m.jsonIndex++
+	token := &m.jsonTokens[m.jsonCandidateIndex]
+	if token.index != index {
+		return nil
+	}
+	m.jsonCandidateIndex++
 	rawStart, rawEnd, ok := token.mapping.rawRange(0, len(token.mapping.decoded))
 	if !ok {
 		return nil
@@ -453,7 +445,7 @@ func (m *betterLeaksRewriteMatcher) rangesForInput(input []byte) []betterLeaksRe
 		if !spanOK || occurrenceStart < rawStart || occurrenceEnd > rawEnd {
 			continue
 		}
-		start, end, mapOK := mappingRawRangeToDecoded(token.mapping, occurrenceStart, occurrenceEnd)
+		start, end, mapOK := mappingRawRangeToDecoded(&token.mapping, occurrenceStart, occurrenceEnd)
 		if !mapOK || end > len(input) || !bytes.Equal(input[start:end], occurrence.value) {
 			continue
 		}
@@ -462,18 +454,30 @@ func (m *betterLeaksRewriteMatcher) rangesForInput(input []byte) []betterLeaksRe
 	return sortedBetterLeaksRewriteRanges(out)
 }
 
-func mappingRawRangeToDecoded(mapping jsonStringMapping, rawStart, rawEnd int) (int, int, bool) {
-	for start := 0; start < len(mapping.boundaries); start++ {
-		if mapping.boundaries[start] != rawStart {
-			continue
-		}
-		for end := start + 1; end < len(mapping.boundaries); end++ {
-			if mapping.boundaries[end] == rawEnd {
-				return start, end, true
-			}
-		}
+func mappingRawRangeToDecoded(mapping *jsonStringMapping, rawStart, rawEnd int) (int, int, bool) {
+	if rawEnd <= rawStart || !mapping.materializeBoundaries() {
+		return 0, 0, false
 	}
-	return 0, 0, false
+	if mapping.boundaries == nil && !mapping.mapped {
+		start, end := rawStart-mapping.rawStart, rawEnd-mapping.rawStart
+		return start, end, start >= 0 && end > start && end <= len(mapping.decoded)
+	}
+	if mapping.boundaries != nil && len(mapping.boundaries) != len(mapping.decoded)+1 {
+		return 0, 0, false
+	}
+	// Boundaries are monotonic, with repeats for multi-byte decoded runes.
+	// Lower-bound searches preserve the earliest matching boundary semantics
+	// for either compact exceptional intervals or the dense fallback map.
+	length := len(mapping.decoded) + 1
+	start := sort.Search(length, func(i int) bool { return mapping.boundaryAt(i) >= rawStart })
+	if start >= length || mapping.boundaryAt(start) != rawStart {
+		return 0, 0, false
+	}
+	end := start + 1 + sort.Search(length-start-1, func(i int) bool { return mapping.boundaryAt(start+1+i) >= rawEnd })
+	if end >= length || mapping.boundaryAt(end) != rawEnd {
+		return 0, 0, false
+	}
+	return start, end, true
 }
 
 func sortedBetterLeaksRewriteRanges(ranges []betterLeaksRewriteRange) []betterLeaksRewriteRange {

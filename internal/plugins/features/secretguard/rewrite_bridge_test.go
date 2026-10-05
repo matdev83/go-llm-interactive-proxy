@@ -304,9 +304,10 @@ func TestGuard_BetterLeaksLogDetectorFailureDecisionValidatesWithoutFindings(t *
 		t.Fatal(err)
 	}
 	call := betterLeaksTextCall("GITHUB_TOKEN=" + adapterGitHubToken)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	decision, err := NewGuard(Config{Action: ActionLog}).Evaluate(ctx, &call, sdk.Meta{}, sdk.Services{
+	// Exercise the existing private unavailable-scanner failure boundary. A
+	// canceled context is control flow and must never become a log decision.
+	services.betterLeaks.scanner = nil
+	decision, err := NewGuard(Config{Action: ActionLog}).Evaluate(t.Context(), &call, sdk.Meta{}, sdk.Services{
 		MatcherResolver: engine.NewStaticMatcherResolver(nil, engine.MatcherOptions{}),
 		Capability:      services,
 	})
@@ -316,6 +317,10 @@ func TestGuard_BetterLeaksLogDetectorFailureDecisionValidatesWithoutFindings(t *
 	if decision.Outcome != sdk.OutcomeLog || decision.FailureKind != sdk.FailureKindDetectorFailure {
 		t.Fatalf("detector failure decision shape: outcome=%q failure_kind=%q", decision.Outcome, decision.FailureKind)
 	}
+	if len(decision.Findings) != 0 {
+		t.Fatal("unavailable scanner produced findings")
+	}
+	assertBetterLeaksDecisionSafe(t, decision)
 	if err := decision.Validate(); err != nil {
 		t.Fatal("detector failure decision should validate")
 	}

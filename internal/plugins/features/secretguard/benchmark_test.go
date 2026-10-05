@@ -74,7 +74,8 @@ func BenchmarkBetterLeaksHotPathParallel(b *testing.B) {
 						if tc.expectScanError && errors.Is(err, errBetterLeaksFindingCap) {
 							continue
 						}
-						b.Fatalf("parallel benchmark case %s failed: %v", tc.name, err)
+						b.Errorf("parallel benchmark case %s failed: %v", tc.name, err)
+						return
 					}
 				}
 			})
@@ -104,7 +105,8 @@ func BenchmarkBetterLeaksHotPathParallelSteady(b *testing.B) {
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					if err := runBetterLeaksBenchmarkCase(tc); err != nil {
-						b.Fatalf("steady parallel benchmark case %s failed: %v", tc.name, err)
+						b.Errorf("steady parallel benchmark case %s failed: %v", tc.name, err)
+						return
 					}
 				}
 			})
@@ -180,7 +182,8 @@ func BenchmarkBetterLeaksGoroutineConcurrentBound(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			if err := runBetterLeaksBenchmarkCase(tc); err != nil {
-				b.Fatalf("concurrent goroutine-bound benchmark case failed: %v", err)
+				b.Errorf("concurrent goroutine-bound benchmark case failed: %v", err)
+				return
 			}
 		}
 	})
@@ -223,15 +226,18 @@ func TestBetterLeaksBenchmarkCorpus(t *testing.T) {
 func TestBetterLeaksBenchmarkNegativeControls(t *testing.T) {
 	var positive betterLeaksBenchmarkCase
 	var bounded betterLeaksBenchmarkCase
+	var foundPositive, foundBounded bool
 	for _, tc := range betterLeaksBenchmarkCases(t) {
-		if tc.expectScanError && bounded.call.Messages == nil {
+		if tc.expectScanError && !foundBounded {
 			bounded = tc
+			foundBounded = true
 		}
-		if tc.detector == "betterleaks-only" && tc.hit && !tc.capBounded && positive.call.Messages == nil {
+		if tc.detector == "betterleaks-only" && tc.hit && !tc.capBounded && !foundPositive {
 			positive = tc
+			foundPositive = true
 		}
 	}
-	if positive.call.Messages == nil || bounded.call.Messages == nil {
+	if !foundPositive || !foundBounded {
 		t.Fatal("negative-control corpus cases are incomplete")
 	}
 

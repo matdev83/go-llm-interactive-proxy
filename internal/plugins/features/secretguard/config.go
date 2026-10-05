@@ -7,6 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,7 +36,7 @@ const FailureKindUnsupportedJSONToken = "unsupported_json_token"
 
 // FailureKindUnrewritableDetectedSecret is set on Decision when BetterLeaks
 // finds a secret whose original representation cannot be safely rewritten.
-const FailureKindUnrewritableDetectedSecret = "unrewritable_detected_secret"
+const FailureKindUnrewritableDetectedSecret = sdk.FailureKindUnrewritableDetectedSecret
 
 // Defaults applied by DecodeConfig.
 const (

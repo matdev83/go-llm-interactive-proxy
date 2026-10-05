@@ -384,6 +384,8 @@ func TestCollectExactPrivateFindings_UsesAdmittedFragmentForSpans(t *testing.T) 
 
 func TestScanCall_RetainsExactPrivateOccurrencesAlongsideSDKFindings(t *testing.T) {
 	t.Parallel()
+	// The private-collection fixtures below enable hybrid merging without a
+	// scanner, so exact span mapping is exercised independently of discovery.
 
 	cat, err := engine.BuildCatalog([]engine.CatalogInput{{
 		Name: "API_KEY", Value: testkit.SyntheticOpenAIAPIKey, SourceCategory: sdk.SourceCategoryProxyEnv,
@@ -392,7 +394,7 @@ func TestScanCall_RetainsExactPrivateOccurrencesAlongsideSDKFindings(t *testing.
 		t.Fatal(err)
 	}
 	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("prefix " + testkit.SyntheticOpenAIAPIKey)}}}}
-	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
+	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024, &GenerationServices{betterLeaksEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +415,7 @@ func TestScanCall_HybridMergeDistinguishesToolResultTextAndJSONFields(t *testing
 	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleTool, Parts: []lipapi.Part{{
 		Kind: lipapi.PartToolResult, ToolCallID: "call-1", Text: "123456789", Content: json.RawMessage(`123456789`),
 	}}}}}
-	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
+	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024, &GenerationServices{betterLeaksEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +440,7 @@ func TestScanCall_HybridMergePreservesEscapedJSONCardinality(t *testing.T) {
 	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 		Kind: lipapi.PartJSON, Content: json.RawMessage(`["abcdefgh9","a\u0062cdefgh9"]`),
 	}}}}}
-	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
+	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024, &GenerationServices{betterLeaksEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +466,7 @@ func TestScanCall_HybridMergeDeduplicatesEscapedBetterLeaksOccurrence(t *testing
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(`{"token":"\u0067hp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5"}`),
 	}}}}}
-	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
+	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024, &GenerationServices{betterLeaksEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,7 +505,7 @@ func TestScanCall_HybridMergeNumericEscapedExactOccurrenceCardinality(t *testing
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(`["123456789","\u003123456789"]`),
 	}}}}}
-	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
+	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024, &GenerationServices{betterLeaksEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +531,7 @@ func TestScanCall_HybridMergeEscapedJSONKeyWithBetterLeaksProvenance(t *testing.
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(`{"\u0067hp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5":"value"}`),
 	}}}}}
-	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
+	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024, &GenerationServices{betterLeaksEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +570,7 @@ func TestScanCall_RedactJSONShortCircuitDoesNotCollectUnvisitedTokens(t *testing
 		Kind:    lipapi.PartJSON,
 		Content: json.RawMessage(`{"first":123456789,"later":"123456789"}`),
 	}}}}}
-	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeRedact, 1024)
+	out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeRedact, 1024, &GenerationServices{betterLeaksEnabled: true, redaction: engine.MatcherOptions{MaskByte: '*'}})
 	if err == nil {
 		t.Fatal("redacting an exact non-string JSON scalar should fail closed")
 	}
@@ -605,7 +607,7 @@ func TestScanCall_ExactJSONSemanticTokenMappingMatchesCanonicalTraversal(t *test
 				Kind:    lipapi.PartJSON,
 				Content: json.RawMessage(tc.raw),
 			}}}}}
-			out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
+			out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024, &GenerationServices{betterLeaksEnabled: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -646,7 +648,7 @@ func TestScanCall_ExactJSONSemanticTokenMappingCanonicalEdgeFixtures(t *testing.
 			call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{
 				Kind: lipapi.PartJSON, Content: json.RawMessage(tc.raw),
 			}}}}}
-			out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024)
+			out, err := scanCall(t.Context(), call, engine.AsMatcher(engine.NewMatcher(cat)), modeScan, 1024, &GenerationServices{betterLeaksEnabled: true})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -217,7 +217,7 @@ func scanCall(ctx context.Context, call *lipapi.Call, m sdk.Matcher, mode scanMo
 		}
 	}
 	for _, fragment := range fragments {
-		if err := scanLogicalFragment(ctx, fragment, m, mode, &out, out.discoveryFindings); err != nil {
+		if err := scanLogicalFragment(ctx, fragment, m, mode, &out, out.discoveryFindings, generation != nil && generation.betterLeaksEnabled); err != nil {
 			if generation != nil && generation.betterLeaksEnabled {
 				_ = finalizeHybridScanOutcome(&out)
 			}
@@ -293,7 +293,7 @@ func betterLeaksOccurrenceRewriteEligible(fragments []LogicalFragment, location 
 	return false
 }
 
-func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Matcher, mode scanMode, out *scanOutcome, discoveries []betterLeaksFinding) error {
+func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Matcher, mode scanMode, out *scanOutcome, discoveries []betterLeaksFinding, hybrid bool) error {
 	activeMatcher := m
 	if mode == modeRedact {
 		candidates := betterLeaksLiteralCandidates(fragment, discoveries)
@@ -320,7 +320,9 @@ func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Ma
 			return err
 		}
 		out.mergeFindingsAt(findings, fragment.Location)
-		out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindings(m, fragment, findings)...)
+		if hybrid {
+			out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindings(m, fragment, findings)...)
+		}
 	case modeRedact:
 		var (
 			redacted []byte
@@ -341,11 +343,15 @@ func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Ma
 			if fragment.Kind == FragmentJSON {
 				out.mergeFindingsAt(findings, fragment.Location)
 			}
-			out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindingsForRedact(m, fragment, findings)...)
+			if hybrid {
+				out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindingsForRedact(m, fragment, findings)...)
+			}
 			return err
 		}
 		out.mergeFindingsAt(findings, fragment.Location)
-		out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindingsForRedact(m, fragment, findings)...)
+		if hybrid {
+			out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindingsForRedact(m, fragment, findings)...)
+		}
 		if fragment.Kind == FragmentJSON && !bytes.Equal(redacted, fragment.rawBytes()) {
 			fragment.setRaw(redacted)
 			out.MutationCount++

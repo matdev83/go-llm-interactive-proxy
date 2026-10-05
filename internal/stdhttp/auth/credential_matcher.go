@@ -71,6 +71,9 @@ func (m *exactCredentialMatcher) ScanOccurrences(input []byte) []secretguard.Pos
 	return out
 }
 
+// RedactBytes is a fallback that masks the full credential with asterisks.
+// Generation-owned SecretGuard redaction applies configured MaskByte and
+// PreserveKnownPrefixes policy through the positional capability instead.
 func (m *exactCredentialMatcher) RedactBytes(ctx context.Context, input []byte) ([]byte, []secretguard.Finding, error) {
 	findings, err := m.ScanBytes(ctx, input)
 	if err != nil || len(findings) == 0 {
