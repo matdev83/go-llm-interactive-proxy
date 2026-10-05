@@ -131,7 +131,18 @@ func buildContents(call *lipapi.Call) ([]*genai.Content, error) {
 
 func messageToContent(m lipapi.Message) (*genai.Content, error) {
 	switch m.Role {
-	case lipapi.RoleUser:
+	case lipapi.RoleUser, lipapi.RoleDeveloper:
+		// lipapi.RoleDeveloper carries proxy-owned continuation steering text
+		// (internal/core/runtime/terminal_decision_continuation.go places it at
+		// AfterIngressTail) and Gemini's Content.role is a closed user|model enum
+		// with no developer value, so it is deliberately coerced onto the user
+		// wire role: the provider reads proxy-owned instruction text as a client
+		// utterance, and the canonical role survives only in the proxy's own
+		// record, never on the provider wire. This is the lossy-but-modeled
+		// downgrade; it is not hoisted into systemInstruction, because that is
+		// the top-level instruction slot and hoisting a mid-conversation message
+		// there would destroy the trajectory ordering the generic runtime depends
+		// on.
 		parts, err := userPartsToGenaiParts(m.Parts)
 		if err != nil {
 			return nil, fmt.Errorf("gemini: user parts: %w", err)

@@ -403,6 +403,8 @@ func mapEasyRole(r lipapi.Role) (responses.EasyInputMessageRole, error) {
 		return responses.EasyInputMessageRoleAssistant, nil
 	case lipapi.RoleSystem:
 		return responses.EasyInputMessageRoleSystem, nil
+	case lipapi.RoleDeveloper:
+		return responses.EasyInputMessageRoleDeveloper, nil
 	default:
 		return "", fmt.Errorf("openairesponses: unsupported message role %q for simple message mapping", r)
 	}
@@ -416,6 +418,8 @@ func roleString(r lipapi.Role) string {
 		return "assistant"
 	case lipapi.RoleSystem:
 		return "system"
+	case lipapi.RoleDeveloper:
+		return "developer"
 	default:
 		return "user"
 	}

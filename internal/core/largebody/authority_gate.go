@@ -144,6 +144,7 @@ var standardPlaneV1Access = [WireEligibilityPlaneCount]PlaneAccess{
 	PlaneAccessCanonicalRequired, // local_turn_handlers
 	PlaneAccessCanonicalRequired, // terminal_decision_provider
 	PlaneAccessMetadataOnly,      // session_classifier
+	PlaneAccessCanonicalRequired, // control_tool_provider
 }
 
 // LookupStandardPort returns the default classification for a known narrow port.
@@ -164,7 +165,7 @@ type DependencyCensus struct {
 }
 
 // NewStandardDependencyCensus constructs a baseline dependency census covering
-// all 27 standard planes (unoccupied, with pinned V1 access classes), empty hook
+// all 28 standard planes (unoccupied, with pinned V1 access classes), empty hook
 // bus, clear narrow ports (backends present), and two-phase executor available.
 // The census itself is generation-agnostic: generation pinning lives on the sealed
 // WireEligibilitySummary and is rechecked per evaluation. generationID is accepted
