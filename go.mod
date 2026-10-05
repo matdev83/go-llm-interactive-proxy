@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/anthropics/anthropic-sdk-go v1.75.0
+	github.com/anthropics/anthropic-sdk-go v1.78.0
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20
 	github.com/aws/aws-sdk-go-v2/config v1.33.4
@@ -14,8 +14,8 @@ require (
 	github.com/aws/smithy-go v1.28.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/jellydator/ttlcache/v3 v3.4.1
-	github.com/openai/openai-go/v3 v3.66.0
-	github.com/oschwald/maxminddb-golang/v2 v2.6.0
+	github.com/openai/openai-go/v3 v3.70.0
+	github.com/oschwald/maxminddb-golang/v2 v2.7.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
 	github.com/samber/slog-formatter v1.3.0
@@ -23,10 +23,10 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/stretchr/testify v1.12.1
 	github.com/tiktoken-go/tokenizer v0.8.1
-	github.com/uptrace/bun v1.2.18
-	github.com/uptrace/bun/dialect/pgdialect v1.2.18
-	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
-	github.com/uptrace/bun/driver/pgdriver v1.2.18
+	github.com/uptrace/bun v1.3.0
+	github.com/uptrace/bun/dialect/pgdialect v1.3.0
+	github.com/uptrace/bun/dialect/sqlitedialect v1.3.0
+	github.com/uptrace/bun/driver/pgdriver v1.3.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
@@ -36,11 +36,11 @@ require (
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/tools v0.50.0
-	google.golang.org/genai v1.71.0
-	google.golang.org/grpc v1.83.2
+	google.golang.org/genai v1.72.0
+	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.59.0
+	modernc.org/sqlite v1.60.1
 )
 
 require (
@@ -112,7 +112,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1 // indirect
 	mellium.im/sasl v0.3.2 // indirect
-	modernc.org/libc v1.75.7 // indirect
+	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )

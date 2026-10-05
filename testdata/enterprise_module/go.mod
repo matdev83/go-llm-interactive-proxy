@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/auth v0.20.0 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/anthropics/anthropic-sdk-go v1.75.0 // indirect
+	github.com/anthropics/anthropic-sdk-go v1.78.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.47.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.33.4 // indirect
@@ -50,8 +50,8 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
-	github.com/openai/openai-go/v3 v3.66.0 // indirect
-	github.com/oschwald/maxminddb-golang/v2 v2.6.0 // indirect
+	github.com/openai/openai-go/v3 v3.70.0 // indirect
+	github.com/oschwald/maxminddb-golang/v2 v2.7.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
@@ -71,10 +71,10 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiktoken-go/tokenizer v0.8.1 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
-	github.com/uptrace/bun v1.2.18 // indirect
-	github.com/uptrace/bun/dialect/pgdialect v1.2.18 // indirect
-	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18 // indirect
-	github.com/uptrace/bun/driver/pgdriver v1.2.18 // indirect
+	github.com/uptrace/bun v1.3.0 // indirect
+	github.com/uptrace/bun/dialect/pgdialect v1.3.0 // indirect
+	github.com/uptrace/bun/dialect/sqlitedialect v1.3.0 // indirect
+	github.com/uptrace/bun/driver/pgdriver v1.3.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -93,17 +93,17 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/api v0.278.0 // indirect
-	google.golang.org/genai v1.71.0 // indirect
+	google.golang.org/genai v1.72.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
-	google.golang.org/grpc v1.83.2 // indirect
+	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	mellium.im/sasl v0.3.2 // indirect
-	modernc.org/libc v1.75.7 // indirect
+	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.59.0 // indirect
+	modernc.org/sqlite v1.60.1 // indirect
 )
 
 replace github.com/matdev83/go-llm-interactive-proxy => ../..
