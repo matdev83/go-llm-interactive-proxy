@@ -108,7 +108,6 @@ func assertValidationErrorParity(tb testing.TB, genErr, valErr error, pluginID s
 		lipfeature.ErrUnsupportedReplaySource,
 		lipfeature.ErrExclusiveConflict,
 		lipfeature.ErrTerminalDecisionProviderConflict,
-		lipfeature.ErrControlToolProviderConflict,
 	}
 	for _, sentinel := range sentinels {
 		if errors.Is(valErr, sentinel) {
@@ -134,7 +133,6 @@ func assertReplayErrorParity(tb testing.TB, genErr, replayErr error, pluginID st
 	sentinels := []error{
 		lipfeature.ErrExclusiveConflict,
 		lipfeature.ErrTerminalDecisionProviderConflict,
-		lipfeature.ErrControlToolProviderConflict,
 		lipfeature.ErrInvalidContribution,
 		lipfeature.ErrNilContribution,
 		lipfeature.ErrUnsupportedSource,
@@ -198,7 +196,6 @@ func assertPlaneCensus(tb testing.TB, actual, expected lipfeature.FrozenPlaneSet
 	assertPlane(tb, actual, expected, lipfeature.PlaneSecretGuards)
 	assertPlane(tb, actual, expected, lipfeature.PlaneLocalTurnHandlers)
 	assertPlane(tb, actual, expected, lipfeature.PlaneTerminalDecisionProvider)
-	assertPlane(tb, actual, expected, lipfeature.PlaneControlToolProvider)
 }
 
 func assertPlane[T any](tb testing.TB, actual, expected lipfeature.FrozenPlaneSet, p lipfeature.Plane[T]) {

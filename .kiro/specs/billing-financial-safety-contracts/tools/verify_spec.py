@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate this revision-3 specification overlay plus revision-2 packet base, not the proxy implementation."""
+"""Validate this specification archive, not the implementation of the proxy."""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -21,7 +21,7 @@ def validate(spec: Path, check_hashes: bool = True) -> dict:
     def load(rel: str):
         return json.loads((spec / rel).read_text(encoding='utf-8'))
     required = ['spec.json', 'requirements.md', 'research.md', 'design.md', 'tasks.md',
-                'START-HERE.md','revision-3-architecture.md','acceptance.md','execution/task-manifest.json',
+                'START-HERE.md','acceptance.md','execution/task-manifest.json',
                 'execution/traceability.json','execution/acceptance.json',
                 'execution/interface-contracts.md','execution/gates.md','execution/order.md',
                 'reference/source-review.md','tools/run_task_gate.py','coverage/universe.json',
@@ -40,8 +40,7 @@ def validate(spec: Path, check_hashes: bool = True) -> dict:
     for p in ['requirements','design','tasks']:
         require(meta['approvals'][p]=={'generated':True,'approved':True},f'unapproved spec phase: {p}')
     tasks={t['id']:t for t in manifest['tasks']}; scenarios={s['id']:s for s in matrix['scenarios']}
-    require(meta.get('spec_revision')==3 and manifest.get('revision')==2,'wrong specification/packet-base revision')
-    require(meta.get('base_packet_revision')==2 and meta.get('execution_overlay_revision')==3,'revision-3 packet overlay metadata missing')
+    require(meta.get('spec_revision')==2 and manifest.get('revision')==2,'wrong specification revision')
     require(manifest['task_count']==len(tasks) and manifest['requirement_count']==len(trace['requirements']) and manifest['scenario_count']==len(scenarios),'manifest counts disagree')
     require(meta['scope_counts']['implementation_tasks']==113 and meta['scope_counts']['acceptance_criteria']==147 and meta['scope_counts']['acceptance_scenarios']==112,'metadata counts disagree')
     require(manifest['parallel_groups']=={},'revision 2 does not authorize parallel groups')
@@ -143,14 +142,6 @@ def validate(spec: Path, check_hashes: bool = True) -> dict:
             require(not (seen&roots),f'parallel shared edit owner: {tid}')
             seen|=roots
     plan=(spec/'tasks.md').read_text(encoding='utf-8')
-    revision3=(spec/'revision-3-architecture.md').read_text(encoding='utf-8')
-    start_here=(spec/'START-HERE.md').read_text(encoding='utf-8')
-    require('revision-3-architecture.md' in start_here and 'narrow tracked overlay' in start_here,'revision-3 read-order/precedence missing')
-    require('AuthorizePreparedAttempt' in revision3 and 'factored' in revision3.lower(),'revision-3 architecture decisions missing')
-    require('one central final-authorization transaction per prepared attempt' in plan,'task plan missing atomic authorization simplification')
-    require('factored conformance runner' in plan and 'coordinate-to-proof' in plan,'task plan missing factored conformance simplification')
-    require('Revision 3 — architecture simplification overlay and diagrams' in design,'design revision-3 overlay missing')
-    require(all(x in design for x in ['### Control flow','### Code structure and dependencies','### Data flow']),'required Mermaid architecture diagrams missing')
     require(len(re.findall(r'^- \[ \] \d+\.\d+ ',plan,re.M))==113,'wrong task checkbox count')
     require(not re.search(r'^- \[[xX]\]',plan,re.M),'implementation falsely checked complete')
     source=spec/'reference/source-review.md'
@@ -190,7 +181,7 @@ def validate(spec: Path, check_hashes: bool = True) -> dict:
             if dest.is_file():require(hashlib.sha256(dest.read_bytes()).hexdigest()==digest,f'hash mismatch: {rel}')
         actual={str(p.relative_to(root)).replace('\\','/') for p in root.rglob('*') if p.is_file() and p!=mf}
         require(actual==declared,'hash manifest inventory differs from all archive artifacts')
-    return {'status':'FAIL' if errors else 'PASS','checks':'artifact structure,revision3 overlay,147 criteria,113 task DAG/packets,112 scenarios,11 contracts,14 findings,24 base designs,complete coordinate classification,factored conformance policy,scope budgets,source retention,links',
+    return {'status':'FAIL' if errors else 'PASS','checks':'artifact structure,147 criteria,113 task DAG/packets,112 scenarios,11 contracts,14 findings,24 designs,complete multimodal obligations,scope budgets,source retention,links',
             'implementation_verified':False,'hashes_checked':check_hashes and mf.is_file(),'errors':errors}
 
 

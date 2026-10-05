@@ -7,7 +7,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/compaction"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controltool"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -1063,36 +1062,6 @@ var PlaneSessionClassifier = Plane[sessionclassification.Classifier]{
 	},
 }
 
-// PlaneControlToolProvider declares the ControlToolProvider extension plane: at
-// most one optional proxy-owned model control tool owner per generation. It
-// mirrors PlaneTerminalDecisionProvider: feature-only exclusive admission,
-// typed-nil rejection before publication, and provider validation delegated to
-// the generic controltool contract.
-var PlaneControlToolProvider = Plane[controltool.Provider]{
-	ID:            "control_tool_provider",
-	RequestAccess: RequestBodyCanonicalRequired,
-	Multiplicity:  MultExclusive,
-	Rules: SourceRules{
-		Feature: CombExclusive,
-	},
-	NilPolicy: NilReject,
-	Identity: func(v controltool.Provider) (string, bool) {
-		id, err := controltool.ProviderIdentity(v)
-		if err != nil {
-			return "", false
-		}
-		return id, true
-	},
-	Validate: func(v controltool.Provider) error {
-		return controltool.ValidateProvider(v)
-	},
-	ValidateIdentity: controltool.ValidateProviderID,
-	Combine: func(source SourceKind, current, incoming controltool.Provider) (controltool.Provider, error) {
-		return incoming, nil
-	},
-	ExclusiveConflictError: ErrControlToolProviderConflict,
-}
-
 // StandardPlanes is the ordered slice of all standard feature planes.
 var StandardPlanes = []PlaneDeclaration{
 	PlaneSubmitHooks,
@@ -1122,7 +1091,6 @@ var StandardPlanes = []PlaneDeclaration{
 	PlaneLocalTurnHandlers,
 	PlaneTerminalDecisionProvider,
 	PlaneSessionClassifier,
-	PlaneControlToolProvider,
 }
 
 // StandardCandidatePlanes defines the canonical list of plane IDs allowed in candidate overlay contribution.

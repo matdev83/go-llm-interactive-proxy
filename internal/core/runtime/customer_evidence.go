@@ -23,13 +23,6 @@ type customerEvidenceAccumulator struct {
 	content   []lipapi.Event
 	events    int
 	settled   atomic.Bool
-	// boundary is the byte length of text already attributed to prior
-	// attempts of the logical response when the latest continuation was
-	// published. Progress detection observes only the text released since
-	// this boundary, so identical answers on successive attempts compare
-	// equal instead of looking like fresh evidence. Delivery, accounting,
-	// and history keep using the cumulative text.
-	boundary int
 }
 
 func newCustomerEvidenceAccumulator() *customerEvidenceAccumulator {
@@ -81,40 +74,7 @@ func (a *customerEvidenceAccumulator) resetContent() {
 	a.toolArgs.Reset()
 	a.content = nil
 	a.events = 0
-	a.boundary = 0
 	a.mu.Unlock()
-}
-
-// markAttemptBoundary snapshots the current text length as the start of the
-// latest continuation's attempt. The newly published attempt has released
-// nothing yet, so everything accumulated so far belongs to prior attempts.
-// Every continuation re-snapshots. A nil accumulator is a no-op.
-func (a *customerEvidenceAccumulator) markAttemptBoundary() {
-	if a == nil {
-		return
-	}
-	a.mu.Lock()
-	a.boundary = a.text.Len()
-	a.mu.Unlock()
-}
-
-// attemptText reports the text released since the latest attempt boundary, for
-// progress detection only. The buffer is append-only between a boundary
-// snapshot and the next reset, so the boundary is always a prefix of the
-// current text; each appended delta is a complete string, so the cut is always
-// on a character boundary. A boundary that is not a usable prefix falls back
-// to the cumulative text.
-func (a *customerEvidenceAccumulator) attemptText() string {
-	if a == nil {
-		return ""
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	full := a.text.String()
-	if a.boundary > 0 && a.boundary <= len(full) {
-		return full[a.boundary:]
-	}
-	return full
 }
 
 // contentEvents returns a copy of released content events for StreamUsage.Reconstruct.

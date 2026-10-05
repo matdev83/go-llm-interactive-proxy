@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "spec_revision": 3,
+  "version": 2,
+  "spec_revision": 2,
   "baseline_sha": "b560dbff3a06dc44a324aa15a0245ccaed5f76cb",
   "input_output_mask_product": "complete",
   "mask_count_each_direction": 64,
@@ -27,7 +27,7 @@
     ]
   ],
   "dispositions": {
-    "REQUIRED_SUPPORTED": "Complete factored proof chain plus qualifying real-stack witness required; a unique full-stack execution for every coordinate is not required.",
+    "REQUIRED_SUPPORTED": "Actual successful decode-to-ledger execution required.",
     "NATIVE_UNREPRESENTABLE": "Versioned independent native predicate and zero payable sends required.",
     "STRICT_UNBOUNDED": "Specific provider-enforced-bound limitation and zero payable sends; never current proxy implementation absence.",
     "BILLING_IMPLEMENTATION_GAP": "Release blocker; safe runtime refusal does not complete the task.",
@@ -88,11 +88,12 @@
     "expanded_coordinate_id",
     "expected_disposition",
     "actual_result",
-    "frontend_evidence_id",
-    "backend_profile_evidence_id",
-    "financial_kernel_evidence_id",
-    "real_stack_witness_id",
-    "evidence_digest_root",
+    "test_id",
+    "raw_log_sha256",
+    "provider_dispatch_count",
+    "funding_assertion",
+    "economic_oracle_assertion",
+    "journal_balance_assertion",
     "native_limitation_reference_when_negative"
   ],
   "release_fails_on": [
@@ -108,30 +109,8 @@
     "all_deny",
     "stale_digest",
     "native_negative_without_proof",
-    "missing_frontend_contract_evidence",
-    "missing_backend_profile_evidence",
-    "missing_financial_kernel_evidence",
-    "missing_required_real_stack_witness",
-    "missing_connector_entrypoint_witness",
-    "unproven_evidence_composition"
+    "positive_without_native_wire_execution"
   ],
-  "finite_scope_note": "The mask product is exhaustive for this vocabulary and every expanded coordinate must be classified. Factored conformance avoids redundant full-stack execution, while mandatory real-stack witnesses and property/fault tests cover composition boundaries. No certificate claims all possible bytes or future APIs.",
-  "implementation_verified": false,
-  "coordinate_classification": "complete_before_capability_filtering",
-  "evidence_model": "factored_conformance",
-  "full_stack_coordinate_execution_required": false,
-  "required_real_stack_witnesses": [
-    "every_baseline_frontend_backend_pair_with_positive_intersection",
-    "every_distinct_backend_profile_api_transport_implementation",
-    "every_connector_actual_module_entrypoint",
-    "every_frontend_delivery_and_carrier_family",
-    "targeted_cross_boundary_mixed_and_financial_fault_schedules"
-  ],
-  "proof_components": [
-    "frontend_contract_evidence",
-    "backend_profile_contract_evidence",
-    "common_financial_kernel_evidence",
-    "qualifying_real_stack_witness_evidence"
-  ],
-  "coordinate_receipt_rule": "Every expanded coordinate maps to immutable evidence IDs/digests for all required proof components or to a justified native/unbounded negative. Shared evidence is allowed only under identical frozen contract identity."
+  "finite_scope_note": "The mask product is exhaustive for this vocabulary. Arbitrary order/count/nesting and payloads need constructive properties; no certificate claims all possible bytes or future APIs.",
+  "implementation_verified": false
 }

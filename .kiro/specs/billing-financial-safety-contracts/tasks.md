@@ -45,10 +45,10 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
 - [ ] 1.3 Add strict SDK preparation, funding and fence contracts
   - **Goal:** Expose a versioned external binding and immutable prepared-dispatch seam without widening ordinary Open for non-money hosts.
   - **Packet:** [T03](execution/T03.md).
-  - **Deliverables:** New pkg/lipsdk/billing/strict_execution.go; New pkg/lipsdk/billing/strict_binding.go; Versioned prepared-request/atomic-authorization/cancellation public contracts and additive ABI fixtures
-  - **Step 1:** Add BindingVersionV2 plus required root quote/admit, one atomic prepared-attempt authorization capability, durable acceptance/recovery, account-fence read/subscription, and health capabilities as additive v2 fields; preserve readable v1 envelopes. Do not expose separate public allocate/extend and consume-dispatch ports.
+  - **Deliverables:** New pkg/lipsdk/billing/strict_execution.go; New pkg/lipsdk/billing/strict_binding.go; Versioned prepared-request/funding/cancellation public contracts and additive ABI fixtures
+  - **Step 1:** Add BindingVersionV2 plus required strict execution, durable acceptance/recovery, account-fence read/subscription, and health capabilities as additive v2 fields; preserve readable v1 envelopes.
   - **Step 2:** Add the PaidPreparer/PreparedPaidRequest/SendPrepared protocol specified in the design interface appendix; public types reference SDK values only.
-  - **Step 3:** Validate typed-nil ports, missing strict pieces, conflicting contract versions, foreign identities and expired/mismatched authorization. A confirmed authorization may return one process-local send capability; replay/status lookup never remints it. Never interpret an absent optional interface as permission.
+  - **Step 3:** Validate typed-nil ports, missing strict pieces, conflicting contract versions, foreign identities and expired/mismatched grants. Never interpret an absent optional interface as permission.
   - **Step 4:** Keep the single monetary authority rule and v1 non-strict compatibility; an active strict host rejects v1 at composition rather than supplying fake strict adapters.
   - **Step 5:** Add SDK contract tests for ownership, immutability, close/release and forged handle reuse. Keep connector ABI extensions version-negotiated.
   - **Step 6:** Define the additive v2 binding so it can carry D18 media/output plans and D20 joint contract digests. Shared concrete media DTO work is owned by11.2/11.3/14.1; do not leave v2 semantically text-only.
@@ -82,7 +82,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
 - [ ] 2.1 Implement catalog-first maximum and explicit fallback
   - **Goal:** Reserve model maximum output under the exact policy the user requested.
   - **Packet:** [T05](execution/T05.md).
-  - **Deliverables:** New internal/core/billing/output_bound.go pure policy; narrow existing billingadmission/billingcompose catalog-fact adapter changes; Catalog-source/version binding and explicit allow_client_max_fallback configuration; Literal output-bound tests
+  - **Deliverables:** New internal/infra/billingadmission/output_bound.go; Catalog-source/version binding and explicit allow_client_max_fallback configuration; Literal output-bound tests
   - **Step 1:** Resolve the existing catalog provider/model identity after aliases; copy positive limit.output and its revision/hash into the bound.
   - **Step 2:** Keep reservation M at the catalog maximum even for smaller body/route cap. Resolve route cap precedence before choosing transmitted cap.
   - **Step 3:** Reject explicit effective cap greater than M and invalid zero/negative generation limits. When M is absent, accept only the enabled positive enforceable fallback.
@@ -92,7 +92,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Acceptance:** Every rejected case has zero provider requests; snapshot source is retained.
   - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
   - _Requirements: 1.5, 3.1, 3.3, 3.4, 3.6, 3.7, 11.4_
-  - _Boundary: core billing output-bound policy plus immutable catalog-fact adapter_
+  - _Boundary: model-catalog/admission adapter_
   - _Depends: 1.2_
   - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 2.1`; required scenarios S09, S10, S11, S12 and affected existing tests._
 
@@ -151,7 +151,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Deliverables:** New internal/core/execbackend/paid_prepared.go; New internal/core/billing/dispatch_identity.go; Ownership/digest/epoch/slot replay tests
   - **Step 1:** Implement owned immutable prepared handles for canonical and existing large-body sources, with length/digest and economic limit identity.
   - **Step 2:** Validate backend instance/model/endpoint, account/call/slot/dispatch, quote hash, epoch and provider-cap bounds before any SendPrepared call.
-  - **Step 3:** Bind SendPrepared to the one process-local, one-use send capability returned only by a confirmed atomic prepared-attempt authorization; forbid copied-handle/foreign-account use, replay reminting and re-running hooks after economic freeze.
+  - **Step 3:** Use a single consumable grant; forbid copied-handle/foreign-account use and re-running hooks after economic freeze.
   - **Step 4:** Keep large payload hashing streaming/bounded; do not materialize a large body solely to authorize it. Release handles on denied/cancelled paths.
   - **Step 5:** Add tamper tests for route max, TTL, model, payload content and owner.
   - **Step 6:** Digest economic field receipts, ordered media occurrence identity, output plan, profile/model/API revision and per-unit bounds. Missing native fields invalidate the prepared identity.
@@ -267,16 +267,16 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - _Depends: 2.4, 2.6, 3.2, 3.3_
   - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 3.4`; required scenarios S15, S21, S22, S23, S44 and affected existing tests._
 
-- [ ] 3.5 Persist one atomic prepared-attempt authorization
-  - **Goal:** Create each economic attempt's durable one-time financial authorization in one account transaction after final preparation.
+- [ ] 3.5 Persist slot allocation, funded extension and grant consumption
+  - **Goal:** Create a durable one-time financial authorization for each economic attempt.
   - **Packet:** [T16](execution/T16.md).
-  - **Deliverables:** New internal/infra/billingstore/dispatch_obligation_store.go; Single authorize-prepared-attempt transaction with slot-claim/extension and read-by-operation recovery; Epoch, duplicate-authorization and commit-ack ambiguity regression tests
-  - **Step 1:** After final immutable preparation and local active-work registration, enter one account transaction and validate account/call/B-leg/slot/prepared-digest/material/epoch/process identity.
-  - **Step 2:** In that same transaction claim one matching funded slot, or for new/grown work reserve only the incremental full liability under current locked headroom. Required-extension money denial commits the task 7.1 freeze intent before returning.
-  - **Step 3:** Append balanced operational movements and persist account/call/B-leg/dispatch/slot/payload/material/epoch, recovery descriptor and authorized_unknown state in that transaction.
-  - **Step 4:** A confirmed commit returns at most one process-local one-use send capability. Durable replay/status resolution returns state only and never creates a second capability.
-  - **Step 5:** On uncertain commit ACK do not send. Resolve by immutable operation identity. Process loss after authorization retains ambiguous liability and never causes blind retransmission. No provider/network I/O occurs inside the transaction.
-  - **Acceptance:** One slot cannot authorize two sends; stale epoch, changed payload and duplicate authorization reject; the normal path performs one central final-authorization transaction per prepared attempt.
+  - **Deliverables:** New internal/infra/billingstore/dispatch_obligation_store.go; Allocate/extend/consume transaction methods and read-by-operation recovery; Epoch and grant-race regression tests
+  - **Step 1:** Transfer an unused envelope slot into a dispatch allocation with balanced operational entries; slot transfer must not reduce account total R.
+  - **Step 2:** For new/grown work reserve only the incremental full liability under the current locked headroom. Required-extension money denial invokes the task 7.1 freeze transaction.
+  - **Step 3:** Persist account/call/B-leg/dispatch/slot/payload/material/epoch and recovery descriptor before grant consumption.
+  - **Step 4:** Consume once atomically with current epoch, owner incarnation and allocation checks; the durable state becomes authorized_unknown before external send.
+  - **Step 5:** On uncertain commit ACK do not send. Resolve by operation identity. Replays after process loss do not retransmit ambiguous provider requests.
+  - **Acceptance:** One slot cannot authorize two sends; stale-epoch and changed-payload grants reject.
   - **Acceptance:** A failed required extension leaves a durable account freeze and all previous obligations intact.
   - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
   - _Requirements: 4.2, 4.4, 4.5, 4.6, 5.4, 6.1, 6.4, 7.1, 7.4, 7.5, 9.7, 10.3, 15.2_
@@ -324,7 +324,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Goal:** Prevent an apparently complete legacy or partial binding from bypassing the new safety path.
   - **Packet:** [T19](execution/T19.md).
   - **Deliverables:** Strict ComposeBilling wiring and lossless SDK v2 binding mapping; All-or-none publication checks and managed-only backend handles; Lifecycle/partial-binding tests
-  - **Step 1:** Wire the revision-3 typed ports into the existing single-authority composition: root quote/admit plus one atomic prepared-attempt authorization port, terminal durability/recovery and fence capabilities. Do not create a second financial database or parallel monetary service.
+  - **Step 1:** Wire the D14 typed ports into the existing single-authority composition. Do not create a second financial database or parallel monetary service.
   - **Step 2:** Configure the conservative component quoter, persisted snapshots, root/dispatch funding, capacity/recovery and fence services explicitly; no scalar safe-ceiling escape for strict work.
   - **Step 3:** Expose only managed backend handles to runtime strict execution; reject missing v2 port or proof at publication.
   - **Step 4:** Preserve stock lipstd and ordinary Options non-money behavior and external lifecycle ownership; do not close borrowed resources.
@@ -342,8 +342,8 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Packet:** [T20](execution/T20.md).
   - **Deliverables:** Canonical prepared-request/funded-dispatch integration; No-send rollback and authorized-unknown transitions; Real Execute-to-httptest-provider tests
   - **Step 1:** Keep identity and cheap-screen before expensive route expansion, then reserve the root envelope before paid activity.
-  - **Step 2:** Run final cost-affecting hooks/options/projection/adapter preparation before economic freeze; build the immutable prepared identity consumed by the single authorization transaction.
-  - **Step 3:** Register active execution, call the atomic prepared-attempt authorization to claim/fund the slot and persist authorized_unknown, and only after confirmed commit invoke managed SendPrepared with the returned one-use local capability.
+  - **Step 2:** Run final cost-affecting hooks/options/projection/adapter preparation before economic freeze; validate against the envelope slot and fund any prescribed extension.
+  - **Step 3:** Register active execution, consume its durable epoch-fenced grant, and only then invoke managed SendPrepared.
   - **Step 4:** Treat TTFT after grant consumption/send as ambiguous liability. Only prove no-send when authorization and transport evidence permit it.
   - **Step 5:** Preserve existing non-money Execute path and pre-output-only recovery; do not add money work in Recv.
   - **Acceptance:** S04 cannot create NeverStarted after accepted timeout; every recorded provider request joins to a durable funded dispatch.
@@ -360,7 +360,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Deliverables:** Wire prepared-handle/digest funding integration; Bounded trusted economic facts and shared financial errors; Wire-path funding/capacity failure regressions
   - **Step 1:** Replace raw BodyBytes-as-token-proof with the task 2.2 certified representation or conservative input ceiling.
   - **Step 2:** Carry account/call/slot/quote/material/epoch in bounded trusted facts; client wire fields cannot forge them.
-  - **Step 3:** Use the same managed prepare/register/atomic-authorize/send contract and durable capacity descriptor as canonical execution; preserve stream hashing and existing spool/body ownership.
+  - **Step 3:** Use the same managed prepare/consume/send contract and durable capacity descriptor as canonical execution; preserve stream hashing and existing spool/body ownership.
   - **Step 4:** Propagate typed financial errors before headers and retain billing after wire encoder/cancellation failures.
   - **Step 5:** Run canonical and wire sentinel inputs through their real entrypoints and compare funding/economic results, not exact raw bytes.
   - **Step 6:** Large-body fast path cannot infer economic input from body byte length. It must obtain complete bounded media/field receipts or fall back to canonical preparation, never bypass strict funding.
@@ -377,7 +377,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Packet:** [T22](execution/T22.md).
   - **Deliverables:** Shared funded slot consumption for replacement and parallel paths; One persisted attempt budget across replacements; Failover/parallel provider-counter tests
   - **Step 1:** Route newReplacementOpener/openNext and parallel launch paths through the same managed dispatch implementation as4.2; remove retained raw backend reachability.
-  - **Step 2:** Atomically authorize one distinct slot per economic attempt; cancelled losers retain their unresolved bound and later charges.
+  - **Step 2:** Consume one distinct slot per economic attempt; cancelled losers retain their unresolved bound and later charges.
   - **Step 3:** Preserve the persisted effective attempt budget and explicit no-transparent-retry-after-output rule.
   - **Step 4:** Disable any internal transport repeat not attributed by the managed attempt path; do not release previous liability merely to finance its replacement.
   - **Step 5:** Use recording-provider barriers to count actual sends and compare each with its allocation.
@@ -396,7 +396,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Step 1:** Remove CommandNormalFinish as the authority for SurfacedYes; use actual outer frontend-delivery attribution and explicit thinker role.
   - **Step 2:** Keep request closure deferred until the outer execution boundary; both economic attempts remain independently chargeable.
   - **Step 3:** Use the pre-funded future-input ceiling for the executor, then validate its actual memo-expanded prepared request.
-  - **Step 4:** Any additional semantic continuation beyond the envelope must be fully prepared and atomically authorize its extension plus attempt before Open; financial denial commits account freeze, ordinary semantic reject does not.
+  - **Step 4:** Any additional semantic continuation beyond the envelope must allocate/extend before Open; financial denial uses account freeze, ordinary semantic reject does not.
   - **Step 5:** Exercise hidden thinker normal finish followed by executor normal finish with independent provider receipts and no winner-only ambiguity.
   - **Step 6:** Thinker/executor continuations preserve mixed input history and separately bill hidden computation; media or tool output cannot be lost by text-only memo projection without explicit selected transformation.
   - **Acceptance:** Both charges post under S17; thinker remains internal-only.
@@ -412,8 +412,8 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Packet:** [T24](execution/T24.md).
   - **Deliverables:** Trusted child-funding receipt before auxiliary queue admission; Durable root/submission/call/child lineage; Detached and synchronous child cancellation tests
   - **Step 1:** Preserve the existing auxiliary client re-entry into Execute; do not invent a bypass replacement.
-  - **Step 2:** Resolve account/submission from trusted parent scope and reserve the full child envelope before scheduling paid detached work; carry an idempotent funded child identity through queue/start.
-  - **Step 3:** Do not double-reserve the child envelope when Execute starts it; the concrete child attempt still performs final preparation and one atomic prepared-attempt authorization. Queue replay/status cannot mint send authority.
+  - **Step 2:** Resolve account/submission from trusted parent scope and reserve the full child bound before scheduling paid detached work; carry an idempotent funded child receipt through queue/start.
+  - **Step 3:** Do not double-reserve an already funded child when Execute starts it; identity equality and unconsumed grant are mandatory.
   - **Step 4:** Include queued/detached children in the account registry/fence and prevent client-supplied parent/account IDs from granting authority.
   - **Step 5:** For a required child extension money failure, invoke the same account freeze; after root cancellation, no detached child may use an obsolete epoch.
   - **Acceptance:** S19 children have fresh funded IDs and remain attributed after root context ends.
@@ -698,7 +698,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Goal:** Cancel all same-account execution kinds immediately after local financial failure without cross-account leakage.
   - **Packet:** [T39](execution/T39.md).
   - **Deliverables:** New internal/core/runtime/account_financial_control.go; Owned account/epoch active-handle registration and cancellation callbacks; Registration/freeze/cleanup race tests
-  - **Step 1:** Register active A-leg/B-leg/queued-child handles before atomic prepared-attempt authorization, with trusted account, epoch and process incarnation.
+  - **Step 1:** Register active A-leg/B-leg/queued-child handles before grant consumption, with trusted account, epoch and process incarnation.
   - **Step 2:** On local freeze immediately initiate cancellation for every same-account handle; callback initiation target 50ms under the deterministic test scheduler.
   - **Step 3:** Double-check state/epoch around registration and launch; after freeze do not admit a late register as active.
   - **Step 4:** Unregister idempotently on terminal completion; do not close or release monetary commitments just because callbacks returned.
@@ -921,8 +921,8 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - _Depends: 4.7, 6.5, 8.3, 9.4, 1.4_
   - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 9.6`; required scenarios S04, S30, S31, S32, S33, S34, S35, S36, S41, S42, S43, S56, S65 and affected existing tests._
 
-- [ ] 9.7 Run family conformance plus required cross-interface witnesses
-  - **Goal:** Integrate frontend/backend contract suites with mandatory real-stack witnesses while the full generated universe remains exhaustively classified.
+- [ ] 9.7 Run family conformance plus exhaustive cross-interface coverage integration
+  - **Goal:** Integrate family tests with the full generated matrix rather than treating representative sentinels as complete coverage.
   - **Packet:** [T52](execution/T52.md).
   - **Deliverables:** Family TCK certification results for each native family; Five fixed cross-family sentinels from execution/gates.md; Positive/negative text-versus-extra-cost support receipts
   - **Step 1:** Run every frontend against canonical financial outcomes and every backend family against native usage/prepared-send fixtures.
@@ -930,7 +930,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Step 3:** Include hidden thinker, sparse usage, missing-final usage, n/candidate reasoning, cache TTL and unsupported modalities/extras cases.
   - **Step 4:** Validate readable 402 details and legal post-header errors while retaining billing.
   - **Step 5:** Fail completion if blanket native text rejection remains or an uncertified shape sends paid traffic.
-  - **Step 6:** Representative sentinels remain fast feedback only. Mandatory release evidence is a complete coordinate-to-proof map plus real-stack witnesses for every positive baseline pair, distinct profile/transport implementation, connector entrypoint and targeted cross-boundary/fault seam. Do not label pairwise sampling exhaustive.
+  - **Step 6:** Representative sentinels remain fast feedback only. Mandatory release evidence is the complete expanded D23 matrix; do not label a pairwise subset exhaustive.
   - **Acceptance:** All positive S48-S51 native text cases complete and bill correctly; S52/S53 negatives have zero sends.
   - **Acceptance:** No frontend×backend-specific translation implementation or all-skipped gate is introduced.
   - **Scope:** At most 10 changed Go files; working directory `.`; one fresh context.
@@ -967,7 +967,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Step 3:** Apply each prescribed test-only mutation in isolated copies and verify the appropriate independent oracle fails, then discard the mutated copies.
   - **Step 4:** Reconcile provider send log with allocations/evidence/customer charges/collections/debt/COGS/journal keys, not only processed flags.
   - **Step 5:** Any failed/unexecuted normal-path contract yields NO-GO with exact task owner; do not repair by changing expectations, skipping cases, enabling ceilings or removing guards.
-  - **Step 6:** Verify exact actual-universe and coordinate-to-proof roots for full interface/profile/operation/carrier/mask coverage, all mandatory real-stack witnesses, and mixed-modality financial fault scenarios. A missing proof component, required witness or native implementation gap is NO-GO; one unique full-stack run per coordinate is not required.
+  - **Step 6:** Verify exact actual-universe/contract/receipt roots for full interface/profile/operation/carrier/mask coverage and the mixed-modality financial fault scenarios. Any required native implementation gap is NO-GO.
   - **Acceptance:** Every S01-S66 case has actual non-skipped evidence and all originalC/F traces close.
   - **Acceptance:** Injected overrun is labelled containment; missing external topology or unexpected normal debt remains NO-GO.
   - **Scope:** At most 4 changed Go files; working directory `.`; one fresh context.
@@ -1073,7 +1073,7 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Step 3:** Bind concrete implementation, endpoint/profile, model, API revision, canonical schema, units, tariffs, enforcement and finality into the contract digest.
   - **Step 4:** Keep native capability decisions separate from billing readiness. Missing billing for a required native-finite shape remains a release blocker.
   - **Step 5:** Use the compiled predicate at existing strict admission and final preparation. Reject unknown economic fields and stale contracts before payable dispatch.
-  - **Acceptance:** Every required native-supported coordinate has a complete factored proof chain anchored in the real frontend/backend adapter contracts and mandatory real-stack witnesses, with correct recorded units and charges. A safe runtime denial alone does not satisfy that positive obligation.
+  - **Acceptance:** Every required native-supported case completes the real adapter path with correct recorded units and charges. A safe runtime denial alone does not satisfy that positive obligation.
   - **Acceptance:** Preserve all eleven original financial invariants and the existing non-billing host behavior. No historical repricing or unbounded external work is authorized.
   - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
   - _Requirements: 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.3, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.4_
@@ -1981,16 +1981,16 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
 
 ## Workstream 15 — Exhaustive mixed-interface release evidence
 
-- [ ] 15.1 Implement exhaustive classifier and factored conformance runner
-  - **Goal:** Classify every expanded coordinate and prove each positive through immutable factored evidence plus the required real-stack witness set.
+- [ ] 15.1 Implement exhaustive cross-interface modality matrix runner
+  - **Goal:** Execute every native-positive signature and justified negative across actual interfaces and transports.
   - **Packet:** [T109](execution/T109.md).
-  - **Deliverables:** Lazy complete coordinate generator and deterministic shards.; Coordinate-to-proof composer over frontend/backend/kernel evidence.; Required real-stack witness runner and justified negative runner.; Exact expansion counts, checksums and evidence receipts.
+  - **Deliverables:** Lazy complete coordinate generator and deterministic shards.; Real decode-to-ledger positive path and justified negative runner.; Exact expansion counts, checksums and execution receipts.
   - **Step 1:** Use the locked baseline and actual 11.1 export. Enumerate every base pair and mask before capability filtering, then expand all concrete profiles, operations, carriers and independent mode pairs.
-  - **Step 2:** For every required positive cell resolve an immutable proof chain containing frontend contract evidence, backend/profile contract evidence, common financial-kernel evidence and a qualifying real-stack witness. Shared evidence is allowed only when frozen contract identity proves equivalent behavior.
-  - **Step 3:** Execute real-stack witnesses for every baseline pair with a positive intersection, each distinct profile/API/transport implementation, every connector actual entrypoint, every frontend delivery/carrier family and targeted cross-boundary/fault seams. For native-unrepresentable or inherently unbounded cells validate the independent native predicate and zero payable dispatches.
-  - **Step 4:** Reuse bounded hosts and fixture databases for witness shards with unique dispatch identities. Keep property/fault/witness work in an explicit release lane; do not perform a redundant full-stack call for every coordinate when its proof chain is complete.
-  - **Step 5:** Write actual-SHA, universe digest, contract digests, coordinate ID and all evidence IDs for every expansion. Missing proof components, pair/profile/connector witnesses, negative justification or topology evidence fail certification.
-  - **Acceptance:** Every expanded coordinate has a valid composed proof or a named blocker; every required real-stack witness has executed and no coordinate is omitted.
+  - **Step 2:** For every required positive cell execute the real frontend decoder, canonical preparation, backend encoder, native recording transport, evidence capture and settlement. Connector cells include the actual module entrypoint.
+  - **Step 3:** For native-unrepresentable or inherently unbounded cells validate the independent native predicate and zero payable dispatches. Missing implementation or runtime prerequisites fail certification.
+  - **Step 4:** Reuse bounded hosts and fixture databases per pair shard, but allocate unique dispatch identities. Keep heavy exhaustive work in an explicit release lane, not the default unit loop.
+  - **Step 5:** Write actual-SHA, universe-digest, contract-digest, coordinate and test identities for every expansion. Retain provider-start and balanced-journal assertions. Missing expansions or shards fail.
+  - **Acceptance:** Every baseline pair and mask has completed evidence or a named blocker; no coordinate is omitted.
   - **Acceptance:** Deny-all, filtered denominators and forced-equal delivery modes fail independent tests.
   - **Scope:** At most 16 changed Go files; working directory `.`; one fresh context.
   - _Requirements: 12.1, 12.4, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 21.1, 21.4, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.2, 24.4, 24.5, 24.6_
@@ -2037,10 +2037,10 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - **Packet:** [T112](execution/T112.md).
   - **Deliverables:** Field, enum, protobuf and registration coverage closure checks.; Independent mutation catalog and named failing tests.; Release receipt validator rejecting gaps and vacuous success.
   - **Step 1:** Implement each S109 mutation as a named isolated regression or mutation fixture. Every mutation must fail at least one independent test.
-  - **Step 2:** Validate the full universe and every profile, operation, carrier and mode expansion before accepting coordinate-to-proof receipts. Do not filter the denominator using production readiness.
-  - **Step 3:** Require each positive coordinate to carry frontend, backend/profile and financial-kernel evidence plus a qualifying mandatory real-stack witness. Negative native claims require a versioned native predicate and zero payable starts.
+  - **Step 2:** Validate the full universe and every profile, operation, carrier and mode expansion before accepting execution receipts. Do not filter the denominator using production readiness.
+  - **Step 3:** Require positive mixed native obligations and real pipeline evidence. Negative native claims require a versioned native predicate and zero payable starts.
   - **Step 4:** Reject stale receipts after any schema, implementation or economic contract change. Not-run, missing-price and skipped cases are not native negatives.
-  - **Step 5:** Run validator negatives that remove a connector, mask, mode, frontend proof, backend proof, kernel proof, baseline-pair witness, profile/transport witness, connector-entrypoint witness, or required fault witness, plus a deny-all implementation.
+  - **Step 5:** Run validator negatives that remove a connector, mask, mode, positive execution or shard, and a deny-all implementation.
   - **Acceptance:** Every specified malformed coverage fixture fails. A controlled complete synthetic fixture passes only validation, not a real proxy certificate.
   - **Acceptance:** Optional support flags cannot remove a native-positive obligation from the release universe.
   - **Scope:** At most 12 changed Go files; working directory `.`; one fresh context.
@@ -2050,15 +2050,15 @@ Use one fresh context per packet, the stated file scope and red/green evidence. 
   - _Validation: `python .kiro/specs/billing-financial-safety-contracts/tools/run_task_gate.py --task 15.4`; required scenarios S69, S72, S76, S89, S100, S101, S106, S109, S110 and affected existing tests._
 
 - [ ] 15.5 Verify complete mixed-interface release evidence
-  - **Goal:** Close coverage only after every coordinate has a complete proof chain and every mandatory real-stack and financial-fault witness has actual evidence.
+  - **Goal:** Close coverage only after every interface, modality and financial fault obligation has actual evidence.
   - **Packet:** [T113](execution/T113.md).
-  - **Deliverables:** Complete actual-code coordinate-to-proof coverage certificate.; Mandatory pair/profile/transport/connector/fault witness receipts.; Published supported and genuinely limited combinations without concealed implementation gaps.
-  - **Step 1:** Verify every mandatory task, module and adapter contract receipt, including all concrete profiles and expanded native operations, carriers and mode combinations. Check coordinate counts, proof-composition roots and the complete mandatory witness set.
+  - **Deliverables:** Complete actual-code and actual-universe coverage certificate.; Published supported and genuinely limited combinations without concealed implementation gaps.
+  - **Step 1:** Verify every mandatory task, module and adapter receipt, including all concrete profiles and expanded native operations, carriers and mode combinations. Check coordinate counts and completeness roots.
   - **Step 2:** Combine the mixed financial failure evidence from 15.3 with the eleven original contracts. Empty, missing or skipped tests are failures.
   - **Step 3:** Reject every required native billing gap and any native-unsupported claim based only on missing proxy code.
   - **Step 4:** Publish measured support, precise native limitations and finite proof scope. Do not claim every future provider or every possible payload byte sequence has been proven.
-  - **Step 5:** Hand the actual coordinate-to-proof certificate, witness receipts and hashes to 10.2. This packet does not authorize production activation or a completion claim without saved evidence.
-  - **Acceptance:** Every required coordinate has a valid composed proof and every mandatory witness/topology has executed. Missing obligations yield NO-GO with explicit IDs.
+  - **Step 5:** Hand the actual certificate and hashes to 10.2. This packet does not authorize production activation or a completion claim without saved evidence.
+  - **Acceptance:** Every required coordinate and topology is evidenced. Missing obligations yield NO-GO with explicit IDs.
   - **Acceptance:** Specification tooling results cannot be substituted for implementation execution evidence.
   - **Scope:** At most 8 changed Go files; working directory `.`; one fresh context.
   - _Requirements: 12.1, 12.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_

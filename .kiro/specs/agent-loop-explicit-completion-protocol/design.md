@@ -754,189 +754,46 @@ Existing trace/A-leg/B-leg correlation may remain in trace/log fields under curr
 
 ## File Structure Plan
 
-The tree below is the original design-time expectation, annotated in place against what was actually
-built. Annotations mark supersession (`planned X; built as Y`) and unplanned additions. Nothing in this
-section changes a Boundary Commitment, an Architecture Ratchet, or a requirement; where the built shape
-diverges from the design's *intent* rather than only from its file list, the divergence is recorded under
-Open Design Notes instead of being folded into the design silently.
-
-Reconciliation basis: `git diff --name-status 1fc49fe2..HEAD` — 71 added, 59 modified, 0 deleted, 130
-paths. A planned path that appears as neither `A` nor `D` below was never created; a path with no plan
-line was built unplanned.
+Expected additions/changes, subject to current-main revalidation:
 
 ```text
 pkg/lipsdk/controltool/
-├── doc.go                    # ADDED unplanned: package doc pinning "contract, not a runtime" (doc.go:1-7)
 ├── types.go                  # generic Provider/Spec/Outcome/Meta contracts
-├── errors.go                 # ADDED unplanned: bounded validation sentinels (errors.go:5-6)
 ├── validate.go               # bounds and static spec validation
 ├── projection.go             # pure authority-neutral projection helpers
-└── *_test.go                 # contract_test.go, projection_test.go
+└── *_test.go
 
 pkg/lipsdk/feature/
-├── plane_manifest.go         # PlaneControlToolProvider + generated/ratchet updates
-├── plane_generated.go        # MODIFIED: generated frozen plane set + exclusive slot
-└── errors.go                 # MODIFIED unplanned: ErrControlToolProviderConflict (errors.go:24-25)
-
-pkg/lipsdk/terminaldecision/
-└── types.go                  # MODIFIED unplanned in this plan: additive ExplicitCompletionExpected
-                              # beside ExplicitCompletion (types.go:136-155); matches Completion
-                              # Evidence and Pending Result, this tree simply did not name the file
+└── plane_manifest.go         # PlaneControlToolProvider + generated/ratchet updates
 
 internal/core/extensions/
-├── control_tool.go           # generic bounded stage runner / evidence
-├── snapshot.go               # MODIFIED unplanned in this plan: ControlToolProvider() /
-│                             # ControlToolProviderIdentity() request-snapshot accessors (snapshot.go:396-412)
-└── completion_run.go         # MODIFIED unplanned: new EffectiveReplacement field on
-                              # CompletionGateChainResult (completion_run.go:22-33)
+└── control_tool.go           # generic bounded stage runner / evidence
 
 internal/core/runtime/
 ├── executor_*                # post-hook projection + final reassertion
-│                             #   (executor_attempt_transform.go +132/-0, executor_retry_stream.go +77/-0,
-│                             #    executor_final_stream_obs.go +21/-0, executor_open_attempt.go +23/-1)
-├── attempt_*                 # PLANNED NEW OWNER FILE NOT CREATED; ownership landed in the pre-existing
-│                             #   attempt_session.go (+83/-29), which is the request-local attempt owner
-├── response_pipeline_*       # PLANNED NEW FILES NOT CREATED under this glob; pre-existing
-│                             #   response_pipeline.go (+82/-6) and response_pipeline_observations.go (+50/-4)
-│                             #   were modified in place, so the new seams took sibling names:
-│                             #   control_call_capture.go, response_control_interception.go,
-│                             #   response_pending_completion.go
-├── terminal_decision_*       # generic Expected/Observed evidence projection + result drain
-│                             #   (terminal_decision_evidence.go +111/-4; see Open Design Note 1 for the
-│                             #    Actions/ActionCount projection change inside it)
-└── candidate_open_tool_response_ordering_characterization_test.go
-                              # ADDED unplanned, but in internal/core/runtime/ and not
-                              #   internal/archtest/: Adjacent-Spec Revalidation characterization
+├── attempt_*                 # request-local activation/capture owner
+├── response_pipeline_*       # early control-call diversion / pending result
+└── terminal_decision_*       # generic Expected/Observed evidence projection + result drain
 
 internal/plugins/features/agentloopguard/
-├── config.go                 # strategy/mutual exclusion/backcompat (+274/-19)
-├── provider.go               # strategy dispatch (+49)
-├── completiontool.go         # SPLIT: fixed Spec/projection only (completionToolSpec at :63)
-├── completiontool_handle.go  # ADDED unplanned: the strict handler and NewCompletionToolProvider (:31, :42)
-├── preferred_provider.go     # BUILT INSTEAD OF protocol.go: preferred terminal receiver (Decide at :47)
-├── protocolpolicy/           # BUILT INSTEAD OF protocol.go: pure missing-signal policy + repair intent
-│                             #   (package doc protocolpolicy.go:1-4)
-├── protocolstate/            # bounded fingerprint/counters/token (protocolstate.go, token.go)
+├── config.go                 # strategy/mutual exclusion/backcompat
+├── provider.go               # strategy dispatch
+├── completiontool.go         # fixed Spec + strict handler
+├── protocol.go               # preferred terminal policy/recovery intent
+├── protocolstate/            # bounded fingerprint/counters/token
 ├── verifier/                 # existing legacy path retained
 ├── progress/                 # existing legacy progress retained
 └── *_test.go
 
 internal/standardplugins/
 └── feature composition       # preferred contributes terminal + control provider
-                              #   (features_install.go:48-60, strategy-conditional control contribution)
 
-internal/archtest/               # 16 paths total in the diff for this directory: 10 added and
-                              #   6 modified, counted only from `git diff --name-only
-                              #   1fc49fe2..HEAD -- internal/archtest/`
-├── agent_loop_guard_*        # ADDED unplanned by name: 8 of those 10 additions, being 4 non-test
-│                             #   (ownership AST helper, ownership ratchet, strategy-isolation
-│                             #    ratchet, terminal-owner census) plus 4 fixture/ratchet tests
-├── git_fixture_test.go       # ADDED unplanned: isolated committed-Git fixture (git_fixture_test.go:31-43)
-├── final_stream_observation_order_fixture_test.go
-│                             # ADDED unplanned: coordinator-scoped observation-order validator fixtures
-├── plane_report.go, plane_rules_tables.go
-│                             # MODIFIED unplanned: W4_Tools 4->5 planes, control_tool_provider tables
-└── 4 pre-existing tests MODIFIED (final_stream_observation_order_test.go,
-                              #   plane_report_test.go, plane_rules_whitelist_test.go,
-                              #   request_attempt_state_contract_test.go): the pre-existing-test
-                              #   churn, completing the 6 modified paths
-
+internal/archtest/
 internal/testkit/
-├── conformance/deployment.go # MODIFIED unplanned by name: real strategy composition (+87/-3)
-├── conformance/agentloopguard_preferred_{e2e,telemetry,transport_e2e}_test.go
-│                             # ADDED unplanned by name: the preferred acceptance matrix
-└── planeparity/planeparity.go
-                              # MODIFIED unplanned: control-tool sentinel + plane parity assertions
-
-internal/featurebundle/
-└── control_tool_provider_merge_test.go
-                              # ADDED unplanned: exclusive-slot and provider-removal proofs (requirement 12.3)
-
-internal/qa/
-├── race_check_partition_contract_test.go
-│                             # ADDED unplanned: staged archtest partition contract (:15-26, :59)
-└── (none)                    # no production change; scripts/race-check.sh is the only non-test edit
-
-scripts/race-check.sh         # MODIFIED unplanned: staged scopes partitioned like the full scan
-internal/core/largebody/      # MODIFIED unplanned: plane census 27 -> 28
-├── eligibility.go            #   WireEligibilityPlaneCount = 28 (:28), "control_tool_provider" order
-│                             #   entry (:110), non-negotiable canonical plane (:418)
-└── authority_gate.go         #   PlaneAccessCanonicalRequired for control_tool_provider (:147)
-internal/infra/metering/journalstore/observation_store.go
-                              # MODIFIED unplanned: identity resolution pre-insert -> post-insert
-                              #   (:336), observationInsertEffect projection ownership (:406)
-internal/infra/configsource/atomic_recycle_test.go
-                              # MODIFIED unplanned: dedicated recycled-inode identity fixture repair
-internal/core/runtime/conversation_view.go
-                              # MODIFIED unplanned: dead hardcoded "alg-rec" overlay branch deleted (0/-35)
-internal/plugins/backends/    # MODIFIED unplanned: canonical RoleDeveloper wire encoding
-├── openailegacy/invoke.go, openairesponses/invoke.go
-│                             #   literal "developer" wire role
-└── protocols/anthropicmessages/invoke.go, protocols/geminigenerate/invoke.go
-                              #   deliberate lossy coercion to the user role, loss named per site
-internal/core/runtime/{interleaved_stream.go,executor_settlement.go,executor_recv_loop.go}
-                              # MODIFIED unplanned at this size: shared concurrency rework
-                              #   +534/-66, +342/-19, +294/-29 (see Open Design Note 3)
-testdata/architecture/{extension_planes,hexagonal_migration}_baseline.json
-                              # MODIFIED unplanned: plane-census baseline 27 -> 28
-README.md, docs/agent-loop-guard.md, docs/plugin-authoring.md,
-config/config.yaml, config/examples/agent-loop-guard-{preferred,legacy-verifier}.yaml
-                              # docs / example config as applicable; examples are credential-free
+docs / example config as applicable
 ```
 
-No provider-specific backend adapter should gain ALG logic. This still holds: the four backend adapter
-edits add a canonical role mapping only. They carry no feature name, no `attempt_completion` identifier,
-and no protocol behaviour; provider role mapping is adapter-layer work that the design's own
-`terminal_decision_continuation.go:83` developer-role steering already required before this branch.
-
-### Plan-vs-Actual Reconciliation
-
-| Planned | Actual | Evidence |
-|---|---|---|
-| `agentloopguard/protocol.go` (preferred terminal policy/recovery intent) | Never created; superseded by `protocolpolicy/` + `preferred_provider.go` | No `A`/`D` entry for `protocol.go` in the 130-path diff; `protocolpolicy.go:1-4` package doc; `preferred_provider.go:47`. Reason recorded: tasks.md task 8.1 splits a pure codec/state package from the policy and task 8.3 requires `NewConfiguredProvider` to select separate preferred and legacy receivers. |
-| new `runtime/response_pipeline_*` files (control-call diversion / pending result) | `control_call_capture.go`, `response_control_interception.go`, `response_pending_completion.go` | Both `response_pipeline*.go` files already existed at `1fc49fe2` and were modified in place, so the glob was not free. Both planned responsibilities are covered: diversion by capture + interception, pending result by `response_pending_completion.go`. Reason not recorded beyond name occupancy. |
-| new `runtime/attempt_*` activation/capture owner | Pre-existing `attempt_session.go` extended | `ls internal/core/runtime/attempt_*` shows no added non-test file; only `attempt_session.go` is in the diff (+83/-29). Reason not recorded. |
-| `completiontool.go` = "fixed Spec + strict handler" | Split into `completiontool.go` (projection only, `:63`) and `completiontool_handle.go` (`:31`, `:42`) | Reason recorded: tasks.md task 7.1/7.2 — "Task 7.2 must reuse `completionToolSpec` without changing its ABI." |
-| `internal/archtest/`, `internal/testkit/` (bare directory lines) | 16 archtest paths (10 added, 6 modified), 3 conformance tests, planeparity edits | Under-delivery of naming, not of scope; requirement 12.3/12.4 evidence landed as planned. `git diff --name-only 1fc49fe2..HEAD -- internal/archtest/` yields exactly 16: 8 `agent_loop_guard_*` (4 non-test + 4 fixture tests), `git_fixture_test.go`, `final_stream_observation_order_fixture_test.go`, `plane_report.go`, `plane_rules_tables.go`, plus 4 modified pre-existing tests (`final_stream_observation_order_test.go`, `plane_report_test.go`, `plane_rules_whitelist_test.go`, `request_attempt_state_contract_test.go`). |
-| — (undeclared) | `pkg/lipsdk/controltool/{doc,errors}.go` | `doc.go:1-7` states the package "is not a tool runtime, service locator, or DI container", i.e. requirement 12.2 in prose; `errors.go:5-6` bounded sentinels. Approved-boundary. |
-| — (undeclared) | `internal/core/largebody/{eligibility,authority_gate}.go` | Census 27 -> 28 (`eligibility.go:28`, `:110`, `:418`; `authority_gate.go:147` `PlaneAccessCanonicalRequired`) plus the two `testdata/architecture` baselines. Reason recorded: tasks.md task 2.2 requires the control-tool plane to stay canonical-required in both largebody eligibility compilation and authority assessment. Generic and feature-name-free, so 12.1 is unaffected. Approved-boundary. |
-| — (undeclared) | `internal/core/extensions/completion_run.go` | New `EffectiveReplacement` field (`:22-33`) recording final rather than historical provenance. Generic completion-gate contract, ALG-free. See Open Design Note 2. |
-| — (undeclared) | `internal/infra/metering/journalstore/observation_store.go` | `:336` inserts first and resolves the durable identity after a conflict-suppressed insert; `observationInsertEffect` (`:406`) then decides projection ownership. Changes replay/collision classification for **all** observation writes. Reason recorded: tasks.md "Dedicated billing/metering unblock". Outside this feature's surface; landed only as a separately reviewed repair. |
-| — (undeclared) | 4 backend adapters | `openailegacy`/`openairesponses` map `RoleDeveloper` literally; `anthropicmessages`/`geminigenerate` coerce it to the user role with the loss named at each site. Reason recorded: tasks.md task 10.1 (slice B, adapters, adapters-user-decided). Approved-boundary, with Bedrock and the ACP/Cohere/Watsonx/OCI/Vertex connectors still fail-closed. |
-| — (undeclared) | `scripts/race-check.sh` + `internal/qa/race_check_partition_contract_test.go` | Staged scopes now partition `internal/archtest` exactly as the pre-existing full scan does; the contract test (`:15-26`, `:59`) pins it against fake `go`/`git`/`cc` binaries. Reason recorded: tasks.md "Dedicated staged-race unblock". Scheduling only; identical `GO_ARGS`, budgets, and tags. |
-| — (undeclared) | `internal/featurebundle/control_tool_provider_merge_test.go` | `:67` exclusive-slot proof and `:146` provider-removal proof through the real generated merge path; requirement 12.3 evidence. The plan named `internal/testkit/` but not `internal/featurebundle/`. Approved-boundary. |
-| — (undeclared) | `internal/archtest/{git_fixture,final_stream_observation_order_fixture}_test.go` | `git_fixture_test.go:31-43` isolates Git fixtures from the caller's index; `final_stream_observation_order_fixture_test.go:11-23` pins the coordinator-scoped rule after the historical false positive. Reason recorded: tasks.md "Dedicated loader-fixture unblock" and task 12.1. |
-| — (undeclared) | `internal/core/runtime/conversation_view.go` (0/-35) | Deletes a generic-core branch that hardcoded the feature identity `"agent_loop_guard"` and the `"alg-rec"` overlay spelling. Reason recorded: tasks.md task 12.1 — the branch was unreachable, so it was deleted rather than exempted. This narrows generic core and strengthens 12.1; see Open Design Note 4. |
-| — (undeclared) | `internal/core/runtime/{interleaved_stream,executor_settlement,executor_recv_loop}.go` (+534/-66, +342/-19, +294/-29) | Concurrency rework of shared streaming and settlement seams: per-frame fence drain in the real receive loop, plus thinker-processor and memo-finalize single-consumer ownership. Reason recorded: tasks.md task 5.2. Deliberately bigger than the plan implied; see Open Design Note 3. |
-| — (undeclared) | `internal/archtest/agent_loop_guard_*` (8 added files: 4 non-test ownership/isolation ratchet, AST helper and terminal-owner census + 4 fixture/ratchet tests) and `internal/core/runtime/candidate_open_tool_response_ordering_characterization_test.go` | Requirement 12.3/12.4 ratchets and the Adjacent-Spec Revalidation characterization; reason recorded: tasks.md task 12.1 and task 1.1. The characterization test was placed in `internal/core/runtime/`, not `internal/archtest/`, so it is not part of the 16 `internal/archtest/` paths. |
-
-### Open Design Notes
-
-These are substantive design gaps found while reconciling the plan. They are recorded, not repaired: no
-requirement, boundary, or ratchet text is changed by this section.
-
-1. **`Actions`/`ActionCount` projection changed for every terminal provider with no design amendment.**
-   `terminalDecisionActions` now takes the attempt and prepends the held ordinary boundaries of a private
-   publication candidate (`terminal_decision_evidence.go:158`, `:174`, merged by
-   `terminalDecisionMergeHeldActions`) inside the same fixed `MaxEvidenceActions` capacity. The design's
-   "Completion Evidence and Pending Result" adds two boolean fields and says nothing about action
-   projection, and no requirement constrains it. This changes what legacy ALG and every other terminal
-   provider can observe, and it is bounded and capability-safe but **unowned by this design**. It should
-   be amended here or explicitly declined.
-2. **New `EffectiveReplacement` field on the generic completion-gate result.**
-   `internal/core/extensions/completion_run.go:33` changes a shared core contract that the design does not
-   mention. It is ALG-free and additive, so no boundary moved, but the generic completion-gate contract is
-   now wider than the design describes.
-3. **Shared-streaming concurrency rework is larger than "generic integration".**
-   `interleaved_stream.go` (+534/-66), `executor_settlement.go` (+342/-19), and `executor_recv_loop.go`
-   (+294/-29) rework seams the design itself lists as revalidation triggers. Reason is recorded in
-   tasks.md task 5.2 (per-frame fence drain so a candidate can be withdrawn before the actual B2
-   transaction, plus interrupted-memo finalization), but the design's own concurrency section does not
-   describe the resulting ownership model.
-4. **A dead generic-core ALG name was removed rather than exempted.**
-   `internal/core/runtime/conversation_view.go` (0/-35) deletes a hardcoded `"alg-rec"` overlay suppression
-   branch that no production path published. Reason recorded: tasks.md task 12.1. This strengthens 12.1
-   and is noted here only so the plan is not read as claiming that file was untouched.
+No provider-specific backend adapter should gain ALG logic.
 
 ## Testing Strategy
 

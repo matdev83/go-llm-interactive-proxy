@@ -136,10 +136,10 @@ func TestClosedPlane_ExternalPackage_FeatureBundleSchemaAndStandardIDsUnchanged(
 	}
 	require.Error(t, badVersionBundle.Validate())
 
-	// 5. Standard planes manifest contains exactly 28 planes
-	require.Len(t, feature.StandardPlanes, 28, "manifest must declare exactly 28 standard planes")
+	// 5. Standard planes manifest contains exactly 27 planes
+	require.Len(t, feature.StandardPlanes, 27, "manifest must declare exactly 27 standard planes")
 
-	// 6. Expected 28 standard plane IDs in exact canonical manifest order
+	// 6. Expected 27 standard plane IDs in exact canonical manifest order
 	expectedStandardIDs := []string{
 		"submit_hooks",
 		"request_part_hooks",
@@ -168,7 +168,6 @@ func TestClosedPlane_ExternalPackage_FeatureBundleSchemaAndStandardIDsUnchanged(
 		"local_turn_handlers",
 		"terminal_decision_provider",
 		"session_classifier",
-		"control_tool_provider",
 	}
 
 	seen := make(map[string]bool, len(feature.StandardPlanes))

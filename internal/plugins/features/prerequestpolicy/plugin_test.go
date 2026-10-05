@@ -168,3 +168,27 @@ func validCall() *lipapi.Call {
 		}},
 	}
 }
+
+func TestNewHandlers_rejectsUnsafePromptFilename(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "compliance.md"), []byte("policy prompt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := prerequestpolicy.Config{
+		PromptDir: dir,
+		Handlers: []prerequestpolicy.HandlerConfig{
+			{
+				ID:                 "unsafe",
+				PromptFilename:     "../compliance.md",
+				ModelRoutingString: "local:policy",
+				DenyPattern:        "DENY",
+				Policy:             prerequestpolicy.PolicyDenyOnPattern,
+			},
+		},
+	}
+	_, err := prerequestpolicy.NewHandlers(cfg)
+	if err == nil || !strings.Contains(err.Error(), "path traversal detected") {
+		t.Fatalf("expected path traversal error, got %v", err)
+	}
+}

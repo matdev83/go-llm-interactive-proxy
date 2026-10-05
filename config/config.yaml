@@ -671,55 +671,6 @@ plugins:
     #     # single_user catalog is a startup snapshot; credential rotation requires restarting all replicas.
     #     # log mode leaves ingress unchanged, so downstream response capture may still see a model echo.
     #
-    # Agent Loop Guard — disabled by default (no row means no ALG terminal-decision provider).
-    # Operator guide: docs/agent-loop-guard.md. Loadable credential-free examples:
-    # config/examples/agent-loop-guard-preferred.yaml and
-    # config/examples/agent-loop-guard-legacy-verifier.yaml
-    #
-    # RECOMMENDED for new deployments: spell the strategy out explicitly. Two mutually
-    # exclusive strategies, never hybrid, no automatic fallback between them.
-    # - id: agent-loop-guard
-    #   enabled: true
-    #   config:
-    #     strategy: attempt_completion    # recommended: worker self-attests via a
-    #                                      # proxy-injected attempt_completion tool;
-    #                                      # no auxiliary model call on the normal path
-    #     max_protocol_reprompts: 1       # default 1; V1 accepts 1..3, integer only
-    #     no_progress_limit: 2            # shared bounded breaker, default 2, max 64
-    #
-    # Omitting `strategy` keeps the pre-spec semantic_verifier behavior for backward
-    # compatibility. That is a compatibility default, NOT a recommendation. The legacy
-    # row below is behaviorally identical to omitting the key and exists to make the
-    # current intent explicit:
-    # - id: agent-loop-guard
-    #   enabled: true
-    #   config:
-    #     strategy: semantic_verifier
-    #     verifier_role: loop_guard           # max 128 chars
-    #     verifier_timeout_seconds: 4        # 1..300
-    #     max_semantic_continuations: 3      # 1..64
-    #     no_progress_limit: 2               # shared bounded breaker
-    #     explicit_completion_policy: trust  # trust | verify; verify makes the verifier
-    #                                        # the authority even for an explicit completion
-    #
-    # Mutual exclusion is by YAML key PRESENCE, not by post-default value: the four
-    # verifier-only keys above are rejected under strategy: attempt_completion, and
-    # max_protocol_reprompts is rejected under strategy: semantic_verifier, whatever the
-    # value. For an ENABLED row such a configuration fails generation compile
-    # (lipstd serve refuses to start).
-    #
-    # A row with `enabled: false` is NOT compiled: the row is skipped before the factory
-    # is ever called, so its whole config block is never decoded and NOT validated at all.
-    # No rule in this block applies to it -- not mutual exclusion, not unknown keys, not
-    # ranges. Do not pre-stage an unvalidated config behind `enabled: false`: write the
-    # block with `enabled: true`, validate it by starting lipstd serve (or applying the
-    # reload), and only then disable the row. Note also that lipstd check-config reports a
-    # feature bundle error only as a WARN while still printing "configuration is valid".
-    #
-    # attempt_completion activates only on a tools-capable backend whose client tool choice
-    # is unset or auto, with no named tool and no allowed-tools subset. Ineligibility is
-    # not an error, is never emulated through prose, and never falls back to the verifier.
-    #
     # Compaction continuity preservation (issue #312 detector prerequisite) is
     # disabled by default. It may submit additional user-attributed extractor
     # inference after a successfully opened primary request. See

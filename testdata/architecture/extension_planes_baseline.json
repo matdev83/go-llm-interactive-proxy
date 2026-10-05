@@ -3,17 +3,16 @@
   "description": "Extension plane declaration, generation currency, and progressive mirror migration baseline.",
   "active_wave": "W5c_Residual",
   "active_wave_ordinal": 7,
-  "total_planes": 28,
+  "total_planes": 27,
   "total_remaining_mirrors": 0,
   "active_forbidden_mirrors": 0,
   "manifest": {
-    "plane_count": 28,
+    "plane_count": 27,
     "plane_ids": [
       "attempt_transforms",
       "compaction_observers",
       "compaction_preservers",
       "completion_gates",
-      "control_tool_provider",
       "local_turn_handlers",
       "pre_request_handlers",
       "raw_capture_sinks",
@@ -107,14 +106,13 @@
       "wave": 4,
       "wave_name": "W4_Tools",
       "family_name": "Tools",
-      "description": "Tool execution and policy family (filters, policies, finalizers, arg limits, proxy control tool provider)",
-      "plane_count": 5,
+      "description": "Tool execution and policy family (filters, policies, finalizers, arg limits)",
+      "plane_count": 4,
       "planes": [
         "tool_catalog_filters",
         "tool_call_policies",
         "tool_call_finalizers",
-        "tool_call_finalization_max_args_bytes",
-        "control_tool_provider"
+        "tool_call_finalization_max_args_bytes"
       ],
       "measured_mirrors": 0,
       "active_forbidden": 0

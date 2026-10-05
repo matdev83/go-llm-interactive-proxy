@@ -14,12 +14,12 @@ import (
 )
 
 // TestStandardPlanes_ManifestCompletenessAndValidation tests that the hand-authored
-// plane manifest contains all 28 standard planes in stable ordinal order,
+// plane manifest contains all 27 standard planes in stable ordinal order,
 // and that all declarations pass ValidateDeclaration and ValidateManifest without error.
 func TestStandardPlanes_ManifestCompletenessAndValidation(t *testing.T) {
 	t.Parallel()
 
-	require.Len(t, feature.StandardPlanes, 28, "manifest must declare exactly 28 standard planes")
+	require.Len(t, feature.StandardPlanes, 27, "manifest must declare exactly 27 standard planes")
 
 	// Validate the entire manifest
 	err := feature.ValidateManifest(feature.StandardPlanes...)
@@ -64,7 +64,6 @@ func TestStandardPlanes_ManifestCompletenessAndValidation(t *testing.T) {
 		{id: "local_turn_handlers", multiplicity: feature.MultOrdered, featComb: feature.CombConcatenate, hasDiagStage: false},
 		{id: "terminal_decision_provider", multiplicity: feature.MultExclusive, featComb: feature.CombExclusive, hasDiagStage: false},
 		{id: "session_classifier", multiplicity: feature.MultExclusive, featComb: feature.CombExclusive, hasDiagStage: true},
-		{id: "control_tool_provider", multiplicity: feature.MultExclusive, featComb: feature.CombExclusive, hasDiagStage: false},
 	}
 
 	for i, exp := range expectedPlanes {
@@ -101,12 +100,6 @@ func TestStandardPlanes_SourceRulesPins(t *testing.T) {
 	assert.Equal(t, feature.MultExclusive, feature.PlaneTerminalDecisionProvider.Multiplicity)
 	assert.Equal(t, feature.ErrTerminalDecisionProviderConflict, feature.PlaneTerminalDecisionProvider.ExclusiveConflictError)
 	assert.NotNil(t, feature.PlaneTerminalDecisionProvider.ValidateIdentity)
-
-	// Exclusive plane: ControlToolProvider
-	assert.Equal(t, feature.CombExclusive, feature.PlaneControlToolProvider.Rules.Feature)
-	assert.Equal(t, feature.MultExclusive, feature.PlaneControlToolProvider.Multiplicity)
-	assert.Equal(t, feature.ErrControlToolProviderConflict, feature.PlaneControlToolProvider.ExclusiveConflictError)
-	assert.NotNil(t, feature.PlaneControlToolProvider.ValidateIdentity)
 }
 
 // TestStandardCandidatePlanes_CanonicalDeclaration verifies the exact canonical candidate plane IDs.
