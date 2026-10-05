@@ -545,13 +545,16 @@ func cloneToolCatalog(catalog []lipapi.ToolDef) []lipapi.ToolDef {
 // everything else reference-typed is cloned, preserving nils. A finalizer
 // that writes through what it was handed then corrupts only its own copy,
 // and the next finalizer still reads the authoritative views.
+//
+// The parameter itself is the working copy: meta is passed by value, so
+// replacing its reference fields and returning it detaches the invocation
+// without an extra named local.
 func cloneFinalizerMeta(meta toolcall.Meta) toolcall.Meta {
-	out := meta
-	out.Scope = meta.Scope.Clone()
-	out.Session.Labels = maps.Clone(meta.Session.Labels)
-	out.Workspace.Labels = maps.Clone(meta.Workspace.Labels)
-	out.Workspace.Markers = slices.Clone(meta.Workspace.Markers)
-	return out
+	meta.Scope = meta.Scope.Clone()
+	meta.Session.Labels = maps.Clone(meta.Session.Labels)
+	meta.Workspace.Labels = maps.Clone(meta.Workspace.Labels)
+	meta.Workspace.Markers = slices.Clone(meta.Workspace.Markers)
+	return meta
 }
 
 func rewriteEnvelopeValid(res toolcall.Result) bool {
