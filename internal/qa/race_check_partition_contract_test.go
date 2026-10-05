@@ -362,6 +362,11 @@ func assertRaceCheckScenario(t *testing.T, scenario raceCheckScenario) {
 	// toolchain, the real Git index, or a real C compiler.
 	cmd.Env = append(os.Environ(),
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		// Bypass the development-host guard in scripts/race-check.sh: these
+		// scenarios exercise the scan scheduling with a stubbed toolchain and
+		// must run identically on every host, including blocked dev machines.
+		// The guard itself is pinned separately by TestRaceCheckDevHostGuard.
+		"LIP_ALLOW_RACE_ON_DEV=1",
 		"LIP_FAKE_GO_RECORD="+recordPath,
 		"LIP_FAKE_GO_LIST="+listPath,
 		"LIP_FAKE_GO_FAIL="+scenario.failMatch,

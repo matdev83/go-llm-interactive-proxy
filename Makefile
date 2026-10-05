@@ -81,7 +81,7 @@ help:
 	@echo "  make test-authority-postgres-pooled - transaction-pooled runtime proof (requires LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1)"
 	@echo "  make test-authority-postgres - aggregate direct + pooled proof (pooled attestation required)"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
-	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
+	@echo "  make test-race       - race scan (skipped on Windows and dev hosts DESKTOP-I2CAJ6V/agent-dev, even with --strict; Linux/macOS CI: scripts/race-check.sh)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; nightly CI uses 2s per target in .github/workflows/race-fuzz-nightly.yml)"
 	@echo "  make test-reasoning-e2e-soak - opt-in reasoning preservation full-HTTP soak (sets LIP_REASONING_E2E_SOAK=1; not a PR/default gate; see docs/reasoning-output-preservation.md)"
 	@echo "  make test-cursor-sdk-live     - opt-in live Cursor SDK Node scenarios (CURSOR_SDK_LIVE=1 + CURSOR_API_KEY)"

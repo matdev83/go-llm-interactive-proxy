@@ -30,6 +30,44 @@ if [[ "$STAGED" == true && "$LANE" != all ]]; then
 	exit 2
 fi
 
+# Development-host guard: full race scans take hours and must never run on
+# interactive development machines, even when forced with --strict. The check
+# is hostname-based and runs before any toolchain probing so no expensive
+# work starts. Blocked hosts (short hostname, case-insensitive, domain suffix
+# ignored): DESKTOP-I2CAJ6V (Windows dev box, including Git Bash) and
+# agent-dev (Linux dev box). Every candidate source is consulted, so
+# unsetting a single variable cannot bypass the guard. The only bypass is the
+# explicit human acknowledgment LIP_ALLOW_RACE_ON_DEV=1 (also used by
+# scripts/test-race-check.sh and the internal/qa contract test so the scan
+# logic itself stays exercisable on these hosts). CI runners (e.g. nightly
+# race-fuzz on ubuntu-latest) are unaffected.
+if [[ "${LIP_ALLOW_RACE_ON_DEV:-}" != "1" ]]; then
+	dev_host_blocked=false
+	dev_host_candidates=()
+	if command -v hostname >/dev/null 2>&1; then
+		dev_host_candidates+=("$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)")
+	fi
+	[[ -n "${HOSTNAME:-}" ]] && dev_host_candidates+=("$HOSTNAME")
+	[[ -n "${COMPUTERNAME:-}" ]] && dev_host_candidates+=("$COMPUTERNAME")
+	dev_host_seen=""
+	for dev_host_candidate in "${dev_host_candidates[@]}"; do
+		[[ -n "$dev_host_candidate" ]] || continue
+		dev_host_seen="$dev_host_candidate"
+		dev_host_short="${dev_host_candidate%%.*}"
+		dev_host_short="$(printf '%s' "$dev_host_short" | tr '[:upper:]' '[:lower:]')"
+		case "$dev_host_short" in
+		desktop-i2caj6v | agent-dev)
+			dev_host_blocked=true
+			break
+			;;
+		esac
+	done
+	if [[ "$dev_host_blocked" == true ]]; then
+		echo "SKIP: race detector scan is disabled on development host '$dev_host_seen' (hostname-based guard, applies even with --strict); use nightly CI (.github/workflows/race-fuzz-nightly.yml) or set LIP_ALLOW_RACE_ON_DEV=1 for an explicit human override."
+		exit 0
+	fi
+fi
+
 if ! command -v go >/dev/null 2>&1; then
 	echo "ERROR: go not found in PATH"
 	exit 1
