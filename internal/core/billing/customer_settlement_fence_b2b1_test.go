@@ -116,7 +116,9 @@ func (f *fakeWorkerUsage) ClaimCompleteCalls(context.Context, int) ([]CompleteCa
 func (f *fakeWorkerUsage) GetCallExposure(context.Context, BillingCallID) (CallExposure, error) {
 	return f.exposure, nil
 }
+
 func (f *fakeWorkerUsage) RetryCompleteCall(context.Context, BillingCallID, string) error { return nil }
+
 func (f *fakeWorkerUsage) GetCutoverClaimMetadata(ctx context.Context, k PostingOperationKind, key string) (CutoverClaimMetadata, error) {
 	return f.provider.GetCutoverClaimMetadata(ctx, k, key)
 }

@@ -123,6 +123,7 @@ type task51SingleEventStream struct {
 type task51ErrorStream struct{ err error }
 
 func (s *task51ErrorStream) Recv(context.Context) (lipapi.Event, error) { return lipapi.Event{}, s.err }
+
 func (s *task51ErrorStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	return lipapi.CancelResult{}
 }

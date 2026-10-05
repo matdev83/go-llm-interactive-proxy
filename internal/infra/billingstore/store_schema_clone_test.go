@@ -15,6 +15,7 @@ import (
 type schemaDDLHook struct{ statements int }
 
 func (*schemaDDLHook) BeforeQuery(ctx context.Context, _ *bun.QueryEvent) context.Context { return ctx }
+
 func (h *schemaDDLHook) AfterQuery(_ context.Context, event *bun.QueryEvent) {
 	if strings.HasPrefix(strings.TrimSpace(event.Query), "CREATE ") {
 		h.statements++

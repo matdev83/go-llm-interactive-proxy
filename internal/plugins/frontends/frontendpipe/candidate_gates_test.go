@@ -49,7 +49,8 @@ func (e *candidateGatesExec) Execute(ctx context.Context, call *lipapi.Call) (li
 }
 
 func (e *candidateGatesExec) CancelALeg(context.Context, lipapi.ALegCancelRequest) error { return nil }
-func (e *candidateGatesExec) WallClock() func() time.Time                                { return nil }
+
+func (e *candidateGatesExec) WallClock() func() time.Time { return nil }
 
 func (e *candidateGatesExec) AssessLargeBody(ctx context.Context, proof largebody.Proof) (largebody.Assessment, error) {
 	return largebody.Assessment{}, nil

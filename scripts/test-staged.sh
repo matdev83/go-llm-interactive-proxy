@@ -25,5 +25,22 @@ test_parallel="${LIP_TEST_PARALLEL:-}"
 if [ -z "$test_parallel" ]; then
 	test_parallel=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 fi
-go test "-parallel=$test_parallel" "${pre_flags[@]}" ./...
+# Hook-local Git pins must not bind temporary-repository fixtures to the caller.
+git_env_names=$(git rev-parse --local-env-vars)
+mapfile -t git_local_env <<< "$git_env_names"
+for name in "${git_local_env[@]}"; do
+	unset "$name"
+done
+
+# Keep the complete graph, but avoid making expensive architecture scans
+# compete with ordinary tests. Both lanes retain the same tags and budgets.
+package_list=$(go list "${pre_flags[@]}" ./...)
+mapfile -t ordinary_packages < <(printf '%s\n' "$package_list" | grep -vE '/internal/archtest(/|$)' || true)
+mapfile -t architecture_packages < <(printf '%s\n' "$package_list" | grep -E '/internal/archtest(/|$)' || true)
+if [ ${#ordinary_packages[@]} -gt 0 ]; then
+	go test "-parallel=$test_parallel" "${pre_flags[@]}" "${ordinary_packages[@]}"
+fi
+if [ ${#architecture_packages[@]} -gt 0 ]; then
+	go test "-parallel=$test_parallel" "${pre_flags[@]}" "${architecture_packages[@]}"
+fi
 exit $?

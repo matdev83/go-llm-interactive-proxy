@@ -266,7 +266,7 @@ func run(opts options) (int, error) {
 		if before.Empty() {
 			return 0, nil
 		}
-		return 1, fmt.Errorf("Node toolchain reachable: %s", before)
+		return 1, fmt.Errorf("node toolchain reachable: %s", before)
 	}
 
 	if err := ensureIsolated(opts, workdir, before); err != nil {
@@ -306,7 +306,7 @@ func run(opts options) (int, error) {
 	result.ProbeAfter = after
 	fmt.Printf("node-independence: probe after isolation: %s\n", after)
 	if !after.Empty() {
-		return 1, fmt.Errorf("Node toolchain still reachable after isolation: %s", after)
+		return 1, fmt.Errorf("node toolchain still reachable after isolation: %s", after)
 	}
 
 	// The isolated environment, before any tripwire is layered on. Negative
@@ -402,7 +402,7 @@ func ensureIsolated(opts options, workdir string, before probeResult) error {
 		return nil
 	}
 	if opts.isolate == "off" {
-		return fmt.Errorf("Node toolchain reachable and isolation disabled: %s", before)
+		return fmt.Errorf("node toolchain reachable and isolation disabled: %s", before)
 	}
 	if !isolationSupported() {
 		return fmt.Errorf("%s", isolationUnavailableReason())

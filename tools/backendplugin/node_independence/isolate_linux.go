@@ -288,7 +288,8 @@ func runRootHelper(self string, args []string, maskDir string) error {
 	if err != nil {
 		return fmt.Errorf("locate %s: %w", dropTool, err)
 	}
-	drop := []string{setpriv,
+	drop := []string{
+		setpriv,
 		"--reuid=" + strconv.Itoa(dropUID),
 		"--regid=" + strconv.Itoa(dropGID),
 		"--clear-groups",

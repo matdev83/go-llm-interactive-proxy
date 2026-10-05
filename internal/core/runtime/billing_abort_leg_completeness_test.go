@@ -66,6 +66,7 @@ type failClosedStreamObserverFactory struct{}
 func (failClosedStreamObserverFactory) ID() string                        { return "fail-closed-assemble" }
 func (failClosedStreamObserverFactory) Order() int                        { return 0 }
 func (failClosedStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+
 func (failClosedStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
 	return nil, errors.New("assemble observer open boom")
 }
