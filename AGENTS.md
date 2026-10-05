@@ -121,7 +121,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - Full default: `make test`.
 - Cross-frontend/backend or protocol matrix: `make parity-checks`.
 - Wide/release-grade change: `make qa`.
-- Concurrency/streaming change: run race where practical; `make test-race` skips on Windows.
+- Concurrency/streaming change: run race where practical; `make test-race` skips on Windows and on dev hosts (hostname guard for DESKTOP-I2CAJ6V/agent-dev in scripts/race-check.sh, applies even with --strict; nightly CI owns race evidence).
 - Fuzz parser/decoder changes where practical: `make test-fuzz` or targeted `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path`.
 
 ## Go Conventions
