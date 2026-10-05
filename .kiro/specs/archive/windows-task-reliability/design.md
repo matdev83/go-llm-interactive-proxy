@@ -149,6 +149,7 @@ These are target-local recipe/coordinator limits with headroom over the observed
 | explicit `backend-plugin-release-gates` full mode | 120m | coordinator/profile only; Linux workflow remains authoritative |
 | `package-plugin-smoke` | 15m | external/package prerequisites block clearly |
 | `isolated-root-qa` / `installed-plugin-smoke` | 20m each | platform prerequisites block, not skip |
+| `node-independence` | 90m | Linux-authoritative no-Node lane; replays the full host verification surface under namespace isolation |
 
 ### Complete `.PHONY` target table
 
@@ -213,6 +214,7 @@ The rows are the complete names from `Makefile` line 1. `Windows-supported bound
 | `example-config-check` | Windows-supported bounded | docs plus bootstrap inspect |
 | `backend-plugin-example-check` | Windows-supported bounded | docs/example script |
 | `kiro-spec-check` | Windows-supported bounded | explicit `SPEC` required |
+| `node-independence` | Linux-authoritative | Node-absent host lane; requires an unprivileged user+mount namespace, so the Windows route reports the Linux requirement instead of degrading to a PATH-only proof |
 | `isolated-root-qa` | opt-in/BLOCKED prerequisite | copy/build prerequisites required |
 | `installed-plugin-smoke` | opt-in/BLOCKED prerequisite | installed artifact/binary prerequisites required |
 | `test-cursor-sdk-live` | opt-in/BLOCKED prerequisite | Node, `CURSOR_SDK_LIVE=1`, and key required |
