@@ -2,6 +2,10 @@
 # Exercise race scan coverage and failure propagation without running Go tests.
 set -euo pipefail
 script_dir="$(cd "$(dirname "$0")" && pwd)"
+# Bypass the development-host guard in scripts/race-check.sh: this self-test
+# exercises the scan logic with a stubbed toolchain and must run identically
+# on every host, including blocked dev machines.
+export LIP_ALLOW_RACE_ON_DEV=1
 fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT
 mkdir -p "$fixture/bin"
