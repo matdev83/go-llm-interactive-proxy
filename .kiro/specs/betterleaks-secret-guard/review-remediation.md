@@ -1,6 +1,6 @@
 # PR 726 focused review remediation
 
-Current disposition: technical repairs verified; independent focused PR re-review remains required before merge. The PR stays open with auto-merge disabled.
+Current disposition: independent PR re-review at 49eefcfb closed all four SecretGuard repair areas. Its sole remaining blocker, integration with main, is resolved locally with fresh focused Linux race evidence. Remote checks on the delivered integration head remain required. The PR stays open with auto-merge disabled.
 
 ## Repair scope
 
@@ -33,6 +33,19 @@ The index is roughly 8 MiB for this newline density; the 34,816-byte projection-
 
 ## Review and certification provenance
 
-Task 10.1 received an independent structured APPROVED review after ambiguity and value-group negative controls were corrected. Final adapter boundary checks additionally verified that concrete BetterLeaks types stay inside the adapter. The host rejected further delegation with agent thread limit reached; tasks 10.2–10.4 use the kiro-review controller fallback with actual diff inspection, negative controls, and mechanical verification. Independent PR re-review is still required before merge; local fallback review is not presented as that approval.
+Task 10.1 received an independent structured APPROVED review after ambiguity and value-group negative controls were corrected. Final adapter boundary checks additionally verified that concrete BetterLeaks types stay inside the adapter. The host rejected further delegation with agent thread limit reached; tasks 10.2–10.4 used the kiro-review controller fallback with actual diff inspection, negative controls, and mechanical verification. The subsequent independent user PR re-review at 49eefcfb closed all four remediation findings and identified integration with newer main as the sole remaining blocker.
 
 Final production revision is 424768c80ba1969e271f6e5adbf1d6c9996d9bdc. make quality-checks, make test-unit, make parity-checks, targeted Linux race, CLI build, and CLI help each exited 0. Race command: go test -race -count=1 ./internal/plugins/features/secretguard/... ./internal/stdhttp/auth ./internal/standardplugins/featurehost/secretguard ./pkg/lipsdk/secretguard. Evidence is /home/ciuser/betterleaks-review-repairs-424768c8/ and C:/Users/Mateusz/betterleaks-review-repairs-424768c8/. Remote checks must be read on the latest PR head; earlier green runs do not authorize merge. Historical daa38a0b/22d7b25b evidence remains historical and does not certify these changed paths.
+
+## Current-main integration
+
+Merge 7e1827b73de915d3dac8f1db978842fa46d1631d integrates main 987e1f7d527cfd84cae61d294709538de8d03815 (#732) into reviewed head 49eefcfb. The only conflict was compression_attempt_poll_test.go; the resolution takes main's mutex-protected fixture verbatim. Main's release race partition and associated QA/budget contracts are retained. The shared archived evidence reference and companion adoption fixture already matched main and needed no further edits.
+
+The merge delta from 49eefcfb contains five unrelated upstream files. Git diff is empty for internal/plugins/features/secretguard, internal/stdhttp/auth, internal/standardplugins/featurehost/secretguard, and pkg/lipsdk/secretguard. No feature production semantics changed.
+
+Fresh native Linux commands on merge 7e1827b7 both exited 0:
+
+- go test -race -count=1 ./internal/plugins/features/secretguard/... ./internal/stdhttp/auth ./internal/standardplugins/featurehost/secretguard ./pkg/lipsdk/secretguard ./internal/plugins/features/reasoningpreservation
+- go test ./tools/backendplugin/release_gates ./internal/qa ./internal/archtest ./internal/plugins/features/sessionclassification/testfixtures
+
+Evidence: /home/ciuser/betterleaks-main-integration-7e1827b7/ and C:/Users/Mateusz/betterleaks-main-integration-7e1827b7/ (commit.txt, exits.txt, race.log, integration.log). Fresh remote checks are required on the delivered head. This integration does not authorize merging or auto-merge.
