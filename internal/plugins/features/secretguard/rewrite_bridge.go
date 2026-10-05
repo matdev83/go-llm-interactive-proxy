@@ -187,6 +187,7 @@ type betterLeaksRewriteMatcher struct {
 	kind        FragmentKind
 	options     engine.MatcherOptions
 	occurrences []betterLeaksOccurrence
+	covered     []betterLeaksOccurrence
 	jsonTokens  []betterLeaksJSONToken
 	jsonIndex   int
 }
@@ -343,6 +344,7 @@ func (m *betterLeaksRewriteMatcher) RedactBytes(ctx context.Context, input []byt
 	}
 	ranges := m.rangesForRawInput(input)
 	redacted, candidateFindings := applyBetterLeaksRanges(input, redacted, ranges, m.options)
+	m.recordCoverage(input, redacted, ranges)
 	return redacted, append(findings, candidateFindings...), nil
 }
 
@@ -365,7 +367,49 @@ func (m *betterLeaksRewriteMatcher) RedactString(ctx context.Context, input stri
 	}
 	ranges := m.rangesForInput([]byte(input))
 	out, candidateFindings := applyBetterLeaksRanges([]byte(input), []byte(redacted), ranges, m.options)
+	m.recordCoverage([]byte(input), out, ranges)
 	return string(out), append(findings, candidateFindings...), nil
+}
+
+func (m *betterLeaksRewriteMatcher) recordCoverage(input, output []byte, ranges []betterLeaksRewriteRange) {
+	if len(input) != len(output) {
+		return
+	}
+	mask := m.options.MaskByte
+	if mask == 0 {
+		mask = '*'
+	}
+	for _, candidate := range ranges {
+		if candidate.start < 0 || candidate.end > len(output) || candidate.end <= candidate.start || bytes.Equal(input[candidate.start:candidate.end], output[candidate.start:candidate.end]) {
+			continue
+		}
+		start := candidate.start
+		if m.options.PreserveKnownPrefixes {
+			prefix := engine.DetectKnownPublicPrefix(string(candidate.occurrence.value))
+			if len(prefix) < candidate.end-start {
+				start += len(prefix)
+			}
+		}
+		complete := true
+		for index := start; index < candidate.end; index++ {
+			if output[index] == input[index] && output[index] != mask {
+				complete = false
+				break
+			}
+		}
+		if complete {
+			m.covered = appendUniquePrivateOccurrences(m.covered, candidate.occurrence)
+		}
+	}
+}
+
+func (m *betterLeaksRewriteMatcher) validateCoverage() error {
+	for _, occurrence := range m.occurrences {
+		if !containsPrivateOccurrence(m.covered, occurrence) {
+			return errBetterLeaksUnrewritable
+		}
+	}
+	return nil
 }
 
 func (m *betterLeaksRewriteMatcher) exactScanString(ctx context.Context, input string) ([]sdk.Finding, error) {

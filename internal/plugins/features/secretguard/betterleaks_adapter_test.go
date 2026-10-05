@@ -169,6 +169,57 @@ func BenchmarkBetterLeaksLocationProjection_NewlineDenseFragmentProductionPath(b
 	}
 }
 
+func newlineDenseNearCapScannerFixture(tb testing.TB) (*betterLeaksScanner, []LogicalFragment) {
+	tb.Helper()
+	scanner, err := newBetterLeaksScanner(BetterLeaksPolicy{Enabled: true, MinimumConfidence: "medium", Workers: 1, MaxFindings: 256, IsolateRules: []string{"github-pat"}})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tail := []byte(strings.Repeat("GITHUB_TOKEN="+adapterGitHubToken+"\n", 256))
+	prefixBytes := DefaultScanMaxBytes - len(tail)
+	raw := make([]byte, DefaultScanMaxBytes)
+	for i := 0; i < prefixBytes; i++ {
+		if i%2 == 0 {
+			raw[i] = 'x'
+		} else {
+			raw[i] = '\n'
+		}
+	}
+	copy(raw[prefixBytes:], tail)
+	return scanner, []LogicalFragment{{Kind: FragmentText, Raw: raw, Location: locationStringForTest, privateID: "fragment[0]"}}
+}
+
+func TestBetterLeaksScan_NewlineDenseNearCap(t *testing.T) {
+	scanner, fragments := newlineDenseNearCapScannerFixture(t)
+	result, err := scanner.scanFragments(t.Context(), fragments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseBetterLeaksOccurrenceBytes(result.Findings)
+	if len(result.Findings) != 256 {
+		t.Fatalf("finding count=%d; want 256", len(result.Findings))
+	}
+	for _, finding := range result.Findings {
+		if len(finding.occurrences) != 1 || !finding.occurrences[0].offsetsValid || finding.occurrences[0].start < DefaultScanMaxBytes/2 {
+			t.Fatal("finding lacks validated near-tail offsets")
+		}
+	}
+}
+
+func BenchmarkBetterLeaksScan_NewlineDenseNearCap(b *testing.B) {
+	scanner, fragments := newlineDenseNearCapScannerFixture(b)
+	b.ReportAllocs()
+	b.SetBytes(DefaultScanMaxBytes)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		result, err := scanner.scanFragments(b.Context(), fragments)
+		if err != nil || len(result.Findings) != 256 {
+			b.Fatalf("scan err=%v finding count=%d", err, len(result.Findings))
+		}
+		releaseBetterLeaksOccurrenceBytes(result.Findings)
+	}
+}
+
 func newlineDenseTailLocationFixture() ([]byte, report.Location, int) {
 	const targetBytes = 2 * 1024 * 1024
 	tail := []byte("prefix=tail-secret;suffix\n")

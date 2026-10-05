@@ -315,6 +315,9 @@ func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Ma
 			out.MutationCount++
 		}
 	}
+	if bridge, ok := activeMatcher.(*betterLeaksRewriteMatcher); ok && mode == modeRedact {
+		return bridge.validateCoverage()
+	}
 	return nil
 }
 

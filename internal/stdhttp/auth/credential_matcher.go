@@ -21,8 +21,7 @@ func newExactCredentialMatcher(presented, keyID string) secretguard.Matcher {
 	if presented == "" {
 		return nil
 	}
-	ref := cmp.Or(strings.TrimSpace(keyID), "request_credential")
-	return &exactCredentialMatcher{secret: bytes.Clone([]byte(presented)), refName: ref}
+	return &exactCredentialMatcher{secret: bytes.Clone([]byte(presented)), refName: cmp.Or(strings.TrimSpace(keyID), "request_credential")}
 }
 
 func (m *exactCredentialMatcher) finding(n int) secretguard.Finding {
@@ -37,7 +36,7 @@ func (m *exactCredentialMatcher) ScanBytes(_ context.Context, input []byte) ([]s
 	if m == nil || len(m.secret) == 0 {
 		return nil, nil
 	}
-	n := countExactOccurrences(input, m.secret)
+	n := bytes.Count(input, m.secret)
 	if n == 0 {
 		return nil, nil
 	}
@@ -72,41 +71,17 @@ func (m *exactCredentialMatcher) ScanOccurrences(input []byte) []secretguard.Pos
 	return out
 }
 
-func (m *exactCredentialMatcher) RedactBytes(_ context.Context, input []byte) ([]byte, []secretguard.Finding, error) {
-	if m == nil || len(m.secret) == 0 || len(input) == 0 {
-		return append([]byte(nil), input...), nil, nil
+func (m *exactCredentialMatcher) RedactBytes(ctx context.Context, input []byte) ([]byte, []secretguard.Finding, error) {
+	findings, err := m.ScanBytes(ctx, input)
+	if err != nil || len(findings) == 0 {
+		return bytes.Clone(input), findings, err
 	}
-	n := countExactOccurrences(input, m.secret)
-	if n == 0 {
-		return append([]byte(nil), input...), nil, nil
-	}
-	mask := bytes.Repeat([]byte("*"), len(m.secret))
-	out := bytes.ReplaceAll(input, m.secret, mask)
-	return out, []secretguard.Finding{m.finding(n)}, nil
+	return bytes.ReplaceAll(input, m.secret, bytes.Repeat([]byte("*"), len(m.secret))), findings, nil
 }
 
 func (m *exactCredentialMatcher) RedactString(ctx context.Context, input string) (string, []secretguard.Finding, error) {
 	out, findings, err := m.RedactBytes(ctx, []byte(input))
-	if err != nil {
-		return "", nil, err
-	}
-	return string(out), findings, nil
+	return string(out), findings, err
 }
 
-func countExactOccurrences(haystack, needle []byte) int {
-	if len(needle) == 0 || len(haystack) < len(needle) {
-		return 0
-	}
-	n := 0
-	for i := 0; ; {
-		j := bytes.Index(haystack[i:], needle)
-		if j < 0 {
-			return n
-		}
-		n++
-		i += j + len(needle)
-	}
-}
-
-var _ secretguard.Matcher = (*exactCredentialMatcher)(nil)
 var _ secretguard.PositionalMatcher = (*exactCredentialMatcher)(nil)

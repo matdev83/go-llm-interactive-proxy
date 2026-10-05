@@ -85,6 +85,7 @@ type PositionalOccurrence struct {
 // use it to deduplicate detector reports by admitted-content span while the
 // Matcher contract remains safe-finding based.
 type PositionalMatcher interface {
+	Matcher
 	ScanOccurrences(input []byte) []PositionalOccurrence
 }
 

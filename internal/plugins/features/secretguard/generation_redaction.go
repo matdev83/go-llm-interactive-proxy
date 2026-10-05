@@ -29,6 +29,9 @@ func (m generationRedactionMatcher) RedactBytes(ctx context.Context, input []byt
 	if m.positional == nil {
 		return m.Matcher.RedactBytes(ctx, input)
 	}
+	if configured, ok := m.Matcher.(interface{ RedactionOptions() engine.MatcherOptions }); ok && configured.RedactionOptions() == m.options {
+		return m.Matcher.RedactBytes(ctx, input)
+	}
 	findings, err := m.Matcher.ScanBytes(ctx, input)
 	if err != nil {
 		return nil, findings, err
