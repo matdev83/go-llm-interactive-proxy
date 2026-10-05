@@ -1,5 +1,7 @@
 # BetterLeaks Secret Guard Certification After Billing Repair
 
+> Historical certification: this result applies only to the revisions recorded below. The current disposition is in [validation-report.md](validation-report.md), with subsequent repairs in [review-remediation.md](review-remediation.md). The earlier GO does not authorize merging PR #726.
+
 ## Verification Result
 
 - STATUS: VERIFIED
@@ -25,9 +27,9 @@ Each repair received independent approval. Current Linux focused/package race, l
 
 ## Current canonical gates
 
-The native clone /home/ciuser/betterleaks-cert-22d7b25b was updated cleanly to the source commit above. Commands ran sequentially as UbuntuOld/ciuser, UID 1001, using Go 1.26.6, GCC 11.4.0, GolangCI-Lint 2.12.2, and buf 1.66.0. Scripts preserved failing exit codes and stopped on failure.
+The native clone betterleaks-cert-22d7b25b was updated cleanly to the source commit above. Commands ran sequentially as UbuntuOld/ciuser, UID 1001, using Go 1.26.6, GCC 11.4.0, GolangCI-Lint 2.12.2, and buf 1.66.0. Scripts preserved failing exit codes and stopped on failure.
 
-Evidence directory: /home/ciuser/betterleaks-cert-daa38a0b-evidence/.
+Evidence directory: betterleaks-cert-daa38a0b-evidence/.
 
 | Command | Exit | Evidence |
 | --- | ---: | --- |
@@ -52,7 +54,7 @@ The complete make test-race invocation at 22d7b25b exited 1 because its broad la
 | Durable runtime | PASS | 62.642 s |
 | Architecture, including tools | PASS | 102.800 s for the principal package |
 
-Their complete evidence is /home/ciuser/betterleaks-cert-22d7b25b-evidence/09-make-test-race.log. Between 22d7b25b and daa38a0b, the only Go changes are the two reasoning-preservation test files in the broad lane. No production, billing, runtime, architecture, module, or build configuration changed. The current canonical broad-lane exit 0 therefore completes applicable full race coverage without repeating unchanged expensive lanes. This report does not claim that a single current-SHA invocation of the all-lane command exited 0.
+Their complete evidence is betterleaks-cert-22d7b25b-evidence/09-make-test-race.log. Between 22d7b25b and daa38a0b, the only Go changes are the two reasoning-preservation test files in the broad lane. No production, billing, runtime, architecture, module, or build configuration changed. The current canonical broad-lane exit 0 therefore completes applicable full race coverage without repeating unchanged expensive lanes. This report does not claim that a single current-SHA invocation of the all-lane command exited 0.
 
 Final artifact checks also passed: make docs-check, go test ./tools/kiro/speccheck, and git diff --check. No unchecked or blocked implementation task remains. The source certificate is unchanged by the documentation-only completion commit.
 

@@ -1,15 +1,17 @@
 # BetterLeaks Secret Guard Performance Assessment
 
+Historical task 8.6 assessment. Current adversarial JSON remediation and its measured limits are recorded in [review-remediation.md](review-remediation.md#full-path-json-allocation-remediation-task-135); this historical acceptance does not override later full-head review findings.
+
 Date: 2026-10-04
 Commit assessed: `fb7032d7220d1598b9877048879c2023e11d942d`
 Related task: 8.6 remediation and task 9.1 certification
 
 ## Evidence
 
-The complete benchmark matrix and policy facts are in [`benchmark-report.md`](benchmark-report.md). The final allocation profiles are retained outside the repository:
+The complete benchmark matrix and policy facts are in [`benchmark-report.md`](benchmark-report.md). The final allocation profiles are retained outside the repository. These are bundle-relative artifact labels, not repository links:
 
-- `C:/Users/Mateusz/tmp/betterleaks-cert-20261003/task-8-6-final-exact-nohit-2m.mem.pprof`
-- `C:/Users/Mateusz/tmp/betterleaks-cert-20261003/task-8-6-final2-hybrid-positive-2m.mem.pprof`
+- `betterleaks-cert-20261003/task-8-6-final-exact-nohit-2m.mem.pprof`
+- `betterleaks-cert-20261003/task-8-6-final2-hybrid-positive-2m.mem.pprof`
 
 The comparable 2 MiB text measurements after task 8.6 were:
 

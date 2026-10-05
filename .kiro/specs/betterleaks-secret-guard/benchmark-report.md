@@ -214,7 +214,7 @@ The comparable Windows/amd64 run used Go 1.26.6, the unchanged medium-confidence
 
 The text no-hit allocation regression is removed: exact-only is below the 2,816 B/op pre-BetterLeaks baseline, and BetterLeaks-only/hybrid no-hit scans no longer duplicate a multi-megabyte text payload. Positive text scans still materialize approximately one 2 MiB byte representation for occurrence mapping; the profile shows that remaining cost alongside BetterLeaks report and matching work. The hybrid positive path now reuses that representation rather than allocating a second copy. JSON remains dominated by its required decode/mapping buffers (for example, the 2 MiB no-hit rows remain approximately 12.58 MiB exact-only and 14.70 MiB BetterLeaks-only), so this remediation does not claim a broad JSON allocation reduction.
 
-Fresh allocation profiles are retained at `C:/Users/Mateusz/tmp/betterleaks-cert-20261003/task-8-6-final-exact-nohit-2m.mem.pprof` and `C:/Users/Mateusz/tmp/betterleaks-cert-20261003/task-8-6-final2-hybrid-positive-2m.mem.pprof`. The exact no-hit profile is setup-dominated after the change; the hybrid positive profile attributes the remaining request-sized allocation to `betterLeaksLogicalFragmentSource.betterLeaksRaw`. Its `regexp/syntax` allocations arise during scanner/config construction in benchmark setup and do not measure steady-request matching allocation cost. Independently repeated 2 MiB positive scans measured approximately 311–316 ms for BetterLeaks/hybrid. Large positive text occurrence mapping and JSON decode buffers remain a performance-review item. This evidence supports the scoped copy-remediation change while retaining the recommendation against a feature GO claim until those material positive/JSON costs receive a separate design review.
+Fresh allocation profiles are retained at `betterleaks-cert-20261003/task-8-6-final-exact-nohit-2m.mem.pprof` and `betterleaks-cert-20261003/task-8-6-final2-hybrid-positive-2m.mem.pprof`. The exact no-hit profile is setup-dominated after the change; the hybrid positive profile attributes the remaining request-sized allocation to `betterLeaksLogicalFragmentSource.betterLeaksRaw`. Its `regexp/syntax` allocations arise during scanner/config construction in benchmark setup and do not measure steady-request matching allocation cost. Independently repeated 2 MiB positive scans measured approximately 311–316 ms for BetterLeaks/hybrid. Large positive text occurrence mapping and JSON decode buffers remain a performance-review item. This evidence supports the scoped copy-remediation change while retaining the recommendation against a feature GO claim until those material positive/JSON costs receive a separate design review.
 
 ## Reproduction and verification
 
@@ -230,7 +230,7 @@ go test -run '^$' -bench '^BenchmarkBetterLeaksGoroutine(RetainedCount|Concurren
 $env:SECRETGUARD_BENCH_PERCENTILES='1'; $env:SECRETGUARD_BENCH_SAMPLES='100'; go test -v -run '^TestBetterLeaksLatencyPercentiles$' ./internal/plugins/features/secretguard
 go test ./internal/plugins/features/secretguard
 go vet ./internal/plugins/features/secretguard
-go build -o C:\Users\Mateusz\tmp\lip-betterleaks-lipstd-after-20261003.exe ./cmd/lipstd
+go build -o lip-betterleaks-lipstd-after-20261003.exe ./cmd/lipstd
 ```
 
 Focused verification after the remediation passed:

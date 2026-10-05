@@ -329,7 +329,41 @@
   - _Boundary: json_occurrences.go and directly related feature tests/benchmarks only_
   - _Validation: strict TDD allocation/semantic controls; focused and complete feature tests, targeted fuzzing, benchmarks and vet; independent review_
 
+## 13. Remaining CodeRabbit review findings
+
+- [x] 13.1 Propagate cancellation and skip unused exact-only occurrence collection
+  - Preserve context cancellation/deadline identity in log mode; ordinary detector failures still retain exact findings and limit metadata. Collect hybrid positional identity only when discovery is enabled, including redaction.
+  - _Requirements: 1.7, 2.2, 5.3, 6.3, 8.2, 8.7, 8.8_
+  - _Boundary: feature guard/scan and directly related regression fixtures_
+  - _Validation: strict TDD; all-action cancellation, explicit-disabled/no-generation exact-only text/JSON, enabled overlap controls; complete coherent feature suite_
+
+- [x] 13.2 Correct benchmark error handling and clarify the positional SDK contract
+  - Use safe reporting/return in parallel benchmark workers, explicit fixture-selection flags, and the SDK failure-kind constant. Document half-open input byte spans, occurrence attribution, and the auth fixed-mask fallback without changing generation policy.
+  - _Requirements: 5.1, 5.5, 6.3, 8.8, 10.2_
+  - _Boundary: benchmark_test.go, config.go, SDK secretguard types and auth matcher documentation_
+  - _Validation: pre/post contract checks; existing corpus negative controls; short parallel benchmark execution; affected SDK/auth tests; independent source review_
+
+- [x] 13.3 Make baseline extraction failures explicit and historical evidence portable
+  - Check archive creation and extraction independently, clean the temporary archive, mark the earlier billing certification historical, use bundle-relative artifact labels and restore the benchmark report's final newline.
+  - _Requirements: 8.8, 10.1_
+  - _Boundary: baseline benchmark helper and existing feature certification/performance artifacts_
+  - _Validation: archive-failure/extraction-failure/success controls without baseline Go builds; artifact/reference and diff checks_
+
+- [x] 13.4 Repair the billing allocation certificate at its owning boundary
+  - Replace depth-scaled per-node allowances with a calibrated constant envelope and independent linear-pass/quadratic-fail controls. Repair demonstrated avoidable allocation in billing graph diagnostics without changing valuation, solver results, pair bytes, fingerprints, depth population or stack controls.
+  - _Requirements: archive/extensible-usage-economics-reconciliation requirement 18; owning billing bounded-performance contract_
+  - _Boundary: billing graph diagnostics and directly related billing allocation/stress regressions; parent-owned evidence_
+  - _Validation: strict TDD; chain/disconnected-chain and branching/diamond controls; named isolated maximum-depth certification; unchanged money/fingerprints/stack negative controls_
+
+- [x] 13.5 Bound adversarial JSON mapping through the complete redaction path
+  - Avoid retaining decoded/boundary mappings for unrelated JSON scalars. Use implicit identity spans and candidate-directed detailed mapping where applicable, while preserving escaped tokens, canonical duplicate-key/number behavior and every-occurrence rewrite coverage.
+  - _Requirements: 4.2, 5.3, 6.3–6.7, 8.7, 8.8_
+  - _Boundary: feature JSON occurrence parser, private rewrite bridge, exact-engine no-hit allocation and directly related adversarial semantic/allocation tests_
+  - _Validation: strict full-path allocation RED/GREEN on the near-2 MiB scalar-dense positive fixture; identity/escaped and duplicate-key controls; complete feature tests; focused architecture/static checks; same-head remote CI_
+
 ## Implementation Notes
+
+- Tasks 13.1–13.5 repair the surviving CodeRabbit findings and the additional full-path JSON allocation review blocker. Task 13.5 received independent APPROVED review with mixed sparse/dense mapping controls and an offset-corruption negative control; complete feature tests, scoped lint and 30-second canonical parser fuzzing pass. Final-head remote CI and maintainer re-review remain delivery requirements. The maintainer requests all still-valid issues; workers use gpt-6.1-sol at medium reasoning. A host thread limit restricted dispatch to one worker, with parent implementation and independent worker review for the small fixes. No merge or auto-merge is authorized. Billing allocation findings are repaired in billing, not hidden by downstream SecretGuard test changes.
 
 - Tasks 12.1–12.3 reopen technical GO for the full-head review findings. Workers and independent reviewers use the maintainer-requested gpt-6.1-sol at medium reasoning. Prior scope, streaming, projection, policy, positional attribution and coverage fixes remain required and must not regress. PR delivery remains held for maintainer review, with merge and auto-merge unauthorized.
 

@@ -16,9 +16,20 @@ if (Test-Path -LiteralPath $OutputRoot) {
 New-Item -ItemType Directory -Path $OutputRoot | Out-Null
 
 Write-Host "Archiving baseline $BaselineRef from $repoRoot to $OutputRoot"
-& git -C $repoRoot archive --format=tar $BaselineRef | tar -xf - -C $OutputRoot
-if ($LASTEXITCODE -ne 0) {
-    throw "git archive extraction failed with exit code $LASTEXITCODE"
+$archive = Join-Path $OutputRoot '.baseline.tar'
+try {
+    & git -C $repoRoot archive --format=tar -o $archive $BaselineRef
+    if ($LASTEXITCODE -ne 0) {
+        throw "git archive failed with exit code $LASTEXITCODE"
+    }
+    & tar -xf $archive -C $OutputRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "tar extraction failed with exit code $LASTEXITCODE"
+    }
+} finally {
+    if (Test-Path -LiteralPath $archive) {
+        Remove-Item -LiteralPath $archive
+    }
 }
 
 $overlay = Join-Path $specRoot 'benchmark-baseline_test.go.txt'
