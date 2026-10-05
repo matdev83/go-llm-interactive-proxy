@@ -301,7 +301,7 @@
 - [ ] 11.2 Ratchet incremental response passthrough while request redaction is active
   - Use a controllable provider stream to prove unchanged secret-bearing response events are observed before completion, with BetterLeaks enabled and action:redact. Prove eligible request content is redacted before dispatch and preserve normal termination/cancellation cleanup.
   - _Requirements: 4.7, 10.8, 10.9_
-  - _Boundary: runtime SecretGuard integration tests only; no response-path production changes_
+  - _Boundary: runtime SecretGuard integration tests and scoped Linux CI certification; no response-path production changes_
   - _Depends: 11.1_
   - _Validation: meaningful buffering negative control; focused runtime test; feature/auth/composition/runtime Linux race; quality/unit/parity and fresh remote CI; focused independent review_
 
