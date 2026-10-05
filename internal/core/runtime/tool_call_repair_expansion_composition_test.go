@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1034,4 +1035,228 @@ func TestToolCallRepairComposesWithInvalidFinalizerRewriteSemantics(t *testing.T
 			})
 		}
 	})
+}
+
+// ordinaryArgsJSON builds a valid argument document with no reserved namespace,
+// sized to at least minBytes. It isolates assembler overflow enforcement from
+// expansion decisions: the document gives the expansion pass nothing to expand,
+// so any refusal can only come from the assembler honoring a declared overflow
+// policy before the finalizer runs.
+func ordinaryArgsJSON(minBytes int) string {
+	prefix := `{"path":"/home/dev/elsewhere/src/main.go","content":"`
+	suffix := `"}`
+	pad := minBytes - len(prefix) - len(suffix)
+	if pad < 0 {
+		pad = 0
+	}
+	return prefix + strings.Repeat("x", pad) + suffix
+}
+
+// TestRealExpansionAuditModeDoesNotEnforceTheDeclaredBound is the assembler half
+// of requirement 7.3.
+//
+// Feature-level tests invoke Finalize directly and assert audit passes rather
+// than rejects. That bypasses the assembler, which is exactly where mandatory
+// overflow refusal happens. Audit mode needs the same complete document to
+// detect and measure, so it declares the same bound; past that bound it must
+// declare pass-through rather than refusal. Otherwise turning measurement on
+// would break real traffic it was meant only to observe.
+func TestRealExpansionAuditModeDoesNotEnforceTheDeclaredBound(t *testing.T) {
+	t.Parallel()
+
+	catalog := mandatoryCatalog()
+	const (
+		declaredBound = toolcall.MinMandatoryMaxArgsBytes
+		callBytes     = defaultToolCallFinalizationMaxArgsBytes + 4096
+	)
+	args := ordinaryArgsJSON(callBytes)
+	if len(args) != callBytes {
+		t.Fatalf("fixture sizing: got %d want %d", len(args), callBytes)
+	}
+	if strings.Contains(args, mandatoryVirtualRoot) {
+		t.Fatal("fixture must carry no reserved namespace, or the refusal could come from expansion")
+	}
+
+	newRealExpansion := func(t *testing.T, mode rewrite.Mode) *expansion.Finalizer {
+		t.Helper()
+		compiled, reject := pathvirtualization.CompileProfiles([]pathvirtualization.ProfileInput{{
+			Names:       []string{mandatoryToolName},
+			ArgPointers: []string{mandatoryFixturePathPointer},
+		}})
+		if reject != pathvirtualization.SelectorRejectNone {
+			t.Fatalf("compile the fixture profile: reject %v", reject)
+		}
+		resolver, reject := pathvirtualization.NewResolver(compiled, nil, nil)
+		if reject != pathvirtualization.SelectorRejectNone {
+			t.Fatalf("new resolver: reject %v", reject)
+		}
+		fin, err := expansion.NewFinalizer(resolver, mode, expansion.Policy{MandatoryMaxArgsBytes: declaredBound})
+		if err != nil {
+			t.Fatalf("build the shipped expansion finalizer: %v", err)
+		}
+		return fin
+	}
+
+	t.Run("audit_mode_passes_an_oversized_ordinary_call_through", func(t *testing.T) {
+		t.Parallel()
+		fin := newRealExpansion(t, rewrite.ModeAudit)
+		if fin.ToolCallBufferingRequirement().Overflow != toolcall.OverflowPassThrough {
+			t.Fatalf("audit mode must declare pass-through past its bound, got %q",
+				fin.ToolCallBufferingRequirement().Overflow)
+		}
+		a := newToolCallAssembler([]toolcall.Finalizer{fin}, 0, catalog)
+		if a == nil {
+			t.Fatal("assembler must be constructed")
+		}
+		released, err := streamToolCallNamed(t, a, "audit-over-bound", mandatoryToolName, args)
+		if err != nil {
+			t.Fatalf("requirements.md 7.3 - audit mode must not enforce the declared bound: %v", err)
+		}
+		if IsMandatoryBufferingError(err) {
+			t.Fatalf("requirements.md 7.3 - measurement must not manufacture a mandatory refusal: %q", err.Error())
+		}
+		if released != args {
+			t.Fatalf("requirements.md 7.3 - released %d bytes, want the %d original bytes unchanged",
+				len(released), len(args))
+		}
+	})
+
+	t.Run("rewrite_mode_control_refuses_the_same_call", func(t *testing.T) {
+		t.Parallel()
+		fin := newRealExpansion(t, rewrite.ModeRewrite)
+		if fin.ToolCallBufferingRequirement().Overflow != toolcall.OverflowReject {
+			t.Fatalf("rewrite mode must declare refusal past its bound, got %q",
+				fin.ToolCallBufferingRequirement().Overflow)
+		}
+		a := newToolCallAssembler([]toolcall.Finalizer{fin}, 0, catalog)
+		if a == nil {
+			t.Fatal("assembler must be constructed")
+		}
+		released, err := streamToolCallNamed(t, a, "rewrite-over-bound", mandatoryToolName, args)
+		if released != "" {
+			t.Fatalf("requirements.md 4.5 - a call past the declared bound must release nothing: released=%d bytes",
+				len(released))
+		}
+		var mbe *MandatoryBufferingError
+		if !errors.As(err, &mbe) || mbe == nil {
+			t.Fatalf("requirements.md 4.5 - want a typed MandatoryBufferingError, got %T", err)
+		}
+		if mbe.Reason != ReasonMandatoryBufferingOverflow {
+			t.Fatalf("requirements.md 4.5 - reason: got %q want %q", mbe.Reason, ReasonMandatoryBufferingOverflow)
+		}
+	})
+}
+
+// streamToolCallAsNamedWithMeta drives one completed call for an arbitrary
+// model-emitted tool name through the assembler. The shared composition helper
+// hardcodes the exact catalog name, so it cannot exercise a spelling variant
+// that repair must normalize before expansion can apply.
+func streamToolCallAsNamedWithMeta(
+	t *testing.T,
+	a *toolCallAssembler,
+	id, toolName, argsJSON string,
+	meta toolcall.Meta,
+) (string, error) {
+	t.Helper()
+	ctx := context.Background()
+	var released strings.Builder
+
+	if held, ingErr := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallStarted, ToolCallID: id, ToolName: toolName,
+	}, meta); ingErr != nil || !held {
+		t.Fatalf("started: held=%v err=%v", held, ingErr)
+	}
+	for _, fragment := range splitMandatoryArgsFragments(argsJSON) {
+		held, ingErr := a.ingest(ctx, lipapi.Event{
+			Kind: lipapi.EventToolCallArgsDelta, ToolCallID: id,
+			ToolName: toolName, Delta: fragment,
+		}, meta)
+		if ingErr != nil {
+			t.Fatalf("args delta: %v", ingErr)
+		}
+		if !held {
+			released.WriteString(fragment)
+		}
+	}
+	_, err := a.ingest(ctx, lipapi.Event{
+		Kind: lipapi.EventToolCallFinished, ToolCallID: id, ToolName: toolName,
+	}, meta)
+	for {
+		ev, ok := a.popDrain()
+		if !ok {
+			return released.String(), err
+		}
+		if ev.Kind == lipapi.EventToolCallArgsDelta {
+			released.WriteString(ev.Delta)
+		}
+	}
+}
+
+// TestRepairNormalizationCannotBypassMandatoryExpansionBySpelling is
+// requirement 8.4 on the tool-identity path the applicability decision used
+// to read too early.
+//
+// Repair normalizes unique spelling variants before expansion runs, but
+// buffering applicability was derived from the exact model-emitted name at
+// call start. A variant spelling above the legacy bound therefore released at
+// that bound before repair ever saw it. The assembler must derive the same
+// canonical identity repair would establish, and expansion must recognize it
+// even when repair's own size policy declines the document.
+func TestRepairNormalizationCannotBypassMandatoryExpansionBySpelling(t *testing.T) {
+	t.Parallel()
+
+	catalog := mandatoryCatalog()
+	mapping, reason := pathvirtualization.DeriveMapping(compositionProjectRoot)
+	if reason != pathvirtualization.SkipReasonNone {
+		t.Fatalf("derive fixture root: reason %v", reason)
+	}
+	alias := mapping.VirtualRoot + "src/main.go"
+	const callBytes = defaultToolCallFinalizationMaxArgsBytes + 8*1024
+	prefix := `{"` + mandatoryFixturePathMember + `":` + strconv.Quote(alias) + `,"content":"`
+	suffix := `"}`
+	pad := callBytes - len(prefix) - len(suffix)
+	if pad < 0 {
+		t.Fatalf("fixture sizing: prefix/suffix already exceed %d", callBytes)
+	}
+	args := prefix + strings.Repeat("x", pad) + suffix
+	if len(args) != callBytes {
+		t.Fatalf("fixture sizing: got %d want %d", len(args), callBytes)
+	}
+	if len(args) <= repair.DefaultMaxArgsBytes {
+		t.Fatalf("fixture must exceed the repair budget so repair declines: %d <= %d",
+			len(args), repair.DefaultMaxArgsBytes)
+	}
+	if len(args) > toolcall.DefaultMandatoryMaxArgsBytes {
+		t.Fatalf("fixture must stay inside the declared mandatory bound: %d > %d",
+			len(args), toolcall.DefaultMandatoryMaxArgsBytes)
+	}
+
+	expansionFin := newComposedExpansionProbe(t)
+	repairFin := newComposedRepairProbe(t, repair.DefaultFinalizerOrder)
+	a := newToolCallAssembler([]toolcall.Finalizer{expansionFin, repairFin}, 0, catalog)
+	if a == nil {
+		t.Fatal("assembler must be constructed")
+	}
+
+	released, err := streamToolCallAsNamedWithMeta(t, a, "spelling-variant", "read-file", args, compositionMeta())
+	if err != nil {
+		t.Fatalf("the composition must not fail the call: %v", err)
+	}
+	if repairFin.calls != 1 {
+		t.Fatalf("tool-call-repair invocations=%d want 1: the variant spelling must still reach repair", repairFin.calls)
+	}
+	decision := repairFin.onlyResult(t)
+	if decision.Action != toolcall.ActionPass || decision.ReasonCode != toolcall.ReasonArgsTooLarge {
+		t.Fatalf("repair must decline past its own budget without normalizing: action=%v reason=%q",
+			decision.Action, decision.ReasonCode)
+	}
+	if expansionFin.calls != 1 {
+		t.Fatalf("requirements.md 8.4 - repair size policy bypassed mandatory expansion: invocations=%d", expansionFin.calls)
+	}
+	if strings.Contains(released, mandatoryVirtualRoot) {
+		t.Fatal("requirements.md 4.4/8.3 - the reserved alias reached the client unexpanded")
+	}
+	if !json.Valid([]byte(released)) {
+		t.Fatal("requirements.md 8.5 - the released document is not valid JSON")
+	}
 }

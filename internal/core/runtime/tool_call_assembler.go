@@ -269,10 +269,15 @@ func (a *toolCallAssembler) deriveCallRequirements(toolName string) *callRequire
 		// behavior can change for any call.
 		return nil
 	}
-	tool := lookupToolDef(a.catalog, toolName)
+	// Tool identity is canonical, not merely exact. Repair normalizes unique
+	// spelling variants before expansion runs, so a call named differently from
+	// its catalog entry can still become that entry. Deriving applicability on
+	// the exact spelling alone would release such a call at the legacy bound
+	// before repair ever sees it.
+	canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(a.catalog, toolName, lipapi.ToolDef{})
 	reqs := &callRequirements{limitBytes: a.maxArgsBytes}
 	for _, decl := range a.mandatory.declarations {
-		if !decl.appliesToTool(toolName, tool, a.catalog) {
+		if !decl.appliesToTool(canonicalName, canonicalTool, a.catalog) {
 			continue
 		}
 		reqs.items = append(reqs.items, callRequirement{decl: decl, pending: true})

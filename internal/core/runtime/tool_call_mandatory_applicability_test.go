@@ -795,3 +795,99 @@ func TestToolCallAssembler_ACallWithNoApplicableRequirementIsByteIdentical(t *te
 		})
 	}
 }
+
+// panickingApplicabilityFin proves the applicability capability is extension
+// code: it panics instead of answering. The assembler must isolate that panic
+// and fail closed by treating the undeterminable scope as applicable, rather
+// than letting one declarer's bug crash assembly.
+type panickingApplicabilityFin struct {
+	id    string
+	order int
+	spec  toolcall.BufferingSpec
+}
+
+func (f *panickingApplicabilityFin) ID() string { return f.id }
+func (f *panickingApplicabilityFin) Order() int { return f.order }
+func (f *panickingApplicabilityFin) ToolCallBufferingRequirement() toolcall.BufferingSpec {
+	return f.spec
+}
+
+func (f *panickingApplicabilityFin) ToolCallBufferingApplies(string, lipapi.ToolDef, []lipapi.ToolDef) bool {
+	panic("applicability must be isolated")
+}
+
+func (f *panickingApplicabilityFin) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{Action: toolcall.ActionPass, ReasonCode: toolcall.ReasonValidPassThrough}, nil
+}
+
+// mutatingApplicabilityFin proves the applicability inputs are detached: it
+// writes through both the tool definition and the catalog it was handed, then
+// answers false. The assembler's own catalog must be unchanged afterwards.
+type mutatingApplicabilityFin struct {
+	id    string
+	order int
+	spec  toolcall.BufferingSpec
+}
+
+func (f *mutatingApplicabilityFin) ID() string { return f.id }
+func (f *mutatingApplicabilityFin) Order() int { return f.order }
+func (f *mutatingApplicabilityFin) ToolCallBufferingRequirement() toolcall.BufferingSpec {
+	return f.spec
+}
+
+func (f *mutatingApplicabilityFin) ToolCallBufferingApplies(_ string, tool lipapi.ToolDef, catalog []lipapi.ToolDef) bool {
+	if len(tool.Parameters) > 0 {
+		tool.Parameters[0] = 'X'
+	}
+	if len(catalog) > 0 && len(catalog[0].Parameters) > 0 {
+		catalog[0].Parameters[0] = 'Y'
+	}
+	return false
+}
+
+func (f *mutatingApplicabilityFin) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{Action: toolcall.ActionPass, ReasonCode: toolcall.ReasonValidPassThrough}, nil
+}
+
+func TestToolCallAssembler_ApplicabilityIsIsolatedFromExtensionFailures(t *testing.T) {
+	t.Parallel()
+
+	spec := toolcall.BufferingSpec{
+		MaxArgsBytes: toolcall.DefaultMandatoryMaxArgsBytes,
+		Overflow:     toolcall.OverflowReject,
+	}
+	args := `{"path":"/home/dev/elsewhere/src/main.go"}`
+
+	t.Run("panicking_applicability_does_not_escape_and_fails_closed", func(t *testing.T) {
+		t.Parallel()
+		fin := &panickingApplicabilityFin{id: "panicking-applicability", order: 20, spec: spec}
+		a := newToolCallAssembler([]toolcall.Finalizer{fin}, 0, scopedCatalog())
+		if a == nil {
+			t.Fatal("assembler must be constructed")
+		}
+		released, err := streamToolCallNamed(t, a, "applicability-panic", mandatoryToolName, args)
+		if err != nil {
+			t.Fatalf("an isolated applicability panic must not surface as a Go error: %v", err)
+		}
+		if released != args {
+			t.Fatalf("released %d bytes, want the %d original bytes", len(released), len(args))
+		}
+	})
+
+	t.Run("mutating_applicability_cannot_reach_the_assembler_catalog", func(t *testing.T) {
+		t.Parallel()
+		fin := &mutatingApplicabilityFin{id: "mutating-applicability", order: 20, spec: spec}
+		a := newToolCallAssembler([]toolcall.Finalizer{fin}, 0, scopedCatalog())
+		if a == nil {
+			t.Fatal("assembler must be constructed")
+		}
+		if _, err := streamToolCallNamed(t, a, "applicability-mutation", unselectedToolName, args); err != nil {
+			t.Fatalf("a detached false answer must not fail the call: %v", err)
+		}
+		for _, entry := range a.catalog {
+			if string(entry.Parameters) != `{"type":"object"}` {
+				t.Fatalf("assembler catalog mutated: %q", entry.Parameters)
+			}
+		}
+	})
+}

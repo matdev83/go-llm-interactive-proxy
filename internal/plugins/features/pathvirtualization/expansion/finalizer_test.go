@@ -1614,3 +1614,136 @@ func TestFinalizerWithNoResolverAppliesToNothing(t *testing.T) {
 		t.Fatal("a nil pass resolves no selector, so it must not claim every call")
 	}
 }
+
+// TestExpansionFinalizerUnusableRootChecksSelectorsBeforeTheWholePayload is
+// requirement 4.9 on the unusable-root branch.
+//
+// An unusable project root means no mapping, not a license to inspect every
+// field. A tool with no argument selector is outside this pass whether or not
+// an ordinary content field happens to spell the marker, so it must keep
+// ReasonNoSelectors pass-through. A selected tool with the marker only in an
+// unselected content field must keep the unusable-root pass, because the
+// marker is not in a path-bearing argument.
+func TestExpansionFinalizerUnusableRootChecksSelectorsBeforeTheWholePayload(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		tool       string
+		args       string
+		wantReason expansion.Reason
+	}{
+		{
+			name:       "unselected_tool_with_alias_shaped_content_passes",
+			tool:       "custom_tool",
+			args:       `{"note":"/.__lip_v1__/w_short/src/main.go"}`,
+			wantReason: expansion.ReasonNoSelectors,
+		},
+		{
+			name:       "selected_tool_with_marker_only_in_unselected_content_passes",
+			tool:       expansionToolName,
+			args:       `{"file_path":"/home/dev/elsewhere/a.go","content":"/.__lip_v1__/w_short/src/main.go"}`,
+			wantReason: expansion.ReasonRootUnusable,
+		},
+		{
+			name:       "selected_tool_with_marker_in_selected_leaf_refuses",
+			tool:       expansionToolName,
+			args:       `{"file_path":"/.__lip_v1__/w_short/src/main.go","content":"kept"}`,
+			wantReason: expansion.ReasonWorkspaceMismatch,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/file_path"))
+			res, err := fin.Finalize(context.Background(), expansionCall(tc.tool, tc.args),
+				lipapi.ToolDef{Name: tc.tool}, nil, expansionMeta(""))
+			if err != nil {
+				t.Fatalf("Finalize returned a Go error: %v", err)
+			}
+			if tc.wantReason == expansion.ReasonNoSelectors || tc.wantReason == expansion.ReasonRootUnusable {
+				if res.Action != toolcall.ActionPass {
+					t.Fatalf("action=%v want pass (reason %q)", res.Action, res.ReasonCode)
+				}
+			} else if res.Action != toolcall.ActionReject {
+				t.Fatalf("action=%v want reject (reason %q)", res.Action, res.ReasonCode)
+			}
+			if res.ArgsJSON != nil {
+				t.Fatalf("no branch here may publish a document: %q", res.ArgsJSON)
+			}
+			if expansionReason(t, res.ReasonCode) != tc.wantReason {
+				t.Fatalf("reason=%q want %q", res.ReasonCode, tc.wantReason)
+			}
+		})
+	}
+}
+
+// TestExpansionFinalizerUnusableRootKindsKeepTheAliasPolicySeparate pins the
+// four root cases the adversarial review named: empty, relative,
+// malformed/device, and reserved-namespace collision roots.
+//
+// Empty, relative, malformed-volume, and device roots all mean no mapping, so
+// a selected alias-bearing argument fails closed. A collision root means the
+// project genuinely occupies the reserved namespace, so requirement 1.8
+// disables virtualization and the call passes as an ordinary real path.
+func TestExpansionFinalizerUnusableRootKindsKeepTheAliasPolicySeparate(t *testing.T) {
+	t.Parallel()
+
+	mapping, reason := pathvirtualization.DeriveMapping(expansionProjectRoot)
+	if reason != pathvirtualization.SkipReasonNone {
+		t.Fatalf("derive fixture root: reason %v", reason)
+	}
+	alias := mapping.VirtualRoot + "src/main.go"
+	collisionRoot := "/.__lip_v1__/w_0123456789abcdefghij/proj"
+	if _, got := pathvirtualization.DeriveMapping(collisionRoot); got != pathvirtualization.SkipReasonReservedNamespaceCollision {
+		t.Fatalf("fixture collision root reason = %q, want reserved_namespace_collision", got)
+	}
+
+	for _, tc := range []struct {
+		name       string
+		args       string
+		project    string
+		wantAction toolcall.Action
+		wantReason expansion.Reason
+	}{
+		{
+			name:       "malformed_volume_root_with_alias_refuses",
+			args:       `{"file_path":` + quote(alias) + `}`,
+			project:    "C:",
+			wantAction: toolcall.ActionReject,
+			wantReason: expansion.ReasonWorkspaceMismatch,
+		},
+		{
+			name:       "device_root_with_alias_refuses",
+			args:       `{"file_path":` + quote(alias) + `}`,
+			project:    `\\.\PIPE\lip`,
+			wantAction: toolcall.ActionReject,
+			wantReason: expansion.ReasonWorkspaceMismatch,
+		},
+		{
+			name:       "collision_root_with_alias_passes_as_real_path",
+			args:       `{"file_path":` + quote(alias) + `}`,
+			project:    collisionRoot,
+			wantAction: toolcall.ActionPass,
+			wantReason: expansion.ReasonRootUnusable,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/file_path"))
+			res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, tc.args),
+				lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(tc.project))
+			if err != nil {
+				t.Fatalf("Finalize returned a Go error: %v", err)
+			}
+			if res.Action != tc.wantAction {
+				t.Fatalf("action=%v want %v (reason %q)", res.Action, tc.wantAction, res.ReasonCode)
+			}
+			if res.ArgsJSON != nil {
+				t.Fatalf("no branch here may publish a document: %q", res.ArgsJSON)
+			}
+			if expansionReason(t, res.ReasonCode) != tc.wantReason {
+				t.Fatalf("reason=%q want %q", res.ReasonCode, tc.wantReason)
+			}
+		})
+	}
+}

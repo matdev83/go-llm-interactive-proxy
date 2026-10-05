@@ -181,11 +181,16 @@ func NewFinalizer(
 	if bound == 0 {
 		bound = toolcall.DefaultMandatoryMaxArgsBytes
 	}
-	// OverflowReject is not configurable and never will be. design.md section 6 states
-	// it as this pass's declaration, and it is the whole safety property: past the
-	// declared bound the call is refused instead of released with an unexpanded
-	// argument.
-	spec := toolcall.BufferingSpec{MaxArgsBytes: bound, Overflow: toolcall.OverflowReject}
+	// Measurement must not enforce. Audit mode needs the same complete document
+	// to detect and measure, so it declares the same bound; past that bound it
+	// declares pass-through rather than refusal. An oversized call in audit mode
+	// keeps pre-existing pass-through behavior instead of failing because
+	// measurement was turned on. Only rewrite mode declares OverflowReject.
+	overflow := toolcall.OverflowPassThrough
+	if mode == rewrite.ModeRewrite {
+		overflow = toolcall.OverflowReject
+	}
+	spec := toolcall.BufferingSpec{MaxArgsBytes: bound, Overflow: overflow}
 	if err := spec.Validate(); err != nil {
 		return nil, fmt.Errorf("path_virtualization: invalid mandatory expansion bound: %w", err)
 	}
@@ -250,7 +255,7 @@ func (f *Finalizer) Finalize(
 	_ context.Context,
 	call toolcall.CompletedCall,
 	tool lipapi.ToolDef,
-	_ []lipapi.ToolDef,
+	catalog []lipapi.ToolDef,
 	meta toolcall.Meta,
 ) (toolcall.Result, error) {
 	if f == nil {
@@ -258,7 +263,7 @@ func (f *Finalizer) Finalize(
 		// canonical and this feature has nothing to say about it.
 		return passResult(ReasonNoSelectors), nil
 	}
-	decision := f.decide(call, tool, meta).
+	decision := f.decide(call, tool, catalog, meta).
 		withOverDeclaredBound(len(call.ArgsJSON) > f.spec.MaxArgsBytes)
 	f.record(decision)
 	if decision.reason.rejects() {
@@ -329,7 +334,7 @@ func (d decision) withReason(reason Reason) decision {
 // Each branch below is one step, and the ordering is the design's: the mapping is
 // derived before anything is inspected, the selectors are resolved before the document
 // is read, and the document is read before any leaf is visited.
-func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, meta toolcall.Meta) decision {
+func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, catalog []lipapi.ToolDef, meta toolcall.Meta) decision {
 	// Step 1. The authoritative workspace view is the ONLY authority read here. It is
 	// the same view the outbound attempt transform reads for the same turn, and it is
 	// derived per call rather than cached, which is what keeps every retry, race
@@ -352,52 +357,80 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, met
 		//     alias of the fixed V1 derivation could have been minted from it either -
 		//     every alias spells a root the derivation accepted.
 		//
-		// A model could still EMIT a reserved alias on its own initiative, which is why
-		// this branch is justified from where aliases come from rather than from a claim
-		// that models never do. The alternative - refusing every selected value whenever
-		// no mapping exists - would make one deployment-wide configuration gap fail every
-		// tool call that carries an absolute path, which is a strictly worse failure than
-		// the one it would prevent.
-		//
-		// That reasoning only covers arguments that are NOT aliases, so the pass-through
-		// is now conditional on there being no reserved namespace in the payload at all.
-		// Where aliases came from is not the question requirement 4.4 asks: it asks what
+		// A model could still EMIT a reserved alias on its own initiative. Where
+		// aliases came from is not the question requirement 4.4 asks: it asks what
 		// happens when a path-bearing argument DOES carry the reserved namespace and no
-		// mapping can resolve it, and the answer is fail closed. The comment above
-		// concedes that a model may emit an alias on its own initiative, which is
-		// precisely the case this branch was releasing.
+		// mapping can resolve it, and the answer is fail closed.
 		//
-		// The lexical scanner is the right instrument even though the payload is
-		// unparseable here, because an unparseable payload is exactly where an alias can
-		// hide from selector-guided inspection. Only a well-formed answer or a malformed
-		// one is a namespace presence; ABSENT means there is nothing to protect.
-		//
+		// Selector applicability comes before any whole-payload refusal. A tool with
+		// no argument selector is outside this pass whether or not its payload
+		// happens to spell the marker in an ordinary content field, so it keeps
+		// requirement 4.7/4.9 pass-through as ReasonNoSelectors. Only a tool with a
+		// selected argument surface can have a path-bearing argument that requirement
+		// 4.4 governs.
+		canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(catalog, call.ToolName, tool)
+		pointers := f.resolver.Resolve(canonicalName, declaredSchema(canonicalTool, canonicalName)).ArgPointers
+		if len(pointers) == 0 {
+			return decision{reason: ReasonNoSelectors, rootReason: rootReason}
+		}
 		// A reserved-namespace COLLISION root is deliberately exempt. There the project
 		// root really does occupy the reserved namespace, requirement 1.8 disables
 		// virtualization for it, and a path beneath it is an ordinary real path rather
 		// than an undecidable alias, so refusing would break a supported deployment
 		// instead of protecting one.
-		if rootReason != pathvirtualization.SkipReasonReservedNamespaceCollision &&
-			pathvirtualization.ScanReservedAlias(call.ArgsJSON) != pathvirtualization.ReservedAliasAbsent {
-			// No mapping exists to expand the alias against, so it cannot be shown to
-			// name this workspace. Releasing it would hand the reserved namespace to the
-			// client unresolved.
+		if rootReason == pathvirtualization.SkipReasonReservedNamespaceCollision {
+			return decision{reason: ReasonRootUnusable, rootReason: rootReason}
+		}
+		// With selectors established, inspect only the selected leaves when the
+		// payload can be read. An alias-shaped string in an unselected content,
+		// patch, script, or note field of a selected tool is not a path-bearing
+		// argument, so it must not fail the call. An unparseable payload leaves no
+		// structure to read; then the whole-payload marker is the only answer, and
+		// that accepted residual is documented on the unreadable-document branch.
+		published, pass, err := rewrite.ApplySelectedValues(call.ArgsJSON, pointers, reservedNamespaceLeafDecider)
+		_ = published
+		if err != nil {
+			if pathvirtualization.ScanReservedAlias(call.ArgsJSON) == pathvirtualization.ReservedAliasAbsent {
+				return decision{reason: ReasonRootUnusable, rootReason: rootReason}
+			}
 			return decision{reason: ReasonWorkspaceMismatch, rootReason: rootReason}
 		}
-		return decision{reason: ReasonRootUnusable, rootReason: rootReason}
+		switch pass.Outcome {
+		case rewrite.PayloadOutcomeInvalid:
+			if pathvirtualization.ScanReservedAlias(call.ArgsJSON) == pathvirtualization.ReservedAliasAbsent {
+				return decision{reason: ReasonRootUnusable, rootReason: rootReason}
+			}
+			return decision{reason: ReasonWorkspaceMismatch, rootReason: rootReason}
+		case rewrite.PayloadOutcomeNoSelectors:
+			return decision{reason: ReasonNoSelectors, rootReason: rootReason}
+		case rewrite.PayloadOutcomeAbsent, rewrite.PayloadOutcomeNotObject, rewrite.PayloadOutcomeNoLeaves:
+			return decision{reason: ReasonRootUnusable, rootReason: rootReason}
+		case rewrite.PayloadOutcomeReplaced:
+			if pass.Refused {
+				return decision{reason: ReasonWorkspaceMismatch, rootReason: rootReason}
+			}
+			return decision{reason: ReasonRootUnusable, rootReason: rootReason}
+		default:
+			return decision{reason: ReasonWorkspaceMismatch, rootReason: rootReason}
+		}
 	}
 
-	// Step 2. Selector resolution reads the exact tool name and the CURRENT declared
-	// schema, and nothing else. The name comparison is byte-exact because it is the
-	// shared resolver's own lookup, and the schema is offered only when the tool
-	// definition the assembler supplied really is this call's tool.
+	// Step 2. Selector resolution reads the canonical tool identity and the CURRENT
+	// declared schema, and nothing else. Exact catalog entries always win; when no
+	// exact entry exists, a unique normalized catalog entry wins, because repair
+	// normalizes unique spelling variants before expansion runs. The resolver's own
+	// lookup stays byte-exact: canonicalization happens before it, not inside it,
+	// so profiles still claim exact tool names and never substring/prefix shapes.
+	// The schema is offered only when the tool definition really is this call's
+	// tool.
 	//
 	// Only the ARGUMENT selectors are read. The resolution's structured-result
 	// pointers and its bounded opaque-result mode are deliberately ignored: a
 	// completed tool call carries arguments, and a result payload is model-visible
 	// content this feature must not reach for (requirements.md 2.5, 4.9). Reading
 	// them here would be the only way this pass could ever touch prose.
-	resolved := f.resolver.Resolve(call.ToolName, declaredSchema(tool, call.ToolName))
+	canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(catalog, call.ToolName, tool)
+	resolved := f.resolver.Resolve(canonicalName, declaredSchema(canonicalTool, canonicalName))
 	pointers := resolved.ArgPointers
 
 	// Step 3. No selector means nothing was proven path-bearing, so nothing is
@@ -516,6 +549,22 @@ func (d decision) withPublished(published []byte) decision {
 	return d
 }
 
+// reservedNamespaceLeafDecider answers one selected leaf on the unusable-root
+// branch: refuse exactly when that leaf's decoded value carries the reserved
+// namespace, accept everything else without publishing.
+//
+// It inspects the decoded leaf value rather than the whole payload, so an
+// alias-shaped string in an unselected content, patch, script, or note field of
+// an otherwise selected tool does not fail the call. A malformed and a
+// well-formed answer both refuse, because both mean a namespace is present that
+// no mapping can resolve.
+func reservedNamespaceLeafDecider(value string) rewrite.ValueDecision {
+	if pathvirtualization.ScanReservedAlias([]byte(value)) == pathvirtualization.ReservedAliasAbsent {
+		return rewrite.ValueDecision{}
+	}
+	return rewrite.ValueDecision{Refused: true}
+}
+
 // leafVisitor is the decider the shared engine calls once per selected leaf, plus the
 // one thing the engine's boolean refusal cannot carry: WHY a leaf refused.
 //
@@ -629,11 +678,12 @@ func reasonForNoAlias(mapping pathvirtualization.Mapping) Reason {
 // narrow answer, and it is safe here for the same reason it is safe in decide:
 // with no selectors this pass would answer ReasonNoSelectors and hand the call
 // through untouched anyway.
-func (f *Finalizer) ToolCallBufferingApplies(toolName string, tool lipapi.ToolDef, _ []lipapi.ToolDef) bool {
+func (f *Finalizer) ToolCallBufferingApplies(toolName string, tool lipapi.ToolDef, catalog []lipapi.ToolDef) bool {
 	if f == nil || f.resolver == nil {
 		return false
 	}
-	return len(f.resolver.Resolve(toolName, declaredSchema(tool, toolName)).ArgPointers) > 0
+	canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(catalog, toolName, tool)
+	return len(f.resolver.Resolve(canonicalName, declaredSchema(canonicalTool, canonicalName)).ArgPointers) > 0
 }
 
 func declaredSchema(tool lipapi.ToolDef, toolName string) []byte {

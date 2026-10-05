@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
@@ -165,11 +166,29 @@ func (d *mandatoryDeclaration) requiresRejectPastOwnBound() bool {
 // The answer is the declarer's own whenever it published one, and the
 // conservative "every call" otherwise. Either way it is derived from the tool
 // name, the tool definition, and the catalog alone.
+//
+// The declarer's answer runs inside the extension safety boundary on detached
+// inputs. A capability method is still extension code: it may panic, and its
+// tool and catalog arguments are mutable Go values. Handing it the assembler's
+// own catalog would let one declarer's bug corrupt later finalization and
+// future calls. A panic is treated as applicable, because an undeterminable
+// scope for a mandatory declaration must fail closed rather than disappear.
 func (d *mandatoryDeclaration) appliesToTool(toolName string, tool lipapi.ToolDef, catalog []lipapi.ToolDef) bool {
 	if d.applicability == nil {
 		return true
 	}
-	return d.applicability.ToolCallBufferingApplies(toolName, tool, catalog)
+	isolatedCatalog := cloneToolCatalog(catalog)
+	isolatedTool := lookupToolDef(isolatedCatalog, tool.Name)
+	if tool.Name != toolName {
+		isolatedTool = lookupToolDef(isolatedCatalog, toolName)
+	}
+	applies, err := safety.CallValue(safety.BoundaryExtension, "tool_call_buffering_applicability", func() (bool, error) {
+		return d.applicability.ToolCallBufferingApplies(toolName, isolatedTool, isolatedCatalog), nil
+	})
+	if err != nil {
+		return true
+	}
+	return applies
 }
 
 // mandatoryBuffering is the per-attempt projection of every finalizer that
