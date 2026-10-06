@@ -50,7 +50,7 @@
     "workflow": "Go module synchronization"
   },
   "node-independence": {
-    "build_mib": 1536,
+    "build_mib": 7168,
     "job": "no-node",
     "workflow": "Node independence"
   },
