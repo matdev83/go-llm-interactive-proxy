@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -181,6 +182,236 @@ func servicesWith(m sdk.Matcher) sdk.Services {
 	return sdk.Services{MatcherResolver: staticResolver{m: m}}
 }
 
+func newProvenanceBetterLeaksServices(t *testing.T) *GenerationServices {
+	t.Helper()
+	services, err := BuildGenerationServices(DetectorPolicy{BetterLeaks: BetterLeaksPolicy{
+		Enabled:           true,
+		MinimumConfidence: DefaultBetterLeaksConfidence,
+		MaxDecodeDepth:    DefaultBetterLeaksDecodeDepth,
+		Workers:           1,
+		MaxFindings:       DefaultBetterLeaksMaxFindings,
+	}}, engine.NewDisabledSource())
+	if err != nil {
+		t.Fatalf("build BetterLeaks services: error type %T", err)
+	}
+	return services
+}
+
+func provenanceServices(mode string, exact sdk.Matcher, betterLeaks *GenerationServices) sdk.Services {
+	switch mode {
+	case "exact":
+		return servicesWith(exact)
+	case "betterleaks":
+		return sdk.Services{Capability: betterLeaks}
+	case "hybrid":
+		return sdk.Services{MatcherResolver: staticResolver{m: exact}, Capability: betterLeaks}
+	default:
+		panic("unknown provenance detector mode")
+	}
+}
+
+func validateProvenanceCall(t *testing.T, call *lipapi.Call) {
+	t.Helper()
+	if err := call.Validate(); err != nil {
+		assertNoSyntheticSecrets(t, err.Error())
+		t.Fatalf("invalid provenance fixture: error type %T", err)
+	}
+}
+
+func provenanceMessageCall(secret string) lipapi.Call {
+	return lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "instruction " + secret}},
+		}},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{
+				{Kind: lipapi.PartText, Text: "prompt " + secret},
+				{Kind: lipapi.PartJSON, Content: json.RawMessage(fmt.Sprintf(`{"api_key":%q}`, secret))},
+				// Model tool calls are represented canonically as JSON parts with
+				// tool metadata. They remain excluded even under a user role.
+				{Kind: lipapi.PartJSON, ToolCallID: "model-call", ToolName: "lookup", Content: json.RawMessage(fmt.Sprintf(`{"argument":%q}`, secret))},
+			}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "assistant " + secret}}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{
+				{Kind: lipapi.PartText, Text: "tool output " + secret},
+				{Kind: lipapi.PartJSON, Content: json.RawMessage(fmt.Sprintf(`{"result":%q}`, secret))},
+			}},
+		},
+		Tools: []lipapi.ToolDef{{
+			Name:        "lookup-" + secret,
+			Description: "tool definition " + secret,
+			Parameters:  json.RawMessage(fmt.Sprintf(`{"default":%q}`, secret)),
+		}},
+	}
+}
+
+func provenanceItemCall(secret string) lipapi.Call {
+	return lipapi.Call{Items: []lipapi.Item{
+		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleAssistant, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "assistant history " + secret}}},
+		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleUser, Content: []lipapi.ContentPart{
+			{Kind: lipapi.ContentPartText, Text: "item prompt " + secret},
+			{Kind: lipapi.ContentPartJSON, Text: fmt.Sprintf(`{"api_key":%q}`, secret)},
+		}},
+		{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleTool, Content: []lipapi.ContentPart{
+			{Kind: lipapi.ContentPartText, Text: "item tool message " + secret},
+			{Kind: lipapi.ContentPartJSON, Text: fmt.Sprintf(`{"result":%q}`, secret)},
+		}},
+		{Kind: lipapi.ItemKindToolCall, ToolCall: &lipapi.ToolCallItem{
+			CallID: "model-call", Name: "lookup", Arguments: json.RawMessage(fmt.Sprintf(`{"argument":%q}`, secret)),
+		}},
+		{Kind: lipapi.ItemKindToolResult, ToolResult: &lipapi.ToolResultItem{
+			CallID: "model-call", Name: "lookup", Output: fmt.Sprintf(`{"output":%q}`, secret),
+		}},
+		{Kind: lipapi.ItemKindToolCall, ToolCall: &lipapi.ToolCallItem{
+			CallID: "result-call", Name: "lookup", Arguments: json.RawMessage(`{"request":"result"}`),
+		}},
+		{Kind: lipapi.ItemKindToolResult, ToolResult: &lipapi.ToolResultItem{
+			CallID: "result-call", Name: "lookup", Parts: []lipapi.ContentPart{
+				{Kind: lipapi.ContentPartText, Text: "item tool output " + secret},
+				{Kind: lipapi.ContentPartJSON, Text: fmt.Sprintf(`{"result":%q}`, secret)},
+			},
+		}},
+	}, Tools: []lipapi.ToolDef{{Name: "lookup-" + secret, Description: "tool definition " + secret, Parameters: json.RawMessage(fmt.Sprintf(`{"default":%q}`, secret))}}}
+}
+
+func provenanceExcludedOnlyCall(authority string, secret string) lipapi.Call {
+	if authority == "items" {
+		return lipapi.Call{Items: []lipapi.Item{
+			{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleAssistant, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartText, Text: "assistant " + secret}}},
+			{Kind: lipapi.ItemKindMessage, Role: lipapi.RoleSystem, Content: []lipapi.ContentPart{{Kind: lipapi.ContentPartJSON, Text: fmt.Sprintf(`{"system":%q}`, secret)}}},
+			{Kind: lipapi.ItemKindToolCall, ToolCall: &lipapi.ToolCallItem{CallID: "model-call", Name: "lookup", Arguments: json.RawMessage(fmt.Sprintf(`{"argument":%q}`, secret))}},
+		}, Tools: []lipapi.ToolDef{{Name: "lookup-" + secret, Description: "tool definition " + secret, Parameters: json.RawMessage(fmt.Sprintf(`{"default":%q}`, secret))}}}
+	}
+	return lipapi.Call{
+		Instructions: []lipapi.Message{{Role: lipapi.RoleSystem, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "instruction " + secret}}}},
+		Messages:     []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartJSON, ToolCallID: "model-call", ToolName: "lookup", Content: json.RawMessage(fmt.Sprintf(`{"argument":%q}`, secret))}}}, {Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "assistant " + secret}}}},
+		Tools:        []lipapi.ToolDef{{Name: "lookup-" + secret, Description: "tool definition " + secret, Parameters: json.RawMessage(fmt.Sprintf(`{"default":%q}`, secret))}},
+	}
+}
+
+func assertProvenanceExcludedFieldsUnchanged(t *testing.T, before, after lipapi.Call, authority string) {
+	t.Helper()
+	if !reflect.DeepEqual(before.Instructions, after.Instructions) || !reflect.DeepEqual(before.Tools, after.Tools) {
+		t.Fatal("instructions or tool definitions changed")
+	}
+	if authority == "items" {
+		if len(before.Items) != len(after.Items) || !reflect.DeepEqual(before.Items[0], after.Items[0]) || !reflect.DeepEqual(before.Items[3], after.Items[3]) || !reflect.DeepEqual(before.Items[5], after.Items[5]) {
+			t.Fatal("excluded item content changed")
+		}
+		return
+	}
+	if len(before.Messages) != len(after.Messages) || !reflect.DeepEqual(before.Messages[1], after.Messages[1]) || !reflect.DeepEqual(before.Messages[0].Parts[2], after.Messages[0].Parts[2]) {
+		t.Fatal("excluded message content changed")
+	}
+}
+
+func assertProvenanceEligibleRedacted(t *testing.T, call lipapi.Call, secret, authority string) {
+	t.Helper()
+	if authority == "items" {
+		parts := call.Items[1].Content
+		if strings.Contains(parts[0].Text, secret) || strings.Contains(parts[1].Text, secret) || strings.Contains(call.Items[2].Content[0].Text, secret) || strings.Contains(call.Items[2].Content[1].Text, secret) || strings.Contains(call.Items[4].ToolResult.Output, secret) || strings.Contains(call.Items[6].ToolResult.Parts[0].Text, secret) || strings.Contains(call.Items[6].ToolResult.Parts[1].Text, secret) {
+			t.Fatal("eligible item content retained the secret")
+		}
+		return
+	}
+	if strings.Contains(call.Messages[0].Parts[0].Text, secret) || bytes.Contains(call.Messages[0].Parts[1].Content, []byte(secret)) || strings.Contains(call.Messages[2].Parts[0].Text, secret) || bytes.Contains(call.Messages[2].Parts[1].Content, []byte(secret)) {
+		t.Fatal("eligible message content retained the secret")
+	}
+}
+
+func TestGuard_ProvenanceMatrixPreservesExcludedContentAcrossActions(t *testing.T) {
+	secret := testkit.SyntheticGitHubPAT
+	exact := newExactStub(secret, "GITHUB_TOKEN", sdk.SourceCategoryProxyEnv)
+	betterLeaks := newProvenanceBetterLeaksServices(t)
+	for _, detector := range []string{"exact", "betterleaks", "hybrid"} {
+		for _, authority := range []string{"messages", "items"} {
+			for _, action := range []string{ActionBlock, ActionLog, ActionRedact} {
+				name := detector + "/" + authority + "/" + action
+				t.Run(name, func(t *testing.T) {
+					var call lipapi.Call
+					if authority == "items" {
+						call = provenanceItemCall(secret)
+					} else {
+						call = provenanceMessageCall(secret)
+					}
+					validateProvenanceCall(t, &call)
+					before := lipapi.CloneCall(call)
+					decision, err := NewGuard(Config{Action: action}).Evaluate(t.Context(), &call, sdk.Meta{}, provenanceServices(detector, exact, betterLeaks))
+					if err != nil {
+						assertNoSyntheticSecrets(t, err.Error())
+						t.Fatalf("evaluate provenance call: error type %T", err)
+					}
+					if len(decision.Findings) == 0 {
+						t.Fatal("eligible secret produced no findings")
+					}
+					allowed := map[string]bool{}
+					if authority == "items" {
+						for _, location := range []string{"items[1].content[0]", "items[1].content[1]", "items[2].content[0]", "items[2].content[1]", "items[4].tool_result.output", "items[6].tool_result.parts[0]", "items[6].tool_result.parts[1]"} {
+							allowed[location] = true
+						}
+					} else {
+						for _, location := range []string{"messages[0].parts[0]", "messages[0].parts[1]", "messages[2].parts[0]", "messages[2].parts[1]"} {
+							allowed[location] = true
+						}
+					}
+					for _, finding := range decision.Findings {
+						if !allowed[finding.Location] {
+							t.Fatalf("finding from excluded location %q", finding.Location)
+						}
+					}
+					switch action {
+					case ActionBlock:
+						if decision.Outcome != sdk.OutcomeBlock || decision.MutationCount != 0 || !reflect.DeepEqual(call, before) {
+							t.Fatal("block changed provenance call")
+						}
+					case ActionLog:
+						if decision.Outcome != sdk.OutcomeLog || decision.MutationCount != 0 || !reflect.DeepEqual(call, before) {
+							t.Fatal("log changed provenance call")
+						}
+					case ActionRedact:
+						if decision.Outcome != sdk.OutcomeRedacted || decision.MutationCount == 0 {
+							t.Fatalf("redaction outcome=%q mutations=%d", decision.Outcome, decision.MutationCount)
+						}
+						validateProvenanceCall(t, &call)
+						assertProvenanceExcludedFieldsUnchanged(t, before, call, authority)
+						assertProvenanceEligibleRedacted(t, call, secret, authority)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestGuard_ExcludedOnlyProvenancePassesWithoutBudgetAdmission(t *testing.T) {
+	secret := testkit.SyntheticGitHubPAT
+	exact := newExactStub(secret, "GITHUB_TOKEN", sdk.SourceCategoryProxyEnv)
+	betterLeaks := newProvenanceBetterLeaksServices(t)
+	for _, detector := range []string{"exact", "betterleaks", "hybrid"} {
+		for _, authority := range []string{"messages", "items"} {
+			for _, action := range []string{ActionBlock, ActionLog, ActionRedact} {
+				name := detector + "/" + authority + "/" + action
+				t.Run(name, func(t *testing.T) {
+					call := provenanceExcludedOnlyCall(authority, secret)
+					validateProvenanceCall(t, &call)
+					before := lipapi.CloneCall(call)
+					decision, err := NewGuard(Config{Action: action, ScanMaxBytes: 1}).Evaluate(t.Context(), &call, sdk.Meta{}, provenanceServices(detector, exact, betterLeaks))
+					if err != nil {
+						assertNoSyntheticSecrets(t, err.Error())
+						t.Fatalf("evaluate excluded-only call: error type %T", err)
+					}
+					if decision.Outcome != sdk.OutcomePass || len(decision.Findings) != 0 || decision.ScanLimitHit || decision.MutationCount != 0 {
+						t.Fatalf("excluded-only decision outcome=%q findings=%d scan_limit=%t mutations=%d", decision.Outcome, len(decision.Findings), decision.ScanLimitHit, decision.MutationCount)
+					}
+					if !reflect.DeepEqual(call, before) {
+						t.Fatal("excluded-only call changed")
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestGuard_nilMatcherPasses(t *testing.T) {
 	t.Parallel()
 	g := NewGuard(mustCfg(t, ActionBlock))
@@ -263,13 +494,9 @@ func TestGuard_block_allLocations_noMutation(t *testing.T) {
 		t.Fatal("block must not mutate call")
 	}
 	wantLocs := map[string]bool{
-		"instructions[0].parts[0]": false,
-		"messages[0].parts[0]":     false,
-		"messages[0].parts[1]":     false,
-		"messages[0].parts[2]":     false,
-		"tools[0].name":            false,
-		"tools[0].description":     false,
-		"tools[0].schema":          false,
+		"messages[0].parts[0]": false,
+		"messages[0].parts[1]": false,
+		"messages[0].parts[2]": false,
 	}
 	for _, f := range d.Findings {
 		assertNoSyntheticSecrets(t, f.SecretRefName)
@@ -422,11 +649,16 @@ func TestGuard_redact_validatesAndMutates(t *testing.T) {
 	if tok == secret || strings.Contains(tok, secret) {
 		t.Fatal("JSON string not redacted")
 	}
+	if call.Tools[0].Description != "uses "+secret {
+		t.Fatal("tool definition description must remain unchanged")
+	}
+	if string(call.Tools[0].Parameters) != fmt.Sprintf(`{"const":%q,"count":3}`, secret) {
+		t.Fatal("tool definition schema must remain unchanged")
+	}
 	if !json.Valid(call.Tools[0].Parameters) {
 		t.Fatal("tool schema JSON invalid after redact")
 	}
 	assertNoSyntheticSecrets(t, string(call.Messages[0].Parts[1].Content))
-	assertNoSyntheticSecrets(t, call.Tools[0].Description)
 }
 
 func TestGuard_redact_noMatchLeavesCallUnchanged(t *testing.T) {

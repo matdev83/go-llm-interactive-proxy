@@ -1,10 +1,10 @@
 package secretguard
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard/engine"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
@@ -14,193 +14,365 @@ type scanMode int
 const (
 	modeScan scanMode = iota
 	modeRedact
+	modeLogScan
 )
 
 type scanOutcome struct {
-	Findings      []sdk.Finding
-	MutationCount int
-	BytesScanned  int
-	ScanLimitHit  bool
+	Findings             []sdk.Finding
+	MutationCount        int
+	BytesScanned         int
+	ScanLimitHit         bool
+	exactPrivateFindings []exactPrivateFinding
+	discoveryFindings    []betterLeaksFinding
+	discoveryFacts       DetectorFacts
+	findingIndexes       map[safeFindingLocationKey]int
 }
 
-// scanCall walks model-bound fields exactly once. Locations are stable paths.
-func scanCall(ctx context.Context, call *lipapi.Call, m sdk.Matcher, mode scanMode, maxBytes int) (scanOutcome, error) {
+type safeFindingLocationKey struct {
+	location, reference string
+}
+
+// mergeFindingsAt retains the exact-only first-attribution contract while
+// indexing accumulated findings once for the lifetime of this scan.
+func (out *scanOutcome) mergeFindingsAt(findings []sdk.Finding, location string) {
+	if len(findings) == 0 {
+		return
+	}
+	if out.findingIndexes == nil {
+		out.findingIndexes = make(map[safeFindingLocationKey]int, len(out.Findings)+len(findings))
+		for i, finding := range out.Findings {
+			out.findingIndexes[safeFindingLocationKey{finding.Location, finding.SecretRefName}] = i
+		}
+	}
+	for _, finding := range findings {
+		key := safeFindingLocationKey{location, finding.SecretRefName}
+		if i, exists := out.findingIndexes[key]; exists {
+			out.Findings[i].OccurrenceCount += finding.OccurrenceCount
+			continue
+		}
+		finding.Location = location
+		out.findingIndexes[key] = len(out.Findings)
+		out.Findings = append(out.Findings, finding)
+	}
+}
+
+type exactOccurrenceMatcher = sdk.PositionalMatcher
+
+// collectExactPrivateFindings retains exact spans only inside the feature
+// boundary. The matcher receives the admitted fragment bytes and returns safe
+// reference metadata; it has no catalog retrieval surface.
+func collectExactPrivateFindings(m sdk.Matcher, fragment LogicalFragment, findings []sdk.Finding) []exactPrivateFinding {
+	if m == nil || len(findings) == 0 {
+		return nil
+	}
+	positional, ok := m.(exactOccurrenceMatcher)
+	if !ok {
+		return privateExactFindingsWithoutSpans(fragment, findings)
+	}
+	var private []betterLeaksOccurrence
+	if fragment.Kind == FragmentJSON {
+		// A successfully decoded JSON fragment is collected from the same
+		// semantic tokens as scanJSONPayload. Raw scanning is reserved for the
+		// decoder-failed fallback so escaped bytes and punctuation cannot add
+		// independent occurrences.
+		var mapped bool
+		private, mapped = collectExactJSONOccurrencesMapped(positional, fragment.rawBytes(), fragment.privateID)
+		if !mapped {
+			private = collectExactRawOccurrences(positional, fragment.rawBytes(), fragment.privateID)
+		}
+	} else {
+		private = collectExactRawOccurrences(positional, fragment.rawBytes(), fragment.privateID)
+	}
+	return exactPrivateFindingsAt(fragment, findings, private)
+}
+
+func collectExactPrivateFindingsForRedact(m sdk.Matcher, fragment LogicalFragment, findings []sdk.Finding) []exactPrivateFinding {
+	if m == nil || len(findings) == 0 {
+		return nil
+	}
+	positional, ok := m.(exactOccurrenceMatcher)
+	if !ok {
+		return privateExactFindingsWithoutSpans(fragment, findings)
+	}
+	var private []betterLeaksOccurrence
+	if fragment.Kind == FragmentJSON {
+		var mapped bool
+		private, mapped = collectExactJSONRedactOccurrences(positional, fragment.rawBytes(), fragment.privateID)
+		if !mapped {
+			private = collectExactRawOccurrences(positional, fragment.rawBytes(), fragment.privateID)
+		}
+	} else {
+		private = collectExactRawOccurrences(positional, fragment.rawBytes(), fragment.privateID)
+	}
+	return exactPrivateFindingsAt(fragment, findings, private)
+}
+
+func exactPrivateFindingsAt(fragment LogicalFragment, findings []sdk.Finding, private []betterLeaksOccurrence) []exactPrivateFinding {
+	result := make([]exactPrivateFinding, 0, len(findings))
+	for _, finding := range findings {
+		if finding.DetectorID == sdk.DetectorIDBetterLeaks {
+			continue
+		}
+		finding.Location = fragment.Location
+		matched := make([]betterLeaksOccurrence, 0, len(private))
+		for _, occurrence := range private {
+			if occurrence.ruleID == finding.SecretRefName {
+				matched = append(matched, occurrence)
+			}
+		}
+		uncovered := finding.OccurrenceCount - len(matched)
+		if uncovered < 0 {
+			uncovered = 0
+		}
+		result = append(result, exactPrivateFinding{finding: finding, occurrences: matched, uncoveredCount: uncovered})
+	}
+	return result
+}
+
+func collectExactRawOccurrences(m exactOccurrenceMatcher, raw []byte, fieldID string) []betterLeaksOccurrence {
+	occurrences := m.ScanOccurrences(raw)
+	private := make([]betterLeaksOccurrence, 0, len(occurrences))
+	locationIndex := newBetterLeaksLocationIndex(raw)
+	for _, occurrence := range occurrences {
+		if occurrence.Start < 0 || occurrence.End <= occurrence.Start || occurrence.End > len(raw) {
+			continue
+		}
+		span, err := spanForByteRangeWithLocationIndex(raw, locationIndex, occurrence.Start, occurrence.End)
+		if err != nil {
+			continue
+		}
+		private = append(private, betterLeaksOccurrence{
+			value:          bytes.Clone(raw[occurrence.Start:occurrence.End]),
+			span:           span,
+			start:          occurrence.Start,
+			end:            occurrence.End,
+			offsetsValid:   true,
+			fieldID:        fieldID,
+			ruleID:         occurrence.Finding.SecretRefName,
+			role:           betterLeaksOccurrencePrimary,
+			representation: betterLeaksOccurrenceLiteral,
+		})
+	}
+	return private
+}
+
+func privateExactFindingsWithoutSpans(fragment LogicalFragment, findings []sdk.Finding) []exactPrivateFinding {
+	result := make([]exactPrivateFinding, 0, len(findings))
+	for _, finding := range findings {
+		finding.Location = fragment.Location
+		result = append(result, exactPrivateFinding{finding: finding, uncoveredCount: positiveOccurrenceCount(finding.OccurrenceCount)})
+	}
+	return result
+}
+
+// scanCall scans the one admitted logical-fragment set. Locations are stable paths.
+func scanCall(ctx context.Context, call *lipapi.Call, m sdk.Matcher, mode scanMode, maxBytes int, capabilities ...any) (scanOutcome, error) {
 	var out scanOutcome
-	if call == nil || m == nil {
+	defer func() {
+		releaseBetterLeaksOccurrenceBytes(out.discoveryFindings)
+	}()
+	var generation *GenerationServices
+	if len(capabilities) > 0 {
+		generation, _ = capabilities[0].(*GenerationServices)
+	}
+	if call == nil || (m == nil && (generation == nil || !generation.betterLeaksEnabled)) {
 		return out, nil
 	}
-	if maxBytes <= 0 {
-		maxBytes = DefaultScanMaxBytes
+	if m == nil {
+		m = engine.AsMatcher(engine.NewMatcher(nil))
+	}
+	if mode == modeRedact && generation != nil {
+		positional, _ := m.(sdk.PositionalMatcher)
+		m = generationRedactionMatcher{Matcher: m, positional: positional, options: generation.redaction}
 	}
 
-	for i := range call.Instructions {
-		locPrefix := fmt.Sprintf("instructions[%d]", i)
-		if err := scanMessageParts(ctx, &call.Instructions[i], locPrefix, m, mode, maxBytes, &out); err != nil {
-			return out, err
-		}
-		if out.ScanLimitHit {
-			return out, nil
-		}
-	}
-	for i := range call.Messages {
-		locPrefix := fmt.Sprintf("messages[%d]", i)
-		if err := scanMessageParts(ctx, &call.Messages[i], locPrefix, m, mode, maxBytes, &out); err != nil {
-			return out, err
-		}
-		if out.ScanLimitHit {
-			return out, nil
-		}
-	}
-	for i := range call.Tools {
-		if err := scanTool(ctx, &call.Tools[i], i, m, mode, maxBytes, &out); err != nil {
-			return out, err
-		}
-		if out.ScanLimitHit {
-			return out, nil
-		}
-	}
-	return out, nil
-}
-
-func scanMessageParts(ctx context.Context, msg *lipapi.Message, msgLoc string, m sdk.Matcher, mode scanMode, maxBytes int, out *scanOutcome) error {
-	for j := range msg.Parts {
-		loc := fmt.Sprintf("%s.parts[%d]", msgLoc, j)
-		if err := scanPart(ctx, &msg.Parts[j], loc, m, mode, maxBytes, out); err != nil {
-			return err
-		}
-		if out.ScanLimitHit {
-			return nil
-		}
-	}
-	return nil
-}
-
-func scanPart(ctx context.Context, p *lipapi.Part, loc string, m sdk.Matcher, mode scanMode, maxBytes int, out *scanOutcome) error {
-	switch p.Kind {
-	case lipapi.PartText:
-		return touchText(ctx, &p.Text, loc, m, mode, maxBytes, out)
-	case lipapi.PartJSON:
-		return touchJSON(ctx, &p.Content, loc, m, mode, maxBytes, out)
-	case lipapi.PartToolResult:
-		// Text and/or Content; same location; findings merge by Location+SecretRefName.
-		if p.Text != "" {
-			if err := touchText(ctx, &p.Text, loc, m, mode, maxBytes, out); err != nil {
-				return err
+	budget := newScanBudget(maxBytes)
+	fragments := walkLogicalFragments(call, budget)
+	out.BytesScanned = budget.used
+	out.ScanLimitHit = budget.limitHit
+	var detectorErr error
+	if generation != nil && generation.betterLeaksEnabled {
+		discovery, err := generation.scanFragments(ctx, fragments)
+		out.discoveryFindings = discovery.Findings
+		out.discoveryFacts = generation.DetectorFacts()
+		if err != nil {
+			// Independent exact/request credentials remain observable on admitted
+			// fragments after discovery failure. Never continue mutation or canceled work.
+			if mode != modeLogScan || (ctx != nil && ctx.Err() != nil) {
+				_ = finalizeHybridScanOutcome(&out)
+				return out, err
 			}
-			if out.ScanLimitHit {
-				return nil
+			detectorErr = err
+		}
+		if mode == modeRedact {
+			if err := validateBetterLeaksRedactionEligibility(fragments, out.discoveryFindings); err != nil {
+				if finalizeErr := finalizeHybridScanOutcome(&out); finalizeErr != nil {
+					return out, finalizeErr
+				}
+				if out.ScanLimitHit {
+					return out, nil
+				}
+				return out, err
 			}
 		}
-		if len(p.Content) > 0 {
-			return touchJSON(ctx, &p.Content, loc, m, mode, maxBytes, out)
-		}
-		return nil
-	default:
-		// image_ref, file_ref, unknown — do not scan
-		return nil
 	}
+	for _, fragment := range fragments {
+		if err := scanLogicalFragment(ctx, fragment, m, mode, &out, out.discoveryFindings, generation != nil && generation.betterLeaksEnabled); err != nil {
+			if generation != nil && generation.betterLeaksEnabled {
+				_ = finalizeHybridScanOutcome(&out)
+			}
+			return out, err
+		}
+	}
+	if generation != nil && generation.betterLeaksEnabled {
+		if err := finalizeHybridScanOutcome(&out); err != nil {
+			return out, err
+		}
+	}
+	return out, detectorErr
 }
 
-func scanTool(ctx context.Context, tool *lipapi.ToolDef, i int, m sdk.Matcher, mode scanMode, maxBytes int, out *scanOutcome) error {
-	if err := touchText(ctx, &tool.Name, fmt.Sprintf("tools[%d].name", i), m, mode, maxBytes, out); err != nil {
-		return err
-	}
-	if out.ScanLimitHit {
-		return nil
-	}
-	if err := touchText(ctx, &tool.Description, fmt.Sprintf("tools[%d].description", i), m, mode, maxBytes, out); err != nil {
-		return err
-	}
-	if out.ScanLimitHit {
-		return nil
-	}
-	if len(tool.Parameters) > 0 {
-		return touchJSON(ctx, &tool.Parameters, fmt.Sprintf("tools[%d].schema", i), m, mode, maxBytes, out)
-	}
-	return nil
-}
-
-func touchText(ctx context.Context, s *string, loc string, m sdk.Matcher, mode scanMode, maxBytes int, out *scanOutcome) error {
-	if s == nil {
-		return nil
-	}
-	n := len(*s)
-	if n == 0 {
-		return nil
-	}
-	if !reserveBytes(out, n, maxBytes) {
-		return nil
-	}
-	switch mode {
-	case modeScan:
-		findings, err := m.ScanString(ctx, *s)
-		if err != nil {
-			return err
+// validateBetterLeaksRedactionEligibility is the fail-closed gate before any
+// working-clone mutation. Every reported occurrence must retain literal bytes
+// and a span that proves those bytes are present in its admitted fragment.
+// Required multipart components must also have at least one such occurrence.
+func validateBetterLeaksRedactionEligibility(fragments []LogicalFragment, findings []betterLeaksFinding) error {
+	for _, finding := range findings {
+		if finding.incompleteCoverage || len(finding.occurrences) == 0 {
+			return errBetterLeaksUnrewritable
 		}
-		out.Findings = mergeFindingsAt(out.Findings, findings, loc)
-	case modeRedact:
-		redacted, findings, err := m.RedactString(ctx, *s)
-		if err != nil {
-			return err
+		for _, occurrence := range finding.occurrences {
+			if !betterLeaksOccurrenceRewriteEligible(fragments, finding.Location, occurrence) {
+				return errBetterLeaksUnrewritable
+			}
 		}
-		if redacted != *s {
-			*s = redacted
-			out.MutationCount++
-		}
-		out.Findings = mergeFindingsAt(out.Findings, findings, loc)
-	}
-	return nil
-}
-
-func touchJSON(ctx context.Context, raw *json.RawMessage, loc string, m sdk.Matcher, mode scanMode, maxBytes int, out *scanOutcome) error {
-	if raw == nil || len(*raw) == 0 {
-		return nil
-	}
-	n := len(*raw)
-	if !reserveBytes(out, n, maxBytes) {
-		return nil
-	}
-	switch mode {
-	case modeScan:
-		findings, err := scanJSONPayload(ctx, m, *raw)
-		if err != nil {
-			return err
-		}
-		out.Findings = mergeFindingsAt(out.Findings, findings, loc)
-	case modeRedact:
-		redacted, findings, err := redactJSONPayload(ctx, m, *raw)
-		if err != nil {
-			out.Findings = mergeFindingsAt(out.Findings, findings, loc)
-			return err
-		}
-		out.Findings = mergeFindingsAt(out.Findings, findings, loc)
-		if string(redacted) != string(*raw) {
-			*raw = json.RawMessage(redacted)
-			out.MutationCount++
+		for _, component := range finding.Components {
+			if component.Optional {
+				continue
+			}
+			if len(component.occurrences) == 0 {
+				return errBetterLeaksUnrewritable
+			}
+			for _, occurrence := range component.occurrences {
+				if !betterLeaksOccurrenceRewriteEligible(fragments, finding.Location, occurrence) {
+					return errBetterLeaksUnrewritable
+				}
+			}
 		}
 	}
 	return nil
 }
 
-func reserveBytes(out *scanOutcome, n, maxBytes int) bool {
-	if out.BytesScanned+n > maxBytes {
-		out.ScanLimitHit = true
+func betterLeaksOccurrenceRewriteEligible(fragments []LogicalFragment, location string, occurrence betterLeaksOccurrence) bool {
+	if occurrence.representation != betterLeaksOccurrenceLiteral || len(occurrence.value) == 0 {
 		return false
 	}
-	out.BytesScanned += n
-	return true
+	if occurrence.offsetsValid {
+		for _, fragment := range fragments {
+			if fragment.Location != location || (occurrence.fieldID != "" && occurrence.fieldID != fragment.privateID) {
+				continue
+			}
+			raw := fragment.rawBytes()
+			if occurrence.start >= 0 && occurrence.end > occurrence.start && occurrence.end <= len(raw) && bytes.Equal(raw[occurrence.start:occurrence.end], occurrence.value) {
+				return true
+			}
+		}
+	}
+	for _, fragment := range fragments {
+		if fragment.Location != location {
+			continue
+		}
+		if occurrence.fieldID != "" && occurrence.fieldID != fragment.privateID {
+			continue
+		}
+		raw := fragment.rawBytes()
+		if _, _, ok := literalBetterLeaksByteRange(raw, occurrence); ok {
+			return true
+		}
+	}
+	return false
 }
 
-func mergeFindingsAt(dst, src []sdk.Finding, loc string) []sdk.Finding {
-	if len(src) == 0 {
-		return dst
+func scanLogicalFragment(ctx context.Context, fragment LogicalFragment, m sdk.Matcher, mode scanMode, out *scanOutcome, discoveries []betterLeaksFinding, hybrid bool) error {
+	activeMatcher := m
+	if mode == modeRedact {
+		candidates := betterLeaksLiteralCandidates(fragment, discoveries)
+		if len(candidates) > 0 {
+			var err error
+			activeMatcher, err = newBetterLeaksRewriteMatcher(m, fragment, candidates)
+			if err != nil {
+				return err
+			}
+		}
 	}
-	tagged := make([]sdk.Finding, len(src))
-	for i, f := range src {
-		f.Location = loc
-		tagged[i] = f
+	switch mode {
+	case modeScan, modeLogScan:
+		var (
+			findings []sdk.Finding
+			err      error
+		)
+		if fragment.Kind == FragmentJSON {
+			findings, err = scanJSONPayload(ctx, activeMatcher, fragment.rawBytes())
+		} else {
+			findings, err = activeMatcher.ScanString(ctx, fragment.textValue())
+		}
+		if err != nil {
+			return err
+		}
+		out.mergeFindingsAt(findings, fragment.Location)
+		if hybrid {
+			out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindings(m, fragment, findings)...)
+		}
+	case modeRedact:
+		var (
+			redacted []byte
+			findings []sdk.Finding
+			err      error
+		)
+		if fragment.Kind == FragmentJSON {
+			redacted, findings, err = redactJSONPayload(ctx, activeMatcher, fragment.rawBytes())
+		} else {
+			var text string
+			text, findings, err = activeMatcher.RedactString(ctx, fragment.textValue())
+			if err == nil && text != fragment.textValue() {
+				fragment.setText(text)
+				out.MutationCount++
+			}
+		}
+		if err != nil {
+			if fragment.Kind == FragmentJSON {
+				out.mergeFindingsAt(findings, fragment.Location)
+			}
+			if hybrid {
+				out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindingsForRedact(m, fragment, findings)...)
+			}
+			return err
+		}
+		out.mergeFindingsAt(findings, fragment.Location)
+		if hybrid {
+			out.exactPrivateFindings = append(out.exactPrivateFindings, collectExactPrivateFindingsForRedact(m, fragment, findings)...)
+		}
+		if fragment.Kind == FragmentJSON && !bytes.Equal(redacted, fragment.rawBytes()) {
+			fragment.setRaw(redacted)
+			out.MutationCount++
+		}
 	}
-	return mergeFindings(dst, tagged)
+	if bridge, ok := activeMatcher.(*betterLeaksRewriteMatcher); ok && mode == modeRedact {
+		return bridge.validateCoverage()
+	}
+	return nil
+}
+
+func finalizeHybridScanOutcome(out *scanOutcome) error {
+	if out == nil {
+		return nil
+	}
+	findings, err := mergeHybridFindings(out.exactPrivateFindings, out.discoveryFindings, out.discoveryFacts)
+	if err != nil {
+		return newBetterLeaksScanError(err)
+	}
+	out.Findings = findings
+	return nil
 }
 
 // mergeFindings merges by Location+SecretRefName, summing OccurrenceCount and

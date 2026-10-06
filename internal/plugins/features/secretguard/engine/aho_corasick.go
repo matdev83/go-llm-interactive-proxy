@@ -73,11 +73,14 @@ func (ac *ahoCorasick) findAll(input []byte) []matchHit {
 	if ac == nil || len(ac.nodes) == 0 || len(input) == 0 {
 		return nil
 	}
-	out := make([]matchHit, 0, 8)
+	var out []matchHit
 	state := 0
 	for i := range input {
 		state = ac.transition(state, input[i])
 		for _, o := range ac.nodes[state].out {
+			if out == nil {
+				out = make([]matchHit, 0, 8)
+			}
 			out = append(out, matchHit{
 				start:    i - o.length + 1,
 				length:   o.length,

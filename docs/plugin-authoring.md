@@ -80,6 +80,7 @@ Use SDK packages, not core internals:
 
 Authoring and extension rules:
 
+- SecretGuard scans only user prompts and genuine tool execution output. Assistant history, model-generated tool calls, instructions and tool definitions are excluded. This pre-dispatch feature must never inspect, redact, collect or buffer provider response events, even when request redaction is enabled.
 - Feature code lives in `internal/plugins/features/secretguard/` and must not import runtime, frontends, or backends.
 - Catalog construction and Aho–Corasick matching live in `internal/plugins/features/secretguard/engine/`; standard-distribution composition lives in `internal/standardplugins/featurehost/secretguard/` (with generic snapshot assembly in `internal/infra/runtimebundle/`); audit delivery adapters live alongside the featurehost secret-guard adapter.
 - SDK consumers receive an opaque **`Matcher` / `MatcherResolver`** via `secretguard.Services`. No API exposes raw catalog values or accepts an environment reader at request time. The opaque matcher belongs only in middleware request context; `AuthenticationResult` carries safe attribution targets only.

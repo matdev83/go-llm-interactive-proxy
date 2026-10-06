@@ -3,6 +3,7 @@ package httpauth
 import (
 	"net/http"
 
+	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -34,6 +35,12 @@ type AuthenticationResult struct {
 	// auth provider code into the middleware. It is nil for legacy principal-only results.
 	// Raw secrets and transport headers must never be placed here (requirements 2.1, 2.6).
 	Scope *scope.PrincipalScopeView
+
+	// SatisfiedLevel is the authentication level actually satisfied by this
+	// result. It is distinct from the configured policy requirement and lets
+	// ingress consumers bind request credentials only after an authenticator
+	// accepted one.
+	SatisfiedLevel sdkauth.RequiredLevel
 
 	// IngressAttribution is sanitized peer/frontend/device attribution (zero means absent).
 	// Never place bearer tokens or raw headers here.

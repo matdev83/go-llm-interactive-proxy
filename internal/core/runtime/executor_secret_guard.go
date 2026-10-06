@@ -68,7 +68,7 @@ func (e *Executor) runSecretGuardStage(ctx context.Context, call *lipapi.Call, i
 	if resolver == nil {
 		resolver = secretguard.ContextMatcherResolver{}
 	}
-	svc := secretguard.Services{MatcherResolver: resolver}
+	svc := secretguard.Services{MatcherResolver: resolver, Capability: plane.Capability}
 	audit := e.secretGuardAuditFromPlane(plane, in.TurnID)
 	block, err := extensions.RunSecretGuardStage(ctx, e.Log, e.ExtensionMetrics, guards, call, meta, svc, audit, e.SecretGuardDecisionMetrics)
 	if err != nil {

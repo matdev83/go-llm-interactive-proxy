@@ -38,6 +38,9 @@ func TestSlogObserver_decisionEvent_noSyntheticSecretValues(t *testing.T) {
 			SourceCategory:  sdk.SourceCategoryProxyEnv,
 			Location:        "messages[0].parts[0].text",
 			OccurrenceCount: 1,
+			DetectorID:      sdk.DetectorIDBetterLeaks,
+			RuleID:          "github-pat",
+			Confidence:      sdk.ConfidenceMedium,
 		}},
 		Action:            "block",
 		Outcome:           sdk.OutcomeBlock,
@@ -89,6 +92,9 @@ func TestSlogObserver_decisionEvent_uniqueTopLevelFindingsKeys(t *testing.T) {
 				SourceCategory:  sdk.SourceCategoryProxyEnv,
 				Location:        "messages[0].parts[0].text",
 				OccurrenceCount: 2,
+				DetectorID:      sdk.DetectorIDBetterLeaks,
+				RuleID:          "github-pat",
+				Confidence:      sdk.ConfidenceMedium,
 			},
 			{
 				SecretRefName:   "SLACK_BOT_TOKEN",
@@ -123,6 +129,9 @@ func TestSlogObserver_decisionEvent_uniqueTopLevelFindingsKeys(t *testing.T) {
 			SourceCategory  string   `json:"source_category"`
 			Location        string   `json:"location,omitempty"`
 			OccurrenceCount int      `json:"occurrence_count"`
+			DetectorID      string   `json:"detector_id,omitempty"`
+			RuleID          string   `json:"rule_id,omitempty"`
+			Confidence      string   `json:"confidence,omitempty"`
 		} `json:"findings"`
 		FindingSummary struct {
 			Count            int      `json:"count"`
@@ -138,6 +147,9 @@ func TestSlogObserver_decisionEvent_uniqueTopLevelFindingsKeys(t *testing.T) {
 	}
 	if decoded.Findings[0].SecretRefName != "OPENAI_API_KEY" || decoded.Findings[0].Aliases[0] != "OPENAI_API_KEY_2" {
 		t.Fatalf("first findings entry: %#v", decoded.Findings[0])
+	}
+	if decoded.Findings[0].DetectorID != sdk.DetectorIDBetterLeaks || decoded.Findings[0].RuleID != "github-pat" || decoded.Findings[0].Confidence != sdk.ConfidenceMedium {
+		t.Fatalf("first provenance entry: %#v", decoded.Findings[0])
 	}
 	if decoded.Findings[1].SecretRefName != "SLACK_BOT_TOKEN" {
 		t.Fatalf("second findings entry: %#v", decoded.Findings[1])

@@ -10,13 +10,17 @@ import (
 const (
 	decisionFailureKindScanLimit            = "scan_limit"
 	decisionFailureKindUnsupportedJSONToken = "unsupported_json_token"
+	decisionFailureKindDetectorFailure      = FailureKindDetectorFailure
+	decisionFailureKindUnrewritable         = FailureKindUnrewritableDetectedSecret
 
-	decisionMaxTokenBytes    = 128
-	decisionMaxReasonBytes   = 256
-	findingMaxSecretRefBytes = 128
-	findingMaxLocationBytes  = 256
-	findingMaxAliasBytes     = 128
-	findingMaxAliases        = 8
+	decisionMaxTokenBytes     = 128
+	decisionMaxReasonBytes    = 256
+	findingMaxSecretRefBytes  = 128
+	findingMaxLocationBytes   = 256
+	findingMaxAliasBytes      = 128
+	findingMaxAliases         = 8
+	findingMaxDetectorIDBytes = 32
+	findingMaxRuleIDBytes     = 128
 )
 
 // Validate reports whether the decision shape is safe for runner acceptance.
@@ -46,7 +50,14 @@ func (d Decision) Validate() error {
 			if err := validateScanLimitMetadata(d.FailureKind, d.FailureReason); err != nil {
 				return err
 			}
-		} else if len(d.Findings) == 0 || d.FailureKind != "" || d.FailureReason != "" {
+		} else if d.FailureKind != "" {
+			if d.FailureKind != decisionFailureKindDetectorFailure {
+				return invalidDecisionField("log_shape")
+			}
+			if err := validateDetectorFailureMetadata(d.FailureReason); err != nil {
+				return err
+			}
+		} else if len(d.Findings) == 0 || d.FailureReason != "" {
 			return invalidDecisionField("log_shape")
 		}
 	case OutcomeRedacted:
@@ -69,7 +80,7 @@ func (d Decision) Validate() error {
 			}
 		} else if d.FailureKind == "" {
 			// Plain block decisions remain legal with or without findings.
-		} else if d.FailureKind == decisionFailureKindUnsupportedJSONToken {
+		} else if d.FailureKind == decisionFailureKindUnsupportedJSONToken || d.FailureKind == decisionFailureKindUnrewritable {
 			if len(d.Findings) == 0 {
 				return invalidDecisionField("block_shape")
 			}
@@ -89,9 +100,14 @@ func (d Decision) Validate() error {
 	return nil
 }
 
+func validateDetectorFailureMetadata(reason string) error {
+	return validateSafeText("failure_reason", reason, decisionMaxReasonBytes, true)
+}
+
 // Validate reports whether the finding shape is safe for runner acceptance.
 func (f Finding) Validate() error {
-	if err := validateSafeText("secret_ref_name", f.SecretRefName, findingMaxSecretRefBytes, true); err != nil {
+	secretRefRequired := f.DetectorID != DetectorIDBetterLeaks
+	if err := validateSafeText("secret_ref_name", f.SecretRefName, findingMaxSecretRefBytes, secretRefRequired); err != nil {
 		return err
 	}
 	if len(f.Aliases) > findingMaxAliases {
@@ -111,7 +127,53 @@ func (f Finding) Validate() error {
 	if f.OccurrenceCount <= 0 {
 		return invalidDecisionField("occurrence_count")
 	}
+	if err := validateDetectorID(f.DetectorID); err != nil {
+		return err
+	}
+	if err := validateRuleID(f.RuleID); err != nil {
+		return err
+	}
+	if f.DetectorID == DetectorIDBetterLeaks && f.RuleID == "" {
+		return invalidDecisionField("rule_id")
+	}
+	if err := validateConfidence(f.Confidence); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateDetectorID(id string) error {
+	if err := validateSafeText("detector_id", id, findingMaxDetectorIDBytes, false); err != nil {
+		return err
+	}
+	switch id {
+	case "", DetectorIDExact, DetectorIDBetterLeaks:
+		return nil
+	default:
+		return invalidDecisionField("detector_id")
+	}
+}
+
+func validateRuleID(id string) error {
+	if err := validateSafeText("rule_id", id, findingMaxRuleIDBytes, false); err != nil {
+		return err
+	}
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return invalidDecisionField("rule_id")
+	}
+	return nil
+}
+
+func validateConfidence(confidence string) error {
+	switch confidence {
+	case "", ConfidenceLow, ConfidenceMedium, ConfidenceHigh:
+		return nil
+	default:
+		return invalidDecisionField("confidence")
+	}
 }
 
 func validateScanLimitMetadata(kind, reason string) error {

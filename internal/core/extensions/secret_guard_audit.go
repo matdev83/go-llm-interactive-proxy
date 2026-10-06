@@ -126,6 +126,9 @@ func cloneSecretGuardFindings(in []secretguard.Finding) []secretguard.Finding {
 			SourceCategory:  in[i].SourceCategory,
 			Location:        in[i].Location,
 			OccurrenceCount: in[i].OccurrenceCount,
+			DetectorID:      in[i].DetectorID,
+			RuleID:          in[i].RuleID,
+			Confidence:      in[i].Confidence,
 		}
 	}
 	return out
