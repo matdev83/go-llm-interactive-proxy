@@ -67,6 +67,9 @@ func TestBuildSecretDecisionEvent_clonesFindings(t *testing.T) {
 		SourceCategory:  secretguard.SourceCategoryProxyEnv,
 		Location:        "messages[0].parts[0].text",
 		OccurrenceCount: 1,
+		DetectorID:      secretguard.DetectorIDBetterLeaks,
+		RuleID:          "github-pat",
+		Confidence:      secretguard.ConfidenceHigh,
 	}}
 	ev := extensions.BuildSecretDecisionEvent(
 		secretguard.Meta{TraceID: "tr"},
@@ -87,6 +90,12 @@ func TestBuildSecretDecisionEvent_clonesFindings(t *testing.T) {
 	}
 	if ev.Findings[0].Aliases[0] != "OPENAI_API_KEY_2" {
 		t.Fatalf("aliases cloned incorrectly: %q", ev.Findings[0].Aliases[0])
+	}
+	if ev.Findings[0].DetectorID != secretguard.DetectorIDBetterLeaks {
+		t.Fatalf("detector ID cloned incorrectly: %q", ev.Findings[0].DetectorID)
+	}
+	if ev.Findings[0].RuleID != "github-pat" || ev.Findings[0].Confidence != secretguard.ConfidenceHigh {
+		t.Fatalf("provenance cloned incorrectly: rule=%q confidence=%q", ev.Findings[0].RuleID, ev.Findings[0].Confidence)
 	}
 }
 

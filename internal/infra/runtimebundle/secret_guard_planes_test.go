@@ -1,7 +1,10 @@
 package runtimebundle
 
 import (
+	"reflect"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
@@ -57,5 +60,35 @@ func TestSecretGuardFromPlanes_ReadIsolation(t *testing.T) {
 	}
 	if len(againInv.SecretGuardSourceCategories) != 2 || againInv.SecretGuardSourceCategories[0] != "env" {
 		t.Fatalf("reread categories=%v want [env catalog]", againInv.SecretGuardSourceCategories)
+	}
+}
+
+func TestSecretGuardFromPlanes_DiscoveryCapabilityAndInventory(t *testing.T) {
+	t.Parallel()
+	capability := &struct{ generation string }{generation: "fixture"}
+	cfg := &secretguard.ExecutionConfig{
+		AccessMode: "single_user", Capability: capability,
+		LocalAutoDiscoveryEnabled: true, BetterLeaksEnabled: true,
+		BetterLeaksVersion: "fixture-version", BetterLeaksConfigHash: "fixture-config",
+		BetterLeaksRuleCount: 0, BetterLeaksConfidence: "high",
+		BetterLeaksDecodeDepth: 0, BetterLeaksWorkers: 2, DiscoveryDetectorCount: 1,
+	}
+	cs := lipfeature.NewContributionSet()
+	if err := lipfeature.ContributeSource(cs, lipfeature.PlaneSecretGuardExecution, lipfeature.SourceGenerationBinder, "secret-guard-execution", cfg); err != nil {
+		t.Fatal(err)
+	}
+	plane, inventory := secretGuardFromPlanes(cs.Freeze())
+	if plane.Capability != capability {
+		t.Fatal("frozen discovery capability lost at runtime composition boundary")
+	}
+	want := &diag.InventoryExtras{
+		SecretGuardAccessMode: "single_user", SecretGuardLocalAutoDiscovery: true,
+		SecretGuardBetterLeaksEnabled: true, SecretGuardBetterLeaksVersion: "fixture-version",
+		SecretGuardBetterLeaksConfigHash: "fixture-config", SecretGuardBetterLeaksRuleCount: 0,
+		SecretGuardBetterLeaksConfidence: "high", SecretGuardBetterLeaksDecodeDepth: 0,
+		SecretGuardBetterLeaksWorkers: 2, SecretGuardDiscoveryDetectorCount: 1,
+	}
+	if !reflect.DeepEqual(inventory, want) {
+		t.Fatal("frozen discovery posture lost in diagnostics, including explicit zero settings")
 	}
 }

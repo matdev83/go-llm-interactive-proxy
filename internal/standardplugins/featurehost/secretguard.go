@@ -26,6 +26,7 @@ type (
 type SecretGuardRuntime struct {
 	Plane     extensions.SecretGuardPlane
 	Inventory *diag.InventoryExtras
+	Services  *secretguard.GenerationServices
 }
 
 // SecretGuardBuildInput contains inputs for building the secret guard runtime.
@@ -66,6 +67,7 @@ func buildSecretGuardRuntime(in SecretGuardBuildInput) (*SecretGuardRuntime, err
 	return &SecretGuardRuntime{
 		Plane:     out.Plane,
 		Inventory: out.Inventory,
+		Services:  out.Services,
 	}, nil
 }
 
@@ -89,6 +91,7 @@ func secretGuardExecutionConfig(out *SecretGuardRuntime) *sdk.ExecutionConfig {
 	}
 	cfg := &sdk.ExecutionConfig{
 		MatcherResolver:    out.Plane.MatcherResolver,
+		Capability:         out.Services,
 		DecisionObserver:   out.Plane.DecisionObserver,
 		AuditFailurePolicy: out.Plane.AuditFailurePolicy,
 		AccessMode:         out.Plane.AccessMode,
@@ -98,6 +101,15 @@ func secretGuardExecutionConfig(out *SecretGuardRuntime) *sdk.ExecutionConfig {
 		cfg.CatalogEntryCount = out.Inventory.SecretGuardCatalogEntryCount
 		cfg.SourceCategories = append([]string(nil), out.Inventory.SecretGuardSourceCategories...)
 		cfg.CatalogAction = out.Inventory.SecretGuardAction
+		cfg.LocalAutoDiscoveryEnabled = out.Inventory.SecretGuardLocalAutoDiscovery
+		cfg.BetterLeaksEnabled = out.Inventory.SecretGuardBetterLeaksEnabled
+		cfg.BetterLeaksVersion = out.Inventory.SecretGuardBetterLeaksVersion
+		cfg.BetterLeaksConfigHash = out.Inventory.SecretGuardBetterLeaksConfigHash
+		cfg.BetterLeaksRuleCount = out.Inventory.SecretGuardBetterLeaksRuleCount
+		cfg.BetterLeaksConfidence = out.Inventory.SecretGuardBetterLeaksConfidence
+		cfg.BetterLeaksDecodeDepth = out.Inventory.SecretGuardBetterLeaksDecodeDepth
+		cfg.BetterLeaksWorkers = out.Inventory.SecretGuardBetterLeaksWorkers
+		cfg.DiscoveryDetectorCount = out.Inventory.SecretGuardDiscoveryDetectorCount
 	}
 	if cfg.IsZero() {
 		return nil

@@ -2,11 +2,15 @@
 
 Ingress secret detection and enforcement for LLM Interactive Proxy (issue #151).
 
-This document freezes the full exact-match v1 feature: requirements, design rules, stage order, source/action matrices, audit schema, and operator guidance. Exact-match v1 is ingress-only: it scans only **loaded** secret values in model-bound request content; it does not discover unknown secrets by entropy or regex.
+SecretGuard operates before provider dispatch, exclusively on **user prompt content and tool execution output**. Exact matching protects loaded secret values; the embedded BetterLeaks detector additionally discovers unknown credentials when enabled. The approved hybrid contract is defined in `.kiro/specs/betterleaks-secret-guard/`.
+
+Assistant history and model-generated tool calls remain unchanged when replayed. Instructions (including system/developer messages), unknown message roles, reasoning/refusal/reference items, and tool definitions (names, descriptions, schemas) are excluded from scanning, enforcement, mutation, and scan-budget accounting. JSON configuration or schema snippets are eligible when they appear inside a user prompt or tool output; eligibility follows provenance, not data shape.
+
+SecretGuard MUST NOT inspect, scan, redact, transform, collect, buffer, delay for inspection, or otherwise interpose on provider response events or streams, including while actively redacting requests. Secret-bearing provider events pass downstream unchanged and incrementally. Scanning can add pre-dispatch request latency; it does not collect provider output.
 
 ## Goals
 
-- Detect exact loaded secret values in model-bound textual/JSON fields before any metering checkpoint, traffic capture, routing, or backend dispatch.
+- Detect secrets in eligible user prompt and tool-output textual/JSON fields before any metering checkpoint, traffic capture, routing, or backend dispatch.
 - Support `block`, `redact`, and `log` actions with secret-safe structured audit events.
 - Isolate single-user environment catalogs from multi-user request-credential matching.
 - Quarantine secure sessions permanently on block so resumed turns cannot reach backends.
@@ -14,7 +18,7 @@ This document freezes the full exact-match v1 feature: requirements, design rule
 
 ## Non-goals (exact-match v1)
 
-- Entropy, regex, or ML discovery of unknown secrets not present in the loaded catalog.
+- Unknown-secret discovery by the exact matcher itself; BetterLeaks supplies that separate detector capability.
 - Scanning binary/media parts that are not model-bound textual/JSON.
 - Scanning responses, egress captures, or backend-returned payloads; in `log` mode the ingress call is unchanged, so downstream capture can still observe a model echo of already-submitted content.
 - Transformed forms of a secret value such as base64, hex, URL-encoded, encrypted, or fragmented/split representations.
@@ -27,7 +31,7 @@ This document freezes the full exact-match v1 feature: requirements, design rule
 | ID | Requirement |
 |---|---|
 | **1.1** | Feature is disabled by default and enabled through one `plugins.features` entry; enabled configuration requires an explicit action. |
-| **1.2** | Inspect every model-bound textual/JSON field: instructions, message text/JSON, tool-role text, tool-call/function-call names and arguments, `tool_result` payloads, and tool descriptions/input schemas. |
+| **1.2** | Inspect only user/tool-role message text/JSON and genuine tool-result output/parts. Preserve instructions, assistant history, model tool calls, unknown roles and tool definitions unchanged. |
 | **1.3** | Detect exact loaded secret values case-sensitively, including repeated and overlapping occurrences, without logging values or excerpts. |
 | **2.1** | In `single_user`, load all configured proxy credential environment variables, including bare and sparse numbered forms, retaining the exact environment-variable name. |
 | **2.2** | In `single_user`, load a curated registry of popular non-proxy credential environment variables plus explicit operator includes/excludes. |
@@ -131,17 +135,19 @@ The shared declared public-prefix registry is value-based, not environment-name 
 
 ## Frontend × field coverage matrix
 
-Every bundled frontend must cover the same canonical locations (requirement 5.1):
+Every bundled frontend must preserve the same provenance boundary (requirement 5.1). "Excluded" content remains unchanged:
 
 | Location | OpenAI Responses | OpenAI Chat Completions | Anthropic | Gemini |
 |---|---|---|---|---|
-| Instructions / system | yes | yes | yes | yes |
-| User/assistant message text | yes | yes | yes | yes |
-| Message JSON parts | yes | yes | yes | yes |
+| Instructions / system / developer | excluded | excluded | excluded | excluded |
+| User message text | yes | yes | yes | yes |
+| Assistant history | excluded | excluded | excluded | excluded |
+| User/tool message JSON parts | yes | yes | yes | yes |
 | Tool-role / tool text | yes | yes | yes | yes |
-| Assistant tool-call / function-call arguments | yes | yes | yes | yes |
+| Assistant tool-call / function-call arguments | excluded | excluded | excluded | excluded |
 | `tool_result` payloads | yes | yes | yes | yes |
-| Tool description / input schema | yes | yes | yes | yes |
+| Tool name / description / input schema | excluded | excluded | excluded | excluded |
+| Provider response events | excluded | excluded | excluded | excluded |
 
 Wire errors remain protocol-native; canonical findings and action outcomes are equivalent across frontends.
 
@@ -175,7 +181,7 @@ Metrics may use only bounded labels: `action`, `outcome`, `source_category`.
 
 ### Exact matching and known-prefix redaction
 
-- **Exact-match v1 only.** The guard scans for secret **values loaded into the catalog** at composition time. It does not discover unknown secrets by entropy, regex, or ML.
+- **Exact matcher.** This detector scans for secret **values loaded into the catalog** at composition time. BetterLeaks is a separate discovery detector; both share the same provenance restriction and request-byte budget.
 - Matching is **case-sensitive**, **deterministic**, and reports **repeated and overlapping** occurrences without logging values or excerpts.
 - At the same offset, the **longest catalog value wins**. Identical values are deduplicated in findings while safe alias names are retained.
 - Values shorter than `min_secret_bytes` (default **8**) are excluded from the catalog.
@@ -189,7 +195,7 @@ Metrics may use only bounded labels: `action`, `outcome`, `source_category`.
 
 ### Scan limits
 
-- Each scanned model-bound field is bounded by `scan_max_bytes` (default **2 MiB**, maximum **64 MiB**).
+- Eligible logical fragments share one request-level `scan_max_bytes` budget (default **2 MiB**, maximum **64 MiB**), charged once before either detector scans them. Excluded fields consume no budget.
 - When a field exceeds the limit:
   - **`block`** and **`redact`** return a normal `block` decision with `failure_kind=scan_limit`, quarantine the session, and deny the turn.
   - **`log`** records `scan_limit_hit=true` on the decision event, increments the bounded `secret_guard_*_scan_limit` metric, and continues without blocking on the limit alone.
@@ -232,7 +238,7 @@ plugins:
         action: block                 # required when enabled: block | redact | log
         audit_failure_policy: fail_closed  # fail_closed | best_effort
         min_secret_bytes: 8
-        scan_max_bytes: 2097152       # default 2 MiB per scanned field; max 67108864 (64 MiB)
+        scan_max_bytes: 2097152       # shared eligible-request budget; max 67108864 (64 MiB)
         single_user:
           include_popular_env: true
           include_env: []

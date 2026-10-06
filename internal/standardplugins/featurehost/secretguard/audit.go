@@ -12,8 +12,8 @@ import (
 const msgSecretGuardDecision = "lip.secret_guard.decision"
 
 // NewSlogObserver returns a sdk.Observer that writes secret-safe decision
-// events to log. log must be non-nil. Finding values are never logged — only
-// counts, the first secret ref name, and source categories.
+// events to log. log must be non-nil. Finding values are never logged; only
+// bounded references, provenance, counts, and source categories are emitted.
 func NewSlogObserver(log *slog.Logger) (sdk.Observer, error) {
 	if log == nil {
 		return nil, fmt.Errorf("secretaudit: nil logger")
@@ -68,6 +68,9 @@ type safeFinding struct {
 	SourceCategory  string   `json:"source_category"`
 	Location        string   `json:"location,omitempty"`
 	OccurrenceCount int      `json:"occurrence_count"`
+	DetectorID      string   `json:"detector_id,omitempty"`
+	RuleID          string   `json:"rule_id,omitempty"`
+	Confidence      string   `json:"confidence,omitempty"`
 }
 
 func safeFindings(findings []sdk.Finding) []safeFinding {
@@ -82,6 +85,9 @@ func safeFindings(findings []sdk.Finding) []safeFinding {
 			SourceCategory:  string(findings[i].SourceCategory),
 			Location:        findings[i].Location,
 			OccurrenceCount: findings[i].OccurrenceCount,
+			DetectorID:      findings[i].DetectorID,
+			RuleID:          findings[i].RuleID,
+			Confidence:      findings[i].Confidence,
 		}
 	}
 	return out

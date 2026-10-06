@@ -55,19 +55,37 @@ type InventoryExtras struct {
 	CompatibleBackends CompatibleBackendProjector
 	// Precomputed is supplied by a composition root when related operator views
 	// already share one projection pass. A non-nil value is authoritative.
-	Precomputed                  *InventoryProjection
-	InstanceDiagnosticProjectors []InstanceDiagnosticProjector
-	SecretGuardCatalogEntryCount int
-	SecretGuardSourceCategories  []string
-	SecretGuardAccessMode        string
-	SecretGuardAction            string
+	Precomputed                       *InventoryProjection
+	InstanceDiagnosticProjectors      []InstanceDiagnosticProjector
+	SecretGuardCatalogEntryCount      int
+	SecretGuardSourceCategories       []string
+	SecretGuardAccessMode             string
+	SecretGuardAction                 string
+	SecretGuardLocalAutoDiscovery     bool
+	SecretGuardBetterLeaksEnabled     bool
+	SecretGuardBetterLeaksVersion     string
+	SecretGuardBetterLeaksConfigHash  string
+	SecretGuardBetterLeaksRuleCount   int
+	SecretGuardBetterLeaksConfidence  string
+	SecretGuardBetterLeaksDecodeDepth int
+	SecretGuardBetterLeaksWorkers     int
+	SecretGuardDiscoveryDetectorCount int
 }
 type InventorySecretGuard struct {
-	InstanceID        string   `json:"instance_id"`
-	Action            string   `json:"action,omitempty"`
-	CatalogEntryCount int      `json:"catalog_entry_count"`
-	SourceCategories  []string `json:"source_categories,omitempty"`
-	AccessMode        string   `json:"access_mode,omitempty"`
+	InstanceID                string   `json:"instance_id"`
+	Action                    string   `json:"action,omitempty"`
+	CatalogEntryCount         int      `json:"catalog_entry_count"`
+	SourceCategories          []string `json:"source_categories,omitempty"`
+	AccessMode                string   `json:"access_mode,omitempty"`
+	LocalAutoDiscoveryEnabled bool     `json:"local_auto_discovery_enabled"`
+	BetterLeaksEnabled        bool     `json:"betterleaks_enabled"`
+	BetterLeaksVersion        string   `json:"betterleaks_version,omitempty"`
+	BetterLeaksConfigHash     string   `json:"betterleaks_config_hash,omitempty"`
+	BetterLeaksRuleCount      *int     `json:"betterleaks_active_rule_count,omitempty"`
+	BetterLeaksConfidence     string   `json:"betterleaks_minimum_confidence,omitempty"`
+	BetterLeaksDecodeDepth    *int     `json:"betterleaks_max_decode_depth,omitempty"`
+	BetterLeaksWorkers        int      `json:"betterleaks_workers,omitempty"`
+	DiscoveryDetectorCount    int      `json:"discovery_detector_count"`
 }
 
 type InventoryExtensions struct {
@@ -169,6 +187,19 @@ func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *I
 				if extras.SecretGuardAction != "" {
 					sg.Action = strings.TrimSpace(extras.SecretGuardAction)
 				}
+				sg.LocalAutoDiscoveryEnabled = extras.SecretGuardLocalAutoDiscovery
+				sg.BetterLeaksEnabled = extras.SecretGuardBetterLeaksEnabled
+				sg.BetterLeaksVersion = extras.SecretGuardBetterLeaksVersion
+				sg.BetterLeaksConfigHash = extras.SecretGuardBetterLeaksConfigHash
+				if extras.SecretGuardBetterLeaksEnabled {
+					ruleCount := extras.SecretGuardBetterLeaksRuleCount
+					decodeDepth := extras.SecretGuardBetterLeaksDecodeDepth
+					sg.BetterLeaksRuleCount = &ruleCount
+					sg.BetterLeaksDecodeDepth = &decodeDepth
+				}
+				sg.BetterLeaksConfidence = extras.SecretGuardBetterLeaksConfidence
+				sg.BetterLeaksWorkers = extras.SecretGuardBetterLeaksWorkers
+				sg.DiscoveryDetectorCount = extras.SecretGuardDiscoveryDetectorCount
 			}
 			entry.SecretGuard = sg
 		}

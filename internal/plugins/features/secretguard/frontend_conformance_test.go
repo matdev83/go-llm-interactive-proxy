@@ -100,6 +100,12 @@ func frontendConformanceResult(frontendID, location string) (frontendConformance
 	if err != nil {
 		return frontendConformanceOutcome{}, fmt.Errorf("%s/%s: %w", frontendID, location, err)
 	}
+	if !frontendFieldEligible(location) {
+		if decision.Outcome != sdk.OutcomePass || len(decision.Findings) != 0 {
+			return frontendConformanceOutcome{}, fmt.Errorf("%s/%s: excluded field produced outcome=%q findings=%d", frontendID, location, decision.Outcome, len(decision.Findings))
+		}
+		return frontendConformanceOutcome{Outcome: sdk.OutcomePass}, nil
+	}
 	if decision.Outcome != sdk.OutcomeBlock {
 		return frontendConformanceOutcome{}, fmt.Errorf("%s/%s: outcome=%q", frontendID, location, decision.Outcome)
 	}
@@ -124,6 +130,15 @@ func frontendConformanceResult(frontendID, location string) (frontendConformance
 		SecretRefName:   got.SecretRefName,
 		OccurrenceCount: got.OccurrenceCount,
 	}, nil
+}
+
+func frontendFieldEligible(location string) bool {
+	switch location {
+	case "message_text", "tool_role_text", "tool_result":
+		return true
+	default:
+		return false
+	}
 }
 
 func TestFrontendFieldCoverageMatrix_conformance(t *testing.T) {

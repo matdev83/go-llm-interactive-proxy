@@ -135,6 +135,43 @@ func TestSecretGuardCompose_MultiUserZeroEnvironmentCalls(t *testing.T) {
 	}
 }
 
+// TestSecretGuardCompose_MultiUserExplicitLocalDiscoveryRejectedBeforeEnvironment
+// is the RED characterization for the access-mode-safe local discovery switch.
+// Validation must reject the explicit request before any environment source is
+// consulted, even though multi-user composition otherwise uses the request
+// credential matcher only.
+func TestSecretGuardCompose_MultiUserExplicitLocalDiscoveryRejectedBeforeEnvironment(t *testing.T) {
+	t.Parallel()
+	env := &panicEnv{}
+	regs := []lipsdk.Registration{{
+		Kind:        lipsdk.PluginKindFeature,
+		ID:          "detector-policy",
+		FactoryKind: "secrets-guard",
+		Enabled:     true,
+		Config: lipsdk.ConfigPayload{Node: mustYAMLNode(t, `
+action: block
+auto_discovered_local_keys:
+  enabled: true
+`)},
+	}}
+
+	out, err := sgcompose.Compose(sgcompose.Input{
+		AccessMode:    accessmode.ModeMultiUser,
+		Registrations: regs,
+		Environment:   env,
+		Logger:        discardLogger(),
+	})
+	if err == nil || out != nil {
+		t.Fatalf("expected explicit multi_user local discovery rejection, out=%#v err=%v", out, err)
+	}
+	if !strings.Contains(err.Error(), "auto_discovered_local_keys") {
+		t.Fatalf("rejection must identify the invalid detector switch: %v", err)
+	}
+	if env.calls != 0 {
+		t.Fatalf("invalid multi_user detector configuration read environment %d times", env.calls)
+	}
+}
+
 func TestSecretGuardCompose_DisabledZeroEnvironmentCalls(t *testing.T) {
 	t.Parallel()
 	env := &panicEnv{}
@@ -473,6 +510,39 @@ redaction:
 			t.Fatalf("composed min_secret_bytes: %d", su.MinSecretBytes)
 		}
 	})
+}
+
+func TestSecretGuardCompose_FeatureOffSkipsDetectorConstruction(t *testing.T) {
+	t.Parallel()
+
+	runtimeCfg := secretguard.RuntimeConfig{
+		Enabled: false,
+		BetterLeaks: secretguard.BetterLeaksPolicy{
+			Enabled: true,
+			Workers: 0,
+		},
+	}
+	out, err := sgcompose.Compose(sgcompose.Input{
+		RuntimeConfig: &runtimeCfg,
+		Environment:   &panicEnv{},
+		Logger:        discardLogger(),
+	})
+	if err != nil {
+		t.Fatalf("feature-off composition: %v", err)
+	}
+	if out == nil || out.Services == nil {
+		t.Fatal("feature-off composition must return the frozen service capability")
+	}
+	posture := out.Services.Posture()
+	if posture.LocalAutoDiscoveryEnabled || posture.BetterLeaksEnabled || posture.DiscoveryDetectorCount != 0 {
+		t.Fatalf("feature-off detector posture: %+v", posture)
+	}
+	if facts := out.Services.DetectorFacts(); facts.Version != "" || facts.ConfigHash != "" || facts.RuleInventoryHash != "" || facts.ActiveRuleCount != 0 || facts.MinimumConfidence != "" || facts.MaxDecodeDepth != 0 || facts.Workers != 0 || len(facts.RuleIDs) != 0 {
+		t.Fatalf("feature-off composition constructed detector facts: %+v", facts)
+	}
+	if out.Inventory != nil {
+		t.Fatal("feature-off composition must not publish detector inventory")
+	}
 }
 
 func TestSecretGuardCompose_MultiUserRejectsSingleUserKey(t *testing.T) {

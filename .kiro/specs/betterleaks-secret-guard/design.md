@@ -43,13 +43,13 @@ The top-level `secrets-guard` registration remains explicit and action-required.
 | 1.1-1.9 | detector switches/defaults/access-mode safety | Config Resolver, SecretGuard Composer | resolved detector policy | Generation composition |
 | 2.1-2.5 | preserve exact known-secret protection | Exact Resolver, Request Credential Matcher | existing `MatcherResolver` | Hybrid request scan |
 | 3.1-3.8 | embedded detection-only BetterLeaks | BetterLeaks Adapter | private `DiscoveryDetector` | Generation construction |
-| 4.1-4.6 | whole logical fragment scanning | Logical Fragment Walker | `LogicalFragment` | Hybrid request scan |
+| 4.1-4.7 | provenance-restricted whole logical fragment scanning | Logical Fragment Walker | `LogicalFragment` | Hybrid request scan |
 | 5.1-5.6 | safe projection/dedup | Discovery Result Projector, Hybrid Merger | safe finding DTO | Finding projection |
 | 6.1-6.7 | enforcement/redaction ownership | Guard, Rewrite Bridge | existing exact rewriter | Block/log/redact |
 | 7.1-7.10 | operator tuning | Config Resolver, BetterLeaks Builder | resolved BetterLeaks config | Candidate publication |
 | 8.1-8.8 | lifecycle/errors/resource bounds | BetterLeaks Builder, Scanner Handle | error-returning scan | Generation/request lifecycle |
 | 9.1-9.6 | diagnostics/upgrade ratchet | Diagnostics Projector, Policy Ratchet | bounded inventory | Diagnostics/audit |
-| 10.1-10.8 | brownfield certification | tests/benchmarks/archtests | existing matrices | QA/certification |
+| 10.1-10.9 | brownfield certification and response passthrough | tests/benchmarks/archtests | existing matrices | QA/certification |
 
 ## Architecture
 
@@ -152,12 +152,16 @@ The resolved runtime configuration contains concrete booleans and immutable Bett
 
 ### BetterLeaks rule selectors
 
-- `disable_rules`: zero or more exact upstream rule IDs removed from the pinned default configuration.
-- `isolate_rules`: zero or more exact upstream rule IDs used as the selected root set; required component rules are retained automatically.
+- `disable_rules`: zero or more exact upstream rule IDs removed from the pinned default configuration. The resolver removes only those selected IDs, then inspects the remaining dependency graph: a retained rule with a required reference to a removed ID rejects the candidate with a bounded configuration error. Removing a component is valid when every rule that requires it is explicitly selected for removal. Optional references to removed IDs are pruned from retained rules. No dependent rule is cascade-removed, no retained required reference is weakened or removed, and no suppression such as `SkipReport` substitutes for removal.
+- `isolate_rules`: zero or more exact upstream rule IDs used as the selected root set. The resolver retains the roots and their transitive required component closure, prunes optional references to components outside that closure, and retains an explicitly selected optional component with its pinned matching and reporting behavior (including its required closure).
 - the two lists are mutually exclusive;
 - IDs are trimmed, deduplicated, sorted, and validated during candidate generation;
 - unknown IDs are errors;
 - custom TOML paths, target-local config, ignores, baselines, allow signatures, validation, and source options are intentionally absent.
+
+The selector algorithm is illustrated by the pinned AWS multipart rules. `disable_rules: [aws-secret-access-key]` is invalid because the retained `aws-access-token` rule requires that component. `disable_rules: [aws-access-token, aws-secret-access-key]` is valid because both the component and its dependent are explicitly removed. `isolate_rules: [aws-access-token]` is valid and retains both the selected AWS rule and its required `aws-secret-access-key` component. An isolated rule with an unselected optional component keeps the root and prunes that optional reference; selecting the optional component explicitly keeps it active.
+
+Selector dependency errors are bounded and do not echo raw selector values or scanner findings. The candidate is rejected before precompilation/publication, so no policy identity is published for the failed resolution. On success, the config hash, rule-inventory hash, active count, and sorted final rule inventory are computed from the resolved post-selector configuration and captured as immutable generation facts.
 
 ## System Flows
 
@@ -176,14 +180,21 @@ sequenceDiagram
     Compose->>Compose: Reject local discovery in multi user
     Compose->>BL: Build only when BetterLeaks enabled
     BL->>BL: Load pinned default config
-    BL->>BL: Apply validated rule selection
-    BL->>BL: Precompile with no allow signatures
-    BL->>BL: Compute hash and rule count
-    BL-->>Compose: Immutable scanner handle and diagnostics
-    Compose-->>Gen: Frozen secret guard execution plane
+    BL->>BL: Resolve selectors and required/optional dependencies
+    alt Invalid dependency selection
+        BL-->>Compose: Bounded configuration error
+        Compose-->>Reload: Reject candidate; retain published generation
+    else Valid dependency selection
+        BL->>BL: Precompile with no allow signatures
+        BL->>BL: Compute hash and rule count
+        BL-->>Compose: Immutable scanner handle and diagnostics
+        Compose-->>Gen: Frozen secret guard execution plane
+    end
 ```
 
 No environment call is needed to reject an invalid multi-user local-discovery configuration. The environment source is consulted only after the resolved policy says local discovery is allowed and enabled.
+
+Any selector dependency error rejects the candidate before it can replace the runtime generation; the previously published generation remains serving under the existing reload semantics (Requirement 7.10).
 
 ### Request detection and enforcement
 
@@ -300,13 +311,14 @@ Construction invariants:
 type LogicalFragment struct {
     Location string
     Kind     FragmentKind
+    Text     string
     Raw      []byte
 }
 ```
 
-`Location` is a bounded canonical locator already derivable from the request traversal. `Kind` is a closed enum such as text or JSON. `Raw` is request-owned/transient and must never appear in diagnostics.
+`Location` is a bounded canonical locator already derivable from the request traversal. `Kind` is a closed enum such as text or JSON. Text fragments retain the original immutable string; JSON fragments retain their original raw representation. These are alternative private representations, not duplicated payload buffers. Byte materialization is deferred until occurrence mapping or mutation needs it, without unsafe aliasing. Neither representation may appear in diagnostics.
 
-V1 emits whole logical units where BetterLeaks context is meaningful: text parts, raw JSON tool arguments/results/schemas, and bounded tool descriptions/names where those are already canonical content. It does not concatenate the complete request.
+V1 emits whole logical text and JSON units exclusively from user prompts and tool execution output. Message traversal admits only RoleUser/RoleTool in Call.Messages; Instructions are never visited. Item-authoritative traversal admits RoleUser/RoleTool message content and ItemKindToolResult output/parts. Assistant/system/developer/unknown-role messages, tool calls, reasoning/refusal/reference items, and Call.Tools are excluded. JSON config snippets and schemas remain detectable when embedded in eligible prompt/output content. The same walker controls exact and BetterLeaks scanning, budget admission, and redaction replacement handles, so excluded content cannot be mutated by a second traversal. It does not concatenate the complete request or infer provenance from data shape.
 
 The walker and existing exact traversal use the same scan-budget owner.
 
@@ -461,7 +473,7 @@ No hard latency SLO is invented here because current secret-guard baseline measu
 
 ### Streaming-first / retry semantics
 
-**PASS.** This is a pre-dispatch request-stage feature. It does not alter response streaming, output commitment, retry, failover, or B2BUA semantics.
+**Required invariant (10.9).** This is exclusively a pre-dispatch request-stage feature, even while enabled and actively redacting. It MUST NOT inspect, scan, redact, transform, collect, buffer, delay for inspection, or otherwise interpose on provider response events or streams. It does not alter output commitment, retry, failover, or B2BUA semantics. A controllable EventStream regression must emit valid response/message start events, then release a first secret-bearing provider event while completion remains blocked, prove downstream observes the unchanged event, and release subsequent events and termination. This test must run with action:redact and BetterLeaks enabled and prove the provider received the redacted eligible request. Execution and receive waits must be bounded; cancellation must close the provider and join owned receive goroutines on every path. The negative control must demonstrate delayed delivery by withholding an event until completion and then releasing it unchanged, rather than merely modeling permanent non-delivery.
 
 ### Public SDK leakage
 
@@ -487,3 +499,20 @@ No hard latency SLO is invented here because current secret-guard baseline measu
 - BetterLeaks v2 RC API may change; the adapter must absorb that churn.
 - Multipart findings and decoded findings may require careful literal candidate mapping; fail closed rather than broadening mutation heuristics.
 - Double traversal of request bytes can add CPU. The shared byte budget bounds size but performance benchmarks still determine whether additional optimization is needed.
+
+## PR Review Repair Commitments
+
+The full-head review adds three bounded repairs within the existing feature boundary:
+
+- Multipart projection retains an explicit incomplete-knowledge condition for upstream component-set truncation or local component/occurrence exhaustion. Redaction fails closed before clone publication whenever this condition prevents proving coverage; bounded metadata alone must not certify sanitization. Log-mode detector failure still scans independent exact/request credentials on admitted fragments and retains scan-limit posture.
+- Hybrid grouping uses private keyed maps for exact and discovery groups and indexes positional overlap, avoiding whole-group searches per finding. The per-fragment scan path must also avoid rebuilding an index over all accumulated safe findings each time. Keys remain internal, deterministic safe output ordering is unchanged, and secret values never enter public metadata.
+- JSON occurrence mapping validates complete input with standard JSON syntax validation without allocating a decoder input copy. Invalid or trailing-content input falls back to the canonical first-value decoder without constructing another decoded tree; both paths preserve the canonical first-value byte interval. It streams canonical semantic tokens, preserving numeric spelling, bool/null tokens, sorted last-wins object keys and first-value bounds. Scalars and unescaped valid UTF-8 strings use implicit raw offsets; the rewrite bridge retains only tokens containing concrete candidates. Escaped-token detail is owned once per matched token and reused across occurrences; ordinary ASCII spans must not require a per-byte boundary array. Deferred container spans are reused to avoid rescanning nested payloads. Exact-engine no-hit scanning must not reserve unused match storage for every scalar.
+
+Adversarial many-fragment, scalar-dense JSON and repeated-hit escaped-string allocation regressions and scaling benchmarks are required alongside semantic tests. Measure the complete positive redaction path, including canonical decode/rewrite and cloning; parser-only allocation improvements do not establish this contract. These commitments implement Requirements 4.2, 4.5, 5.1–5.5, 6.2–6.7 and 8.4–8.8 without adding response-path behavior.
+
+These commitments clarify the existing Requirements 4.4, 5.3, 6.3–6.7, 7.10, and 8.7; they do not change detector defaults or operator policy.
+
+- Location projection is fragment-owned. Construct compact byte-location mapping at most once for an admitted logical fragment and retain validated absolute byte ranges in private occurrences. Literal verification, rewrite planning, and overlap identity reuse those ranges instead of repeatedly splitting or rescanning the whole fragment for every report. Regression evidence includes one 2 MiB newline-dense fragment with near-cap findings, and separates upstream scan cost from private projection/rewrite cost.
+- Resolved redaction settings are immutable generation policy. The composition boundary supplies the effective mask and prefix-preservation setting; request matcher shape cannot override an explicitly configured false setting or custom mask. Single-user and multi-user exact/discovery/hybrid paths consume the same policy without process-environment reads in multi-user mode.
+- Built-in request-credential attribution supplies neutral value-free positional identity for private overlap deduplication. An optional SDK capability may expose start/end offsets plus safe finding attribution, but never secret bytes, hashes, upstream detector objects, or feature engine types. The feature owns conversion to private occurrences and literal validation. Auth stays independent of the concrete feature engine.
+- Redaction success requires complete BetterLeaks occurrence coverage. Each occurrence must be accounted for by an actual successful rewrite or exact overlap. A missed mapping, unsupported token/key, or partial rewrite causes the existing bounded unrewritable_detected_secret block regardless of global mutation count. The original call stays unchanged on failure.
