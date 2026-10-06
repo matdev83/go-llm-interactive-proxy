@@ -6,7 +6,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $specRoot = $PSScriptRoot
-$repoRoot = (Resolve-Path (Join-Path $specRoot '..\..\..')).Path
+$repoRoot = & git -C $specRoot rev-parse --show-toplevel
+if ($LASTEXITCODE -ne 0) {
+    throw "git repository root lookup failed with exit code $LASTEXITCODE"
+}
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path ([IO.Path]::GetTempPath()) ('lip-betterleaks-baseline-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 }

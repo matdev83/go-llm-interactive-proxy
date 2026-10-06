@@ -10,7 +10,7 @@
 - REVIEW_VERDICT: APPROVED
 - VALIDATION_DECISION: GO for implementation-branch certification
 
-The current authoritative gate record is [certification-after-billing-repair.md](certification-after-billing-repair.md). The integration assessment is [validation-report.md](validation-report.md). They supersede the historical fb7032d7 NO-GO report after independently reviewed tasks 9.2–9.5.
+The historical task 9 gate record is [certification-after-billing-repair.md](certification-after-billing-repair.md). The current delivery disposition and merged-main evidence are in [validation-report.md](validation-report.md). Task 9 certification superseded the earlier fb7032d7 NO-GO report after independently reviewed tasks 9.2–9.5.
 
 Current unit, configured quality, parity, QA, strict broad Linux race, real CLI build, and CLI help exited 0. Complete applicable race coverage includes the successful billing, support-agreement, durable-runtime, and architecture lanes at 22d7b25b. Source and configuration for those lanes are unchanged by the two test-fixture files modified afterward. The earlier all-lane invocation remains exit 1; a successful single all-lane invocation at the final SHA is not claimed.
 

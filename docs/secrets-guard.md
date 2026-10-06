@@ -2,7 +2,7 @@
 
 Ingress secret detection and enforcement for LLM Interactive Proxy (issue #151).
 
-SecretGuard operates before provider dispatch, exclusively on **user prompt content and tool execution output**. Exact matching protects loaded secret values; the embedded BetterLeaks detector additionally discovers unknown credentials when enabled. The approved hybrid contract is defined in `.kiro/specs/betterleaks-secret-guard/`.
+SecretGuard operates before provider dispatch, exclusively on **user prompt content and tool execution output**. Exact matching protects loaded secret values; the embedded BetterLeaks detector additionally discovers unknown credentials when enabled. The completed hybrid contract is defined in `.kiro/specs/archive/betterleaks-secret-guard/`.
 
 Assistant history and model-generated tool calls remain unchanged when replayed. Instructions (including system/developer messages), unknown message roles, reasoning/refusal/reference items, and tool definitions (names, descriptions, schemas) are excluded from scanning, enforcement, mutation, and scan-budget accounting. JSON configuration or schema snippets are eligible when they appear inside a user prompt or tool output; eligibility follows provenance, not data shape.
 
