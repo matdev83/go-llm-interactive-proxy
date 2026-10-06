@@ -2,6 +2,9 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
+# Host-pinned structural guard (no-op unless hostname is exactly agent-dev):
+# no git worktree may live outside <container>/worktrees/ (except branches/main).
+bash "$repo_root/scripts/check-worktree-layout.sh"
 # Invoke through `bash` rather than relying on the executable bit: several
 # helper scripts are tracked mode 100644, so direct execution fails with 126 on
 # a fresh clone. Matches the legacy .githooks/pre-commit.
