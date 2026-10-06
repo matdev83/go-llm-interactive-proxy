@@ -166,8 +166,8 @@ func ValidateProcessFeatureOwnership(ps *ProcessServices) error {
 	if ps.StandardFeatures.TerminalDecisionPolicy() == nil {
 		return fmt.Errorf("%w: transferred resource TerminalDecisionPolicy is missing from featurehost", ErrDualConstructorWiring)
 	}
-	if ps.StandardFeatures.ClosersCount() != 1 {
-		return fmt.Errorf("%w: featurehost must own exactly 1 closer (terminal policy store), observed %d", ErrDualConstructorWiring, ps.StandardFeatures.ClosersCount())
+	if ps.StandardFeatures.ClosersCount() != 2 {
+		return fmt.Errorf("%w: featurehost must own exactly 2 closers (terminal policy store and lightweight session-classification holder), observed %d", ErrDualConstructorWiring, ps.StandardFeatures.ClosersCount())
 	}
 	return nil
 }
@@ -382,8 +382,8 @@ func TestProcessFeatureOwnership_DualConstructorWiringRejected(t *testing.T) {
 		if ps.StandardFeatures.TerminalDecisionPolicy() == nil {
 			t.Fatalf("%s: expected featurehost-owned TerminalDecisionPolicy to be instantiated", name)
 		}
-		if got := ps.StandardFeatures.ClosersCount(); got != 1 {
-			t.Fatalf("%s: observed %d featurehost-owned closers (want 1 for terminal policy store)", name, got)
+		if got := ps.StandardFeatures.ClosersCount(); got != 2 {
+			t.Fatalf("%s: observed %d featurehost-owned closers (want 2 for terminal policy store and lightweight session-classification holder)", name, got)
 		}
 		if err := ValidateProcessFeatureOwnership(ps); err != nil {
 			t.Fatalf("%s: ValidateProcessFeatureOwnership failed on single-owner wiring: %v", name, err)

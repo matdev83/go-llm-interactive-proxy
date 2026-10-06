@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -392,6 +393,15 @@ func (s *RequestRuntimeSnapshot) TerminalDecisionProvider() terminaldecision.Pro
 // captured by this immutable request snapshot, if present.
 func (s *RequestRuntimeSnapshot) TerminalDecisionProviderIdentity() (string, bool) {
 	return lipfeature.FrozenIdentity(s.featurePlaneSet(), lipfeature.PlaneTerminalDecisionProvider)
+}
+
+// SessionClassifier returns the exclusive session-classifier plane bound at
+// snapshot construction, or nil when the published generation contributes no
+// classifier. The returned classifier is an interface value treated as frozen
+// for the lifetime of the snapshot; generic runtime consumes it only through
+// [RunSessionClassificationStage].
+func (s *RequestRuntimeSnapshot) SessionClassifier() sessionclassification.Classifier {
+	return lipfeature.Get(s.featurePlaneSet(), lipfeature.PlaneSessionClassifier)
 }
 
 // ControlToolProvider returns the generation proxy-owned model control tool

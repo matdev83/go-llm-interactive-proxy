@@ -12,6 +12,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 )
 
 // testFactBudget is deliberately tiny so bound enforcement stays cheap:
@@ -328,6 +329,227 @@ func TestProof_AggregateFactBytes_IncludesResumeTokenAndIncompleteCompaction(t *
 	withCapsBytes := p.AggregateFactBytes()
 	if withCapsBytes != withCompactionBytes+int64(len(lipapi.CapabilityTools)) {
 		t.Fatalf("required capabilities bytes must be counted: expected %d, got %d", withCompactionBytes+int64(len(lipapi.CapabilityTools)), withCapsBytes)
+	}
+
+	// 4. Bounded classification evidence must be charged to the aggregate: the
+	// accepted client identity length plus the fixed category-bitset width.
+	//
+	// The assertion is against an independently recomputed total rather than a
+	// delta, because the carrier's fixed width is charged even when the evidence
+	// is absent. A delta from a zero carrier would therefore only ever prove the
+	// variable part; recomputing the whole cost model also fails if the carrier's
+	// contribution is dropped from AggregateFactBytes altogether.
+	p.ClassificationEvidence = sessionclassification.Evidence{Operation: p.Operation}
+	const codingAgentUserAgent = "codex_cli_rs/1.2.3"
+	p.ClassificationEvidence.ClientUserAgent = codingAgentUserAgent
+	withEvidenceBytes := p.AggregateFactBytes()
+	if want := expectedProofFactBytes(p); withEvidenceBytes != want {
+		t.Fatalf("aggregate fact bytes must charge the bounded classification evidence: expected %d, got %d",
+			want, withEvidenceBytes)
+	}
+
+	// The variable part must scale exactly with the accepted identity length.
+	longerIdentity := p
+	longerIdentity.ClassificationEvidence.ClientUserAgent = codingAgentUserAgent + "/next"
+	if got, want := longerIdentity.AggregateFactBytes(), withEvidenceBytes+int64(len("/next")); got != want {
+		t.Fatalf("aggregate fact bytes must scale with the client identity length: expected %d, got %d", want, got)
+	}
+
+	// 5. A proof whose evidence is absent is still charged the fixed carrier
+	// width, so the carrier can never be free metadata.
+	absentEvidence := p
+	absentEvidence.ClassificationEvidence = sessionclassification.Evidence{}
+	withoutIdentity := withEvidenceBytes - int64(len(codingAgentUserAgent))
+	if got := absentEvidence.AggregateFactBytes(); got != withoutIdentity {
+		t.Fatalf("absent evidence must still cost the fixed carrier width: expected %d, got %d", withoutIdentity, got)
+	}
+
+	// 6. A fully saturated category bitset must cost exactly the same as an
+	// empty one. Category bits are presence bits, so neither tool count nor body
+	// size can inflate proof metadata through classification
+	// (requirements 5.2, 5.5).
+	saturated := p
+	saturated.ClassificationEvidence.ToolCategories = sessionclassification.DefinedToolCategoryBits
+	if saturated.AggregateFactBytes() != withEvidenceBytes {
+		t.Fatalf("a saturated category bitset must not change proof metadata cost: expected %d, got %d",
+			withEvidenceBytes, saturated.AggregateFactBytes())
+	}
+
+	// 7. Accumulating every canonical tool name through the shared helper must
+	// also leave the cost unchanged: the helper keeps presence bits, never names.
+	accumulated := p
+	for _, toolName := range []string{
+		"read_file", "grep", "bash", "edit", "delete_file", "web_search", "not-a-canonical-tool",
+	} {
+		accumulated.ClassificationEvidence.ToolCategories = accumulated.ClassificationEvidence.ToolCategories.AddToolName(toolName)
+	}
+	if accumulated.AggregateFactBytes() != withEvidenceBytes {
+		t.Fatalf("accumulated tool names must not change proof metadata cost: expected %d, got %d",
+			withEvidenceBytes, accumulated.AggregateFactBytes())
+	}
+	if accumulated.ClassificationEvidence.ToolCategories != sessionclassification.DefinedToolCategoryBits {
+		t.Fatalf("every canonical tool name must map into the defined category bits: got %d, want %d",
+			accumulated.ClassificationEvidence.ToolCategories, sessionclassification.DefinedToolCategoryBits)
+	}
+}
+
+// expectedProofFactBytes recomputes Proof.AggregateFactBytes from the documented
+// accounting formula, independently of the production implementation, so that
+// dropping or mis-sizing any accounted term fails the test rather than being
+// absorbed by a delta.
+func expectedProofFactBytes(p largebody.Proof) int64 {
+	total := int64(len(p.ProfileID) + len(p.Operation) + len(p.RouteSelector) + len(p.ClientModel) + len(p.Facts.RequirementsID))
+	total += p.Turn.MetadataBytes()
+	total += int64(len(p.Session.AuthoritativeSessionID) + len(p.Session.ClientSessionID) + len(p.Session.ALegID) + p.Session.ResumeToken.ByteLen())
+	total += int64(len(p.CompactionFacts.ItemHashes)*32 + len(p.CompactionFacts.StartRuleID)) // 32 == compactionfacts.ItemHashSizeBytes
+	for _, capability := range p.RequiredCapabilities {
+		total += int64(len(capability))
+	}
+	// Bounded classification evidence: accepted client identity length plus the
+	// fixed category-bitset width. Operation is deliberately not re-charged; the
+	// proof already charges it above and the string backing is shared.
+	total += int64(len(p.ClassificationEvidence.ClientUserAgent)) + sessionclassification.ToolCategorySetBytes
+	return total
+}
+
+// TestProof_Validate_EnforcesBoundedClassificationEvidence proves the carrier is
+// validated as part of the proof rather than merely stored: matching evidence is
+// accepted, evidence describing a different operation is refused, and neither an
+// over-budget identity nor an undefined category bit may pass (requirements 5.2,
+// 5.4, 5.5).
+func TestProof_Validate_EnforcesBoundedClassificationEvidence(t *testing.T) {
+	t.Parallel()
+
+	// Absent evidence stays valid: insufficient evidence must leave the session
+	// unknown rather than force canonical materialization (requirement 5.4).
+	absent := validProof()
+	if err := absent.Validate(testFactBudget); err != nil {
+		t.Fatalf("proof without classification evidence must stay valid: %v", err)
+	}
+
+	populated := validProof()
+	populated.ClassificationEvidence = sessionclassification.Evidence{
+		Operation:       populated.Operation,
+		ClientUserAgent: "codex_cli_rs/1.2.3",
+		ToolCategories: sessionclassification.ToolCategorySet(0).
+			AddToolName("read_file").AddToolName("edit_file").AddToolName("bash"),
+	}
+	if err := populated.Validate(testFactBudget); err != nil {
+		t.Fatalf("proof with matching bounded classification evidence must be accepted: %v", err)
+	}
+
+	mismatched := validProof()
+	mismatched.ClassificationEvidence = sessionclassification.Evidence{
+		Operation:       lipapi.OperationOpenAIChatCompletions,
+		ClientUserAgent: "codex_cli_rs/1.2.3",
+	}
+	err := mismatched.Validate(testFactBudget)
+	if err == nil {
+		t.Fatal("evidence describing a different operation must be rejected")
+	}
+	if !strings.Contains(err.Error(), "classification evidence operation") {
+		t.Fatalf("expected an operation-mismatch error, got %v", err)
+	}
+
+	overBudget := validProof()
+	overBudget.ClassificationEvidence = sessionclassification.Evidence{Operation: overBudget.Operation}
+	overBudget.ClassificationEvidence.ClientUserAgent = strings.Repeat("a", testFactBudget+1)
+	err = overBudget.Validate(testFactBudget)
+	if err == nil {
+		t.Fatal("an over-budget client identity must be rejected at the proof level")
+	}
+	if !strings.Contains(err.Error(), "classification evidence") {
+		t.Fatalf("expected a classification-evidence bound error, got %v", err)
+	}
+
+	undefinedBits := validProof()
+	undefinedBits.ClassificationEvidence = sessionclassification.Evidence{Operation: undefinedBits.Operation}
+	undefinedBits.ClassificationEvidence.ToolCategories |= 1 << 15
+	err = undefinedBits.Validate(testFactBudget)
+	if err == nil {
+		t.Fatal("tool category bits outside the defined set must be rejected")
+	}
+	if !strings.Contains(err.Error(), "undefined bits") {
+		t.Fatalf("expected an undefined category-bit error, got %v", err)
+	}
+}
+
+// TestWireTurnFacts_Validate_RejectsClassificationEvidenceForAnotherOperation
+// proves the wire facts refuse evidence describing an operation other than the
+// one being executed, so a committed wire turn can never be classified by
+// another request's evidence (requirements 5.3, 5.5).
+func TestWireTurnFacts_Validate_RejectsClassificationEvidenceForAnotherOperation(t *testing.T) {
+	t.Parallel()
+
+	facts := largebody.DefaultTestWireTurnFacts()
+	if err := facts.Validate(testBudget); err != nil {
+		t.Fatalf("reference wire facts must be valid: %v", err)
+	}
+
+	mismatched := facts
+	mismatched.Session.ClassificationEvidence.Operation = lipapi.OperationOpenAIChatCompletions
+	err := mismatched.Validate(testBudget)
+	if err == nil {
+		t.Fatal("wire evidence for another operation must be rejected")
+	}
+	if !strings.Contains(err.Error(), "classification evidence operation") {
+		t.Fatalf("expected an operation-mismatch error, got %v", err)
+	}
+
+	// Matching evidence, an over-budget identity and an undefined bit are all
+	// rejected by the session domain that owns the carrier.
+	overBudget := facts
+	overBudget.Session.ClassificationEvidence.ClientUserAgent = strings.Repeat("a", int(testBudget)+1)
+	if err := overBudget.Validate(testBudget); err == nil {
+		t.Fatal("wire facts must reject an over-budget client identity")
+	}
+
+	undefinedBits := facts
+	undefinedBits.Session.ClassificationEvidence.ToolCategories |= 1 << 15
+	if err := undefinedBits.Validate(testBudget); err == nil {
+		t.Fatal("wire facts must reject undefined tool category bits")
+	}
+}
+
+// TestNewWireTurnFactsFromProof_CarriesPopulatedClassificationEvidence proves the
+// proof carrier reaches the wire facts unchanged, so the canonical and wire paths
+// observe the same bounded evidence and therefore classify identically
+// (requirements 5.3, 5.5, 12.7).
+func TestNewWireTurnFactsFromProof_CarriesPopulatedClassificationEvidence(t *testing.T) {
+	t.Parallel()
+
+	proof := validProof()
+	proof.ClassificationEvidence = sessionclassification.Evidence{
+		Operation:       proof.Operation,
+		ClientUserAgent: "roo-code/3.2.1",
+		ToolCategories: sessionclassification.ToolCategorySet(0).
+			AddToolName("read_file").AddToolName("edit_file").AddToolName("bash"),
+	}
+	if err := proof.Validate(testFactBudget); err != nil {
+		t.Fatalf("proof with populated classification evidence must be valid: %v", err)
+	}
+
+	stamp, err := largebody.BindAssessmentStamp("gen-session-classification-propagation", proof)
+	if err != nil {
+		t.Fatalf("BindAssessmentStamp: %v", err)
+	}
+	facts, err := largebody.NewWireTurnFactsFromProof(proof, stamp, "req-1", "trace-1", "bill-1")
+	if err != nil {
+		t.Fatalf("NewWireTurnFactsFromProof: %v", err)
+	}
+
+	if facts.Session.ClassificationEvidence != proof.ClassificationEvidence {
+		t.Fatalf("wire facts must carry the proof carrier unchanged: got %+v, want %+v",
+			facts.Session.ClassificationEvidence, proof.ClassificationEvidence)
+	}
+	if facts.Session.ClassificationEvidence.IsZero() {
+		t.Fatal("propagated classification evidence must not be empty")
+	}
+	if err := facts.Validate(testBudget); err != nil {
+		t.Fatalf("derived wire facts with propagated evidence must be valid: %v", err)
+	}
+	if err := facts.AssertNoShadowCall(); err != nil {
+		t.Fatalf("propagated evidence must keep the wire facts Call-free: %v", err)
 	}
 }
 

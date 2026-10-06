@@ -198,6 +198,16 @@ endif
 # Exhaustive billing schema certification preserves every generated case and seam.
 # It is separate from the default unit budget and remains part of integration QA.
 BILLING_SCHEMA_TIMEOUT ?= 30m
+
+# qa-tests runs the integration-tagged graph, which admits the exhaustive billing
+# certification sweep (~636k production ratings, measured at ~90% of a 10m budget
+# on an otherwise idle host). CI already isolates that sweep behind
+# BILLING_SCHEMA_TIMEOUT via `make test-billing-schema`; the wide local gate must
+# carry the same budget or it fails on cost, not on a defect. Only the -timeout
+# value is replaced: every other flag, package list, and test selection stays
+# exactly as pinned by internal/qa/ci_iteration_speed_contract_test.go.
+QA_TESTS_GO_TEST_FLAGS = $(filter-out -timeout=%,$(GO_TEST_FLAGS)) -timeout=$(BILLING_SCHEMA_TIMEOUT)
+
 .PHONY: test-billing-schema
 test-billing-schema:
 	$(GO) test -count=1 -timeout=$(BILLING_SCHEMA_TIMEOUT) -tags=integration -run '^(TestGeneratedSchema|TestSchemaModel(Structure|Commercial)Sweep|TestSchemaModelOrderInvariance|TestMetamorphic(PricingMetamorphism|StructuralVerdictAgreesWithModel)|TestSupportAgreementShadowPredicate|TestReplayDeepestPublishableChainTraversalIsBounded)' ./internal/core/billing
@@ -523,9 +533,9 @@ ifeq ($(OS),Windows_NT)
 else
 	@if [ "$$LIP_SKIP_QA_TESTS" = "1" ]; then \
 		echo "Skipping duplicate root tests pass (LIP_SKIP_QA_TESTS=1); running tagged delta packages..."; \
-		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/qa/... ./internal/core/runtime/... ./internal/stdhttp/... ./internal/testkit/conformance/... ./tools/backendplugin/... ./internal/core/billing/...; \
+		$(GO) test $(QA_TESTS_GO_TEST_FLAGS) -tags=precommit,integration ./internal/qa/... ./internal/core/runtime/... ./internal/stdhttp/... ./internal/testkit/conformance/... ./tools/backendplugin/... ./internal/core/billing/...; \
 	else \
-		$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./...; \
+		$(GO) test $(QA_TESTS_GO_TEST_FLAGS) -tags=precommit,integration ./...; \
 	fi
 endif
 

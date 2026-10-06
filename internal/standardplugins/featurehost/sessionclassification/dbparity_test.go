@@ -57,6 +57,20 @@ func runSessionClassificationParityContract(
 		require.NoError(t, err)
 		return candidate
 	})
+	// Task 9.2: the authority-isolation contract and the durable monotonicity-guard
+	// contract are named subtests so the parity run records that both dialects
+	// executed them, rather than folding them invisibly into the parent test.
+	t.Run("authority isolation", func(t *testing.T) {
+		runSessionClassificationAuthorityIsolationContract(t, func(t *testing.T) featurestate.Store {
+			t.Helper()
+			candidate, err := store.NewBunStore(database)
+			require.NoError(t, err)
+			return candidate
+		})
+	})
+	t.Run("positive and leased row cannot be re-sourced", func(t *testing.T) {
+		runPositiveAndLeasedCompletionGuardContract(t, database, classificationStore)
+	})
 	require.NoError(t, dbparity.VerifySchema(ctx, database, sessionClassificationLogicalSchemaSpec()))
 	assertSessionClassificationMigrationHistory(t, database)
 

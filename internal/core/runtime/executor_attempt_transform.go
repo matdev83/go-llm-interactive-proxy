@@ -39,6 +39,9 @@ func (e *Executor) candidateAttemptMeta(ctx context.Context, rf requestFacts, at
 			AuthoritativeSessionID: strings.TrimSpace(attempt.Session.AuthoritativeSessionID),
 			ClientSessionHint:      strings.TrimSpace(attempt.Session.ClientSessionID),
 			ALegID:                 rf.aLegID,
+			// Attempt views keep the turn's already-decided classification so a
+			// per-candidate consumer never re-runs the classifier (requirement 4.2).
+			Classification: rf.recvViews.Session.Classification,
 		},
 		Workspace: cloneWorkspaceView(rf.recvViews.Workspace),
 	}

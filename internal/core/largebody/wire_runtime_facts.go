@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 )
 
 // DefaultWireMaxAttempts is the pre-route retry-budget default carried in
@@ -200,6 +201,14 @@ type WireSessionFacts struct {
 	// TurnShape holds the bounded normalized client-turn shape without prompt text.
 	// Named consumer: RecordClientTurnAfterGate.
 	TurnShape ClientTurnShape
+
+	// ClassificationEvidence holds the bounded classification summary for this
+	// turn: accepted client identity plus fixed tool-category bits, and nothing
+	// else. It lets the wire path classify without reconstructing a canonical
+	// Call, and it carries no header bag, tool list, transcript or path
+	// (Requirements 5.2, 5.3, 5.5).
+	// Named consumer: wire session-classification stage.
+	ClassificationEvidence sessionclassification.Evidence
 }
 
 // Validate enforces session and turn shape bounds under maxFactBytes.
@@ -212,6 +221,9 @@ func (f WireSessionFacts) Validate(maxFactBytes int64) error {
 	}
 	if err := f.TurnShape.Validate(maxFactBytes); err != nil {
 		return fmt.Errorf("largebody: session facts turn shape: %w", err)
+	}
+	if err := f.ClassificationEvidence.Validate(maxFactBytes); err != nil {
+		return fmt.Errorf("largebody: session facts classification evidence: %w", err)
 	}
 	return nil
 }
@@ -369,39 +381,40 @@ type WireTurnFacts struct {
 // to its explicit named downstream consumer (Requirement 19.1, 19.4).
 func (f WireTurnFacts) AuditNamedConsumers() map[string]string {
 	return map[string]string{
-		"route.profile_id":              "candidate profile validation, backend wire proof lookup",
-		"route.route_selector":          "buildRoutePlan, candidate resolution, late route-override validation",
-		"route.client_model":            "route selection, backend capability check, default model fallback",
-		"route.candidate_model":         "candidate execution, model token splice, attempt verification",
-		"route.route_prefs":             "candidate filtering, affinity key resolution",
-		"route.max_attempts":            "retry budget enforcement in route plan",
-		"route.default_backend":         "default backend selection in route plan",
-		"protocol.operation":            "frontend-pipeline dispatch, wire-open framing",
-		"protocol.delivery":             "attempt execution, holdalive wrapping, response pipeline",
-		"protocol.requirements_id":      "protocol conformance check, candidate feature requirements",
-		"protocol.control_count":        "protocol-control validation without prompt content",
-		"max_output.max_output_tokens":  "clamp preview, attempt authority admission, metering quantities",
-		"max_output.clamped_max_output": "attempt narrow-down clamp enforcement",
-		"identity.request_id":           "trace correlation, frontend-ingress checkpoint ID, stable call ID",
-		"identity.trace_id":             "distributed tracing, diagnostics, checkpoint correlation",
-		"identity.canonical_digest":     "deterministic response IDs, timestamps, stable call token",
-		"identity.checkpoint_id":        "metering public checkpoint identification",
-		"session.input":                 "PrepareSecureSession, ExecuteBeginTurn post-commit",
-		"session.turn_shape":            "RecordClientTurnAfterGate",
-		"source.source_digest":          "replay reader integrity check, attempt checkpoint evidence",
-		"source.body_bytes":             "body limit check, spool reservation verification, response facts",
-		"source.body_mode":              "framing and media-type validation",
-		"rewrite.semantics":             "backend wire proof validation (ResolveWireRequest, ResolveWireDomain)",
-		"rewrite.model_span":            "streaming model token splice reader",
-		"rewrite.replacement_model":     "per-attempt replacement model encoding",
-		"rewrite.rewritten_length":      "outbound HTTP Content-Length header calculation",
-		"rewrite.rewrite_digest":        "backend attempt checkpoint evidence (WireBackendIngressInput.RewriteDigest)",
-		"economic.billing_call_id":      "BillingCallID-scoped exposure admission, usage append, journal commands",
-		"economic.account_id":           "cheap pre-route credit gate, exposure admission",
-		"economic.customer_pricing":     "post-usage rating, exposure quote",
-		"economic.charge_policy":        "charge policy evaluation",
-		"economic.request_count":        "metering quantities builder, clamp exposure quantities",
-		"economic.max_output_quantity":  "metering checkpoint quantities",
+		"route.profile_id":                "candidate profile validation, backend wire proof lookup",
+		"route.route_selector":            "buildRoutePlan, candidate resolution, late route-override validation",
+		"route.client_model":              "route selection, backend capability check, default model fallback",
+		"route.candidate_model":           "candidate execution, model token splice, attempt verification",
+		"route.route_prefs":               "candidate filtering, affinity key resolution",
+		"route.max_attempts":              "retry budget enforcement in route plan",
+		"route.default_backend":           "default backend selection in route plan",
+		"protocol.operation":              "frontend-pipeline dispatch, wire-open framing",
+		"protocol.delivery":               "attempt execution, holdalive wrapping, response pipeline",
+		"protocol.requirements_id":        "protocol conformance check, candidate feature requirements",
+		"protocol.control_count":          "protocol-control validation without prompt content",
+		"max_output.max_output_tokens":    "clamp preview, attempt authority admission, metering quantities",
+		"max_output.clamped_max_output":   "attempt narrow-down clamp enforcement",
+		"identity.request_id":             "trace correlation, frontend-ingress checkpoint ID, stable call ID",
+		"identity.trace_id":               "distributed tracing, diagnostics, checkpoint correlation",
+		"identity.canonical_digest":       "deterministic response IDs, timestamps, stable call token",
+		"identity.checkpoint_id":          "metering public checkpoint identification",
+		"session.input":                   "PrepareSecureSession, ExecuteBeginTurn post-commit",
+		"session.turn_shape":              "RecordClientTurnAfterGate",
+		"session.classification_evidence": "wire session-classification stage (bounded metadata only)",
+		"source.source_digest":            "replay reader integrity check, attempt checkpoint evidence",
+		"source.body_bytes":               "body limit check, spool reservation verification, response facts",
+		"source.body_mode":                "framing and media-type validation",
+		"rewrite.semantics":               "backend wire proof validation (ResolveWireRequest, ResolveWireDomain)",
+		"rewrite.model_span":              "streaming model token splice reader",
+		"rewrite.replacement_model":       "per-attempt replacement model encoding",
+		"rewrite.rewritten_length":        "outbound HTTP Content-Length header calculation",
+		"rewrite.rewrite_digest":          "backend attempt checkpoint evidence (WireBackendIngressInput.RewriteDigest)",
+		"economic.billing_call_id":        "BillingCallID-scoped exposure admission, usage append, journal commands",
+		"economic.account_id":             "cheap pre-route credit gate, exposure admission",
+		"economic.customer_pricing":       "post-usage rating, exposure quote",
+		"economic.charge_policy":          "charge policy evaluation",
+		"economic.request_count":          "metering quantities builder, clamp exposure quantities",
+		"economic.max_output_quantity":    "metering checkpoint quantities",
 	}
 }
 
@@ -590,6 +603,14 @@ func (f WireTurnFacts) Validate(maxFactBytes int64) error {
 	if err := f.Session.Validate(maxFactBytes); err != nil {
 		return fmt.Errorf("largebody: wire turn facts session: %w", err)
 	}
+	// The carrier must describe the same turn the protocol facts describe:
+	// classifying a different operation than the one being executed would let a
+	// wire turn be judged by another request's evidence
+	// (Requirements 5.2, 5.5).
+	if !f.Session.ClassificationEvidence.IsZero() && f.Session.ClassificationEvidence.Operation != f.Protocol.Operation {
+		return fmt.Errorf("largebody: wire turn facts classification evidence operation %q does not match protocol operation %q",
+			string(f.Session.ClassificationEvidence.Operation), string(f.Protocol.Operation))
+	}
 	if err := f.Source.Validate(maxFactBytes); err != nil {
 		return fmt.Errorf("largebody: wire turn facts source: %w", err)
 	}
@@ -646,8 +667,9 @@ func NewWireTurnFactsFromProof(proof Proof, stamp AssessmentStamp, requestID, tr
 			CheckpointID:    "customer-request:" + reqID,
 		},
 		Session: WireSessionFacts{
-			Input:     proof.Session,
-			TurnShape: proof.Turn,
+			Input:                  proof.Session,
+			TurnShape:              proof.Turn,
+			ClassificationEvidence: proof.ClassificationEvidence,
 		},
 		Source: WireSourceFacts{
 			SourceDigest: proof.Source,
@@ -789,6 +811,12 @@ func DefaultTestWireTurnFacts() WireTurnFacts {
 					},
 				},
 				TotalContentBytes: 256,
+			},
+			ClassificationEvidence: sessionclassification.Evidence{
+				Operation:       lipapi.OperationOpenAIResponses,
+				ClientUserAgent: "codex_cli_rs/1.2.3",
+				ToolCategories: sessionclassification.ToolCategorySet(0).
+					AddToolName("read_file").AddToolName("edit_file").AddToolName("bash"),
 			},
 		},
 		Source: WireSourceFacts{

@@ -21,8 +21,8 @@ type LocalDecision struct {
 }
 
 const (
-	codeToolingDistinctCluster = session.EvidenceCode("tooling.distinct_coding_cluster")
-	codeToolingProjectMarker   = session.EvidenceCode("tooling.project_marker_cluster")
+	codeToolingDistinctCluster = EvidenceCodeDistinctCluster
+	codeToolingProjectMarker   = EvidenceCodeProjectMarkerCluster
 )
 
 // EvaluateLocal evaluates accepted client identity, canonical tool categories,
@@ -79,20 +79,42 @@ func decisionForEvidence(mode Mode, source session.ClassificationSource, code se
 func clientFamilyEvidenceCode(family agentfacts.Family) session.EvidenceCode {
 	switch family {
 	case agentfacts.FamilyCodex:
-		return "client_family.codex"
+		return EvidenceCodeCodex
 	case agentfacts.FamilyRoo:
-		return "client_family.roo"
+		return EvidenceCodeRoo
 	case agentfacts.FamilyOpenCode:
-		return "client_family.opencode"
+		return EvidenceCodeOpenCode
 	case agentfacts.FamilyPi:
-		return "client_family.pi"
+		return EvidenceCodePi
 	case agentfacts.FamilyDroid:
-		return "client_family.droid"
+		return EvidenceCodeDroid
 	case agentfacts.FamilyHermes:
-		return "client_family.hermes"
+		return EvidenceCodeHermes
 	default:
 		return ""
 	}
+}
+
+// ExcludedIdentity reports whether a configured exclusion prefix suppressed a
+// prospective high-confidence coding-harness identity match. It reuses the same
+// two bounded primitives as EvaluateLocal's identity branch (the normalized
+// prefix test and the shared identity catalog) and returns only a boolean, so
+// the excluded value itself never reaches a diagnostic.
+//
+// Known limitation: EvaluateLocal additionally requires that the matched family
+// maps to a closed evidence code, while ExcludedIdentity does not. If a future
+// identity-catalog family could match with high confidence but had no closed
+// evidence code, this predicate would report excluded for a turn that
+// EvaluateLocal never treated as a prospective local match. Today every family
+// agentfacts can match has a code, so the two agree for every accepted identity;
+// a new family must therefore be given a closed evidence code (or rejected) when
+// it is added to the catalog.
+func ExcludedIdentity(cfg Config, userAgent string) bool {
+	if userAgent == "" || !isIgnoredUserAgent(userAgent, cfg.Heuristic.IgnoredUserAgentPrefixes) {
+		return false
+	}
+	match, ok := agentfacts.MatchIdentity(userAgent)
+	return ok && match.Confidence == agentfacts.ConfidenceHigh
 }
 
 func isIgnoredUserAgent(userAgent string, prefixes []string) bool {

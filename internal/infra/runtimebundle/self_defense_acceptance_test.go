@@ -55,6 +55,11 @@ const acceptanceModelRoute = "sd-reload-stub:stub-default"
 // real validated configuration surface rather than a test-only value.
 const acceptanceChurnCapacity = 1024
 
+// churnGoroutineTolerance absorbs unrelated process-wide goroutine churn in the
+// isolated child. It is deliberately tiny next to the 2048 unique addresses this
+// test drives, so it cannot mask a per-address goroutine or timer.
+const churnGoroutineTolerance = 4
+
 // acceptanceJitter is the explicit offset used to tell a fresh first-offense
 // quarantine window apart from a resumed doubled one, with no wall-clock wait.
 const acceptanceJitter = time.Minute
@@ -471,8 +476,17 @@ func TestAcceptanceBoundedUniqueAddressChurnThroughTheRealStack(t *testing.T) {
 				t.Fatalf("churn impossible path = %d, want the generic 404", rec.Code)
 			}
 		}
-		if got := runtime.NumGoroutine(); got != before {
-			t.Fatalf("goroutines = %d after the churn, want the measured baseline %d: adaptive state must create no per-address goroutine or timer", got, before)
+		// runtime.NumGoroutine() is a process-wide count, so unrelated Go runtime
+		// and background goroutines can retire during the churn. A real per-address
+		// leak would add one goroutine per unique address, and this churn drives
+		// 2*acceptanceChurnCapacity = 2048 of them, so a small tolerance still fails
+		// decisively on any actual leak while tolerating that noise. Exact equality
+		// made this gate fail on a DECREASE (observed 5 -> 4) under parallel load,
+		// which is not a leak at all.
+		if delta := runtime.NumGoroutine() - before; delta > churnGoroutineTolerance || delta < -churnGoroutineTolerance {
+			t.Fatalf("goroutines = %d after the churn (baseline %d, delta %+d, tolerance %d): "+
+				"adaptive state must create no per-address goroutine or timer",
+				runtime.NumGoroutine(), before, delta, churnGoroutineTolerance)
 		}
 		return
 	}

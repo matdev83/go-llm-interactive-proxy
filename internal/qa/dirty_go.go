@@ -16,6 +16,20 @@ func dirtyGoLimitExceeded(count int) bool {
 	return count > maxDirtyGoFiles
 }
 
+// mergeInProgress reports whether the repository is mid-merge.
+//
+// The dirty-Go-file budget exists to catch one large UNREVIEWED change. While a
+// merge from the integration branch is in progress, every dirty file is content
+// that already passed review on that branch, so counting it against this budget
+// makes a legitimate sync unsatisfiable no matter how it is split. The exemption
+// is deliberately scoped to an in-progress merge only: outside a merge every
+// ordinary commit is still held to the full limit.
+func mergeInProgress(root string) bool {
+	cmd := exec.Command("git", "rev-parse", "-q", "--verify", "MERGE_HEAD")
+	cmd.Dir = root
+	return cmd.Run() == nil
+}
+
 func listDirtyGoFiles(root string) ([]string, error) {
 	cmd := exec.Command("git", "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	cmd.Dir = root

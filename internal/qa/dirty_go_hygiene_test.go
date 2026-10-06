@@ -67,6 +67,10 @@ func TestDirtyGoLimitExceeded(t *testing.T) {
 func TestRootHygiene_DirtyGoFiles(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
+	if mergeInProgress(root) {
+		t.Skip("a merge is in progress; its dirty files are already-reviewed integration-branch " +
+			"content and must not be charged to the unreviewed-change budget")
+	}
 	paths, err := listDirtyGoFiles(root)
 	if err != nil {
 		t.Fatalf("list dirty Go files: %v", err)

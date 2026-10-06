@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/compaction"
+	hostclassification "github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost/sessionpolicy"
 	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
 	sdkfeaturehost "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/featurehost"
@@ -41,6 +42,7 @@ type Runtime struct {
 	keepwarmPolicy         *keepwarm.PolicyStore
 	keepwarmRegistry       *keepwarm.ManagerRegistry
 	keepwarmMetrics        *keepwarm.PrometheusCollector
+	sessionClassification  *hostclassification.StateHolder
 	hostRegistrations      []sdkfeaturehost.Registration
 	boundReasoning         ReasoningCompressionOptions
 	boundSecretGuard       SecretGuardHostBinding

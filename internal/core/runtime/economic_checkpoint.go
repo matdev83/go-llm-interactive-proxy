@@ -34,6 +34,14 @@ const (
 var (
 	errEconomicCheckpointPendingLimit        = errors.New("runtime: economic checkpoint pending limit reached")
 	errEconomicCheckpointAtomicBatchRequired = errors.New("runtime: economic checkpoint sink requires atomic batch capability")
+	// ErrEconomicCheckpointFlushTimeout classifies a terminal economic checkpoint
+	// flush that exceeded economicCheckpointFlushTimeout. The terminal path
+	// detaches from caller cancellation on purpose, so exceeding this budget is a
+	// bounded, expected outcome under storage contention rather than a defect:
+	// it proves the flush stayed inside its latency guarantee. Callers and tests
+	// classify on this sentinel with errors.Is instead of matching the
+	// underlying store error text, which varies by adapter.
+	ErrEconomicCheckpointFlushTimeout = errors.New("runtime: economic checkpoint flush exceeded its bounded budget")
 )
 
 const (
@@ -1017,9 +1025,35 @@ func (a *attemptSession) flushEconomicCheckpointsAtTerminal(ctx context.Context)
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), economicCheckpointFlushTimeout)
+	budget := economicCheckpointFlushTimeout
+	if a.terminalFlushBudget > 0 {
+		budget = a.terminalFlushBudget
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
 	defer cancel()
-	return a.flushEconomicCheckpoints(persistCtx, true)
+	if err := a.flushEconomicCheckpoints(persistCtx, true); err != nil {
+		if isEconomicCheckpointFlushTimeout(persistCtx, err) {
+			return errors.Join(ErrEconomicCheckpointFlushTimeout, err)
+		}
+		return err
+	}
+	return nil
+}
+
+// isEconomicCheckpointFlushTimeout reports whether err was caused by the bounded
+// terminal flush budget elapsing.
+//
+// It classifies on the flush's own context rather than the error chain: storage
+// adapters wrap their retry-cancellation with %v, so the underlying
+// context.DeadlineExceeded is deliberately NOT part of the chain, and generic
+// core must not import a concrete store to match its sentinel. Because the
+// terminal flush detaches from caller cancellation, ctx.Err() elapsing can only
+// mean this flush's own budget expired.
+func isEconomicCheckpointFlushTimeout(ctx context.Context, err error) bool {
+	if err == nil || ctx == nil {
+		return false
+	}
+	return ctx.Err() == context.DeadlineExceeded
 }
 
 // maxTerminalLocalEvidenceReserve bounds the terminal evidence envelope

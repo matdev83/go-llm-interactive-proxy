@@ -196,9 +196,9 @@ func TestProcess_TerminalPolicyConstructionCounted(t *testing.T) { //nolint:para
 		t.Fatalf("session policy store constructions after overlapping generations = %d, want 2", got)
 	}
 
-	// Closers count includes the terminal policy store closer.
-	if got := r1.ClosersCount(); got != 1 {
-		t.Fatalf("expected 1 closer on r1, got %d", got)
+	// Closers include the terminal policy store and the lightweight classification holder.
+	if got := r1.ClosersCount(); got != 2 {
+		t.Fatalf("expected 2 closers on r1, got %d", got)
 	}
 
 	// Shutdown closes it exactly once.

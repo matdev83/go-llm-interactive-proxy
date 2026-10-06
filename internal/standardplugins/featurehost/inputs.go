@@ -44,7 +44,7 @@ type ProcessInput struct {
 	HostRegistrations []sdkfeaturehost.Registration
 	// HostEnv is a generic process-environment capability used when none is registered.
 	HostEnv HostEnvironment
-	// MetricsRegistry receives the feature-owned keep-warm collector (nil disables).
+	// MetricsRegistry receives feature-owned collectors through the generic metrics seam (nil disables).
 	MetricsRegistry MetricsRegistry
 	// buildSteps carries staged construction actions for package-local tests
 	// only. It is unexported so no external caller (including generic
