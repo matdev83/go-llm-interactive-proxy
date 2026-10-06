@@ -267,6 +267,9 @@ func streamMandatoryToolCallWithMeta(
 	for {
 		ev, ok := a.popDrain()
 		if !ok {
+			if err == nil {
+				err = a.popDrainError()
+			}
 			return released.String(), err
 		}
 		if ev.Kind == lipapi.EventToolCallArgsDelta {
@@ -1184,6 +1187,9 @@ func streamToolCallAsNamedWithMeta(
 	for {
 		ev, ok := a.popDrain()
 		if !ok {
+			if err == nil {
+				err = a.popDrainError()
+			}
 			return released.String(), err
 		}
 		if ev.Kind == lipapi.EventToolCallArgsDelta {

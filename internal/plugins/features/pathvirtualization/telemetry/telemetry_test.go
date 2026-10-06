@@ -299,6 +299,48 @@ func TestTheSkipSeriesIsBoundedByTheClosedVocabulary(t *testing.T) {
 	}
 }
 
+// assertOutcomesFoldToBoundedSlot proves that every value outside a closed outcome
+// vocabulary lands in the recorder's OWN bounded slot, and that the last genuine
+// member keeps counting only its own observations.
+//
+// wantUnknown is the number of out-of-vocabulary observations the loop actually fed,
+// and wantGenuineLast is the number that wrapped back onto the last genuine member -
+// both counted where the values are produced, because both vocabularies are uint8 and
+// therefore wrap.
+//
+// A recorder that shared the bounded slot with the last genuine member would satisfy
+// the bounded-series counts above while still publishing an unrecognised condition as
+// a specific one. In the expansion direction that specific one is a client-facing
+// refusal, so the mislabel would assert refusals that never happened.
+func assertOutcomesFoldToBoundedSlot(
+	tb testing.TB,
+	name string,
+	series []telemetry.Tally,
+	genuineLast string,
+	wantUnknown int64,
+	wantGenuineLast int64,
+) {
+	tb.Helper()
+	var gotUnknown, gotGenuineLast int64
+	for _, tally := range series {
+		switch tally.Reason {
+		case "unknown":
+			gotUnknown = tally.Count
+		case genuineLast:
+			gotGenuineLast = tally.Count
+		}
+	}
+	if gotUnknown != wantUnknown {
+		tb.Fatalf("%s: the bounded slot counted %d, want the %d out-of-vocabulary values; "+
+			"they are being published as a genuine outcome instead: %+v",
+			name, gotUnknown, wantUnknown, series)
+	}
+	if gotGenuineLast != wantGenuineLast {
+		tb.Fatalf("%s: %q counted %d, want %d; the fold is stealing the last genuine "+
+			"member's slot: %+v", name, genuineLast, gotGenuineLast, wantGenuineLast, series)
+	}
+}
+
 // TestExpansionFailuresAreCountedSeparately is requirement 7.6's failure counter. A
 // fail-closed refusal in the INBOUND direction is the one outcome here that costs a
 // client its tool call, so it is counted on its own rather than folded into the noop
@@ -549,7 +591,26 @@ func TestAuditAndRewriteReportIdenticalMeasurements(t *testing.T) {
 func TestTheSnapshotIsBoundedWhateverTheTraffic(t *testing.T) {
 	t.Parallel()
 	tel := telemetry.New(config.Shape{Enabled: true, Mode: rewrite.ModeRewrite})
+	// Both vocabularies are uint8, so 100+i WRAPS: four of these 256 observations land
+	// back inside the closed vocabulary. The expectations below are therefore counted as
+	// the loop feeds rather than assumed, because a wrap that is not accounted for is
+	// exactly the kind of genuine member this test exists to keep separate from the
+	// bounded slot.
+	var outboundUnknown, outboundLastGenuine int64
+	var expansionUnknown, expansionLastGenuine int64
 	for i := 0; i < 256; i++ {
+		if outbound.Outcome(100+i) > outbound.OutcomeWorkspaceUnresolved {
+			outboundUnknown++
+		}
+		if outbound.Outcome(100+i) == outbound.OutcomeWorkspaceUnresolved {
+			outboundLastGenuine++
+		}
+		if expansion.Outcome(100+i) > expansion.OutcomeRejected {
+			expansionUnknown++
+		}
+		if expansion.Outcome(100+i) == expansion.OutcomeRejected {
+			expansionLastGenuine++
+		}
 		tel.ObserveOutbound(outbound.Report{
 			Outcome:    outbound.Outcome(100 + i),
 			RootReason: pathvirtualization.SkipReason(hostileRoot + strconv.Itoa(i)),
@@ -577,8 +638,12 @@ func TestTheSnapshotIsBoundedWhateverTheTraffic(t *testing.T) {
 	// The series COUNT is fixed by the vocabularies: outbound outcomes, outbound root
 	// reasons, the outbound skip series, expansion outcomes, expansion reasons, expansion
 	// root reasons, and the inbound skip series.
-	if got := len(snapshot.Outbound.Outcomes); got > 4 {
-		t.Fatalf("outbound outcome series holds %d entries, want at most the 4 closed outcomes: %+v",
+	// The outcome bounds are the closed vocabulary plus the one bounded slot for a value
+	// outside it. The extra entry is not slack in the bound: it is where the 256 hostile
+	// outcomes above land, and it is asserted to carry the "unknown" label below rather
+	// than any genuine outcome's.
+	if got := len(snapshot.Outbound.Outcomes); got > 5 {
+		t.Fatalf("outbound outcome series holds %d entries, want at most the 4 closed outcomes plus the one bounded slot: %+v",
 			got, snapshot.Outbound.Outcomes)
 	}
 	if got := len(snapshot.Outbound.RootReasons); got > 6 {
@@ -589,8 +654,8 @@ func TestTheSnapshotIsBoundedWhateverTheTraffic(t *testing.T) {
 		t.Fatalf("outbound skip series holds %d entries, want at most the 11 recordable closed reasons: %+v",
 			got, snapshot.Outbound.Virtualized.Skips)
 	}
-	if got := len(snapshot.Inbound.Outcomes); got > 3 {
-		t.Fatalf("expansion outcome series holds %d entries, want at most the 3 closed outcomes: %+v",
+	if got := len(snapshot.Inbound.Outcomes); got > 4 {
+		t.Fatalf("expansion outcome series holds %d entries, want at most the 3 closed outcomes plus the one bounded slot: %+v",
 			got, snapshot.Inbound.Outcomes)
 	}
 	if got := len(snapshot.Inbound.Reasons); got > 14 {
@@ -601,6 +666,14 @@ func TestTheSnapshotIsBoundedWhateverTheTraffic(t *testing.T) {
 		t.Fatalf("expansion skip series holds %d entries, want at most the 11 recordable closed reasons: %+v",
 			got, snapshot.Inbound.Restore.Skips)
 	}
+	// A widened bound is only meaningful if the extra entry is the bounded one. Without
+	// this the fold could land the 256 hostile outcomes in a genuine slot and still
+	// satisfy the counts above - which is precisely the defect the spare slot removes,
+	// and in the expansion direction it would publish refusals that never happened.
+	assertOutcomesFoldToBoundedSlot(t, "outbound", snapshot.Outbound.Outcomes,
+		"workspace_unresolved", outboundUnknown, outboundLastGenuine)
+	assertOutcomesFoldToBoundedSlot(t, "expansion", snapshot.Inbound.Outcomes,
+		"rejected", expansionUnknown, expansionLastGenuine)
 	// Every one of the 256 expansion observations reached a REASON series entry, and the
 	// series is still bounded by the closed vocabulary - which is the property the count
 	// above states. The 243 in the final slot are the out-of-vocabulary values, all folded

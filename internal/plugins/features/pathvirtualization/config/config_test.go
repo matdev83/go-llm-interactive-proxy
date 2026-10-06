@@ -2265,3 +2265,93 @@ func productionSources(t *testing.T) []string {
 	sort.Strings(names)
 	return names
 }
+
+// TestTheCompositionGuardKeepsThePreciseCauseReachable pins the guard's error
+// contract for the decode step it short-circuits.
+//
+// The guard answers a composition question ("does this generation publish an
+// expansion pass, and does repair sort before it"), so a coarse reason is the right
+// ANSWER to that question. It is not the whole story, though: the guard runs BEFORE
+// the factory, so replacing the decoder's own verdict with a coarse reason means the
+// precise reason an operator needs - unknown_key, missing_mode, a bad bound - is
+// produced nowhere at all. The configuration that cannot be published is exactly the
+// one whose reason is worth reporting.
+//
+// The cause is safe to carry. This package's own *Error renders as a compile-time
+// prefix, a literal reason label, and a literal location, and every refusal from
+// Decode and Compile is one, so joining costs no operator text and still satisfies
+// requirement 7.7.
+func TestTheCompositionGuardKeepsThePreciseCauseReachable(t *testing.T) {
+	t.Parallel()
+
+	// The subtree names "enabled" but no mode, so the guard's coarse reason and the
+	// decoder's precise one are genuinely different verdicts.
+	regs := []lipsdk.Registration{
+		featureRegistration(t, featureID, true, "enabled: true\n"),
+		featureRegistration(t, toolcallrepair.ID, true, "{}\n"),
+	}
+
+	err := config.ValidateGenerationComposition(regs)
+	if err == nil {
+		t.Fatal("an enabled subtree with no mode must refuse publication")
+	}
+
+	// The guard's own classification is unchanged and still comes first, so a caller
+	// that branches on it keeps working.
+	var typed *config.Error
+	if !errors.As(err, &typed) || typed == nil {
+		t.Fatalf("the guard must still classify as a *config.Error, got %v", err)
+	}
+	if typed.Reason() != config.ReasonSelfConfigUnreadable {
+		t.Fatalf("guard reason = %q, want %q", typed.Reason(), config.ReasonSelfConfigUnreadable)
+	}
+	assertNamedLocation(t, typed, config.ReasonSelfConfigUnreadable, featureID+".config")
+
+	// And the decoder's own verdict must still be reachable, because the guard runs
+	// first and is therefore the only place this error is ever produced.
+	var found *config.Error
+	for _, cur := range errorChain(err) {
+		var candidate *config.Error
+		if errors.As(cur, &candidate) && candidate != nil &&
+			candidate.Reason() == config.ReasonMissingMode {
+			found = candidate
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("the decoder's own verdict is lost: want a %q cause in the chain, got %v",
+			config.ReasonMissingMode, err)
+	}
+	if found.Field() != featureID+".mode" {
+		t.Fatalf("cause field = %q, want %q", found.Field(), featureID+".mode")
+	}
+}
+
+// errorChain yields err and every error reachable through it, so a test can assert
+// that a cause is PRESENT without depending on how the chain is shaped. It reads
+// errors.Unwrap in both forms so the assertion survives either representation.
+func errorChain(err error) []error {
+	seen := make(map[error]struct{})
+	var out []error
+	var walk func(error)
+	walk = func(cur error) {
+		if cur == nil {
+			return
+		}
+		if _, dup := seen[cur]; dup {
+			return
+		}
+		seen[cur] = struct{}{}
+		out = append(out, cur)
+		switch u := cur.(type) {
+		case interface{ Unwrap() error }:
+			walk(u.Unwrap())
+		case interface{ Unwrap() []error }:
+			for _, sub := range u.Unwrap() {
+				walk(sub)
+			}
+		}
+	}
+	walk(err)
+	return out
+}

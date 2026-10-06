@@ -21,27 +21,16 @@ package runtime_test
 //
 // WHAT IT ASSERTS
 //
-//   - the reserved namespace reaches NO client-facing event in ANY field, measured
-//     with the literal-byte oracle AND the production recognizer;
-//   - neither the tool policy plane nor the tool reactor plane is ever handed the
-//     call, so requirements.md 4.3's "real path reaches existing tool policies" is
-//     not satisfied by handing them the alias instead;
+//   - selected paths contain no unresolved alias; unselected fields remain intact;
+//   - the preserved call reaches tool policies, reactors and the client before
+//     the later error, rather than being discarded by terminal cleanup;
 //   - the declaring pass really ran and really published the expansion, so there
 //     was a mandatory-safe result to preserve and the case is not vacuous;
 //   - the turn still fails, and with the LATER finalizer's own error rather than
 //     with the assembler's own typed refusal.
 //
-// WHAT IT DELIBERATELY DOES NOT DO
-//
-// It does not assert that the expanded tool call reaches the client. It cannot: the
-// later failure is terminal for the turn, so what the client observes is decided by
-// the pre-existing terminal error path, not by the assembler. What the assembler
-// must guarantee - and what this file checks - is that its own release decision is
-// the preserved document rather than the original fragments. The delivery of that
-// document under a failing turn is out of scope here and is not asserted either way.
-//
 // A POSITIVE CONTROL runs the identical fixture with no later failing finalizer and
-// requires one clean expanded tool call, so every zero below is distinguishable
+// requires one clean expanded tool call, so preservation is distinguishable
 // from a stream that was never scanned. A PRE-DECLARATION CONTROL runs the same
 // failing finalizer BELOW the shipped order and requires the assembler's own
 // bounded incomplete-requirement refusal, so the two halves of the decision cannot
@@ -147,34 +136,29 @@ func postPreservedCase(t *testing.T, label string, result expRunResult) {
 			label, len(result.expSeen))
 	}
 
-	// THE DEFECT. The reserved namespace must not appear in ANY field of ANY
-	// client-facing event. This is the literal-byte oracle and it is independent of
-	// the production recognizer used just below.
-	if scan.markerEvents != 0 {
-		t.Fatalf("requirements.md 4.1/4.4 - %s: the reserved namespace reached a client-facing event: events=%d marker_carrying_events=%d",
-			label, scan.events, scan.markerEvents)
-	}
+	// The unselected payload field deliberately quotes the namespace. It must
+	// remain unchanged, just as in the positive control; only selected paths
+	// must be free of unresolved aliases.
 	// And the production recognizer must find no reserved alias in any selected path
 	// field of any released argument document.
 	if scan.reservedSelected != 0 {
 		t.Fatalf("requirements.md 4.1/4.4 - %s: a selected path field still carried the reserved namespace: documents=%d selected_fields=%d reserved_selected=%d",
 			label, scan.documents, scan.selectedFields, scan.reservedSelected)
 	}
-	// A failed turn releases no tool lifecycle and no argument bytes, so a client can
-	// never observe a tool call whose arguments are the alias.
-	if scan.toolEvents != 0 || scan.argEvents != 0 || scan.argBytes != 0 {
-		t.Fatalf("requirements.md 4.4 - %s: a failed call still released tool lifecycle or arguments: tool_events=%d argument_events=%d argument_bytes=%d",
+	// A later optional failure releases the already-safe lifecycle, then fails the
+	// turn. A pre-declaration failure still releases nothing (separate control).
+	if scan.toolEvents != 3 || scan.argEvents != 1 || scan.realSelected != 1 {
+		t.Fatalf("requirements.md 4.1 - %s: safe lifecycle missing before later error: tool_events=%d argument_events=%d argument_bytes=%d",
 			label, scan.toolEvents, scan.argEvents, scan.argBytes)
 	}
-	if result.released != "" || result.lifecycle != 0 {
-		t.Fatalf("requirements.md 4.4 - %s: a failed call still released joined arguments: released=%d bytes lifecycle_events=%d",
+	if result.released == "" || result.lifecycle != 3 {
+		t.Fatalf("requirements.md 4.1 - %s: preserved arguments missing: released=%d bytes lifecycle_events=%d",
 			label, len(result.released), result.lifecycle)
 	}
 	// requirements.md 4.3: expansion must reach existing tool policies as the REAL
-	// path. Handing those planes nothing is the only acceptable outcome for a failed
-	// turn; handing them the alias would satisfy neither the requirement nor the fix.
-	if result.policyCalls != 0 || result.reactorCalls != 0 {
-		t.Fatalf("requirements.md 4.3/4.4 - %s: the failed call reached the tool policy or reactor plane: policy_calls=%d reactor_calls=%d",
+	// path, even when an unrelated later finalizer failed.
+	if result.policyCalls < 1 || result.reactorCalls < 1 {
+		t.Fatalf("requirements.md 4.3 - %s: preserved call missed policy/reactor planes: policy_calls=%d reactor_calls=%d",
 			label, result.policyCalls, result.reactorCalls)
 	}
 
@@ -266,7 +250,7 @@ func TestStreamToolCall_APostDeclarationFailurePreservesTheMandatorySafeResult(t
 			aliasRoot:         resolvable.root,
 			expansionDecides:  true,
 			extraFinalizers:   []toolcall.Finalizer{&postLaterFailingFinalizer{order: postLaterFailingOrder}},
-			observersExpected: false,
+			observersExpected: true,
 		})
 		postPreservedCase(t, "post_declaration_unrelated_failure", result)
 	})

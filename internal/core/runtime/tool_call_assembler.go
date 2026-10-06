@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -15,6 +16,20 @@ import (
 // Kept equal to toolcallrepair repair.DefaultMaxArgsBytes by
 // TestDefaultToolCallFinalizationMaxArgsBytesMatchCore.
 const defaultToolCallFinalizationMaxArgsBytes = 64 * 1024
+
+// Per-call bounds do not bound an interleaved stream. These attempt-local
+// limits bound concurrent argument payloads, empty-fragment overhead, and
+// identity bookkeeping independently. Payloads also exist in original events
+// and growable assembly slices; this is a logical byte budget, not an RSS cap.
+const (
+	maxActiveToolCallBuffers = 16
+	maxAttemptToolArgsBytes  = 2 * lipapi.MaxEventDeltaBytes
+	maxToolCallFragments     = lipapi.MaxItems
+)
+
+// ErrToolCallBufferBudget signals exhaustion of attempt-local assembly resources.
+// It carries no tool identity or argument content.
+var ErrToolCallBufferBudget = errors.New("tool call assembler: attempt buffering budget exhausted")
 
 type toolCallBuffer struct {
 	id           string
@@ -109,6 +124,8 @@ type toolCallAssembler struct {
 	// released, and only the finished event yields the typed refusal.
 	refusing map[string]error
 	drain    []lipapi.Event
+	// drainErr is delivered only after the preserved lifecycle has drained.
+	drainErr error
 }
 
 func newToolCallAssembler(finalizers []toolcall.Finalizer, maxArgsBytes int, catalog []lipapi.ToolDef) *toolCallAssembler {
@@ -141,17 +158,6 @@ func clampToolCallFinalizationMaxArgsBytes(maxArgsBytes int) int {
 
 func (a *toolCallAssembler) enabled() bool {
 	return a != nil && len(a.finalizers) > 0 && len(a.catalog) > 0
-}
-
-func (a *toolCallAssembler) clear() {
-	if a == nil {
-		return
-	}
-	a.active = make(map[string]*toolCallBuffer)
-	a.passThrough = make(map[string]struct{})
-	a.completed = make(map[string]struct{})
-	a.refusing = make(map[string]error)
-	a.drain = nil
 }
 
 // hasActiveCalls reports that this assembler is still holding at least one
@@ -196,11 +202,54 @@ func (a *toolCallAssembler) enqueue(evs ...lipapi.Event) {
 	a.drain = append(a.drain, evs...)
 }
 
+func (a *toolCallAssembler) popDrainError() error {
+	if a == nil || len(a.drain) != 0 {
+		return nil
+	}
+	err := a.drainErr
+	a.drainErr = nil
+	return err
+}
+
+// completionError closes unresolved mandatory work at a stream boundary.
+// Cancellation retains its own terminal cause; EOF and response_finished must
+// not turn a previously decided refusal into successful completion.
+func (a *toolCallAssembler) completionError() error {
+	if a == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(a.refusing)+len(a.active))
+	for id := range a.refusing {
+		ids = append(ids, id)
+	}
+	for id, buf := range a.active {
+		if buf.requirements.pendingCount() > 0 || buf.requirements.unusableDeclarationRefusal(id) != nil {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	if len(ids) == 0 {
+		return nil
+	}
+	id := ids[0]
+	if err := a.refusing[id]; err != nil {
+		return err
+	}
+	if err := a.active[id].requirements.unusableDeclarationRefusal(id); err != nil {
+		return refusal(err)
+	}
+	return refusal(refusalIncomplete(id, a.active[id].requirements.firstPendingID()))
+}
+
 // ingest handles one backend event after BTP. held=true means the event must not
 // continue on the normal tool path; any finalized lifecycle is queued on drain.
 func (a *toolCallAssembler) ingest(ctx context.Context, ev lipapi.Event, meta toolcall.Meta) (held bool, err error) {
 	if !a.enabled() {
 		return false, nil
+	}
+	if ev.Kind == lipapi.EventResponseFinished {
+		err := a.completionError()
+		return err != nil, err
 	}
 	switch ev.Kind {
 	case lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
@@ -210,6 +259,29 @@ func (a *toolCallAssembler) ingest(ctx context.Context, ev lipapi.Event, meta to
 	id := strings.TrimSpace(ev.ToolCallID)
 	if id == "" {
 		return false, nil
+	}
+	_, active := a.active[id]
+	_, passing := a.passThrough[id]
+	_, completed := a.completed[id]
+	_, refusing := a.refusing[id]
+	if !active && !passing && !completed && !refusing &&
+		len(a.active)+len(a.passThrough)+len(a.completed)+len(a.refusing) >= lipapi.MaxItems {
+		return true, ErrToolCallBufferBudget
+	}
+	if ev.Kind == lipapi.EventToolCallStarted && !active && !passing && !completed && !refusing && len(a.active) >= maxActiveToolCallBuffers {
+		return true, ErrToolCallBufferBudget
+	}
+	if ev.Kind == lipapi.EventToolCallArgsDelta && active {
+		if len(a.active[id].originals) >= maxToolCallFragments {
+			return true, ErrToolCallBufferBudget
+		}
+		bytes := 0
+		for _, buf := range a.active {
+			bytes += len(buf.args)
+		}
+		if len(ev.Delta) > maxAttemptToolArgsBytes-bytes {
+			return true, ErrToolCallBufferBudget
+		}
 	}
 
 	if _, ok := a.passThrough[id]; ok {
@@ -277,24 +349,31 @@ func (a *toolCallAssembler) deriveCallRequirements(toolName string) *callRequire
 		// behavior can change for any call.
 		return nil
 	}
-	// Tool identity is canonical, not merely exact. Repair normalizes unique
-	// spelling variants before expansion runs, so a call named differently from
-	// its catalog entry can still become that entry. Deriving applicability on
-	// the exact spelling alone would release such a call at the legacy bound
-	// before repair ever sees it.
+	// Tool identity here is canonical, not merely exact — and that is DELIBERATELY
+	// the opposite of how expansion resolves a tool, so the two must not be
+	// "reconciled" later. They answer different questions:
+	//
+	//   - This step answers "which tool is this call?", and only to decide HOW MUCH
+	//     to assemble. Repair runs at order 40, before expansion's 41, and rewrites
+	//     the emitted name to the catalog spelling, so a call named `read-file`
+	//     becomes `read_file` before expansion ever sees it. Deriving applicability
+	//     from the exact spelling alone would therefore miss a call that IS the
+	//     catalog entry, and release it at the legacy bound before repair had a
+	//     chance to make it governable.
+	//   - Expansion answers "which tool's SELECTORS govern these bytes?", which is
+	//     a policy question, and resolves it byte-exactly so a near-miss spelling
+	//     cannot inherit another tool's selectors (requirement 3.6).
+	//
+	// So canonicalization here widens only the buffering window, which fails safe
+	// (more bytes assembled than strictly needed); refusing that would leave
+	// expansion's own declared bound unenforced on exactly the calls repair rewrote.
 	canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(a.catalog, toolName, lipapi.ToolDef{})
 	reqs := &callRequirements{limitBytes: a.maxArgsBytes}
 	for _, decl := range a.mandatory.declarations {
 		if !decl.appliesToTool(canonicalName, canonicalTool, a.catalog) {
 			continue
 		}
-		// A best-effort declarer asked for the complete document to observe, not
-		// to decide, so its requirement starts satisfied: nothing can leave it
-		// pending and therefore nothing can refuse a call through it.
-		reqs.items = append(reqs.items, callRequirement{decl: decl, pending: decl.requiresDecision()})
-		if decl.valid && decl.spec.MaxArgsBytes > reqs.limitBytes {
-			reqs.limitBytes = decl.spec.MaxArgsBytes
-		}
+		reqs.add(decl)
 	}
 	if len(reqs.items) == 0 {
 		return nil
@@ -372,15 +451,15 @@ func (a *toolCallAssembler) ingestFinished(ctx context.Context, ev lipapi.Event,
 	delete(a.active, id)
 	a.completed[id] = struct{}{}
 
-	// Whatever finalizeCall decided to release is queued BEFORE its error is
-	// returned, so the assembler never silently discards a document it decided to
-	// keep in favour of the originals. A refusal returns no events at all, so this
-	// changes nothing for the closed-answer cases; only the preserved
-	// mandatory-safe result is both released and failed, and what the client ends
-	// up observing for that turn stays the pre-existing terminal error path's
-	// decision rather than the assembler's.
+	// A preserved lifecycle must cross the ordinary downstream stages before a
+	// later optional finalizer's error terminalizes the attempt. Refusals have no
+	// events and remain immediate; a downstream failure/cancellation still wins.
 	emit, err := a.finalizeCall(ctx, buf, meta)
 	a.enqueue(emit...)
+	if err != nil && len(emit) != 0 {
+		a.drainErr = err
+		return true, nil
+	}
 	if err != nil {
 		return true, err
 	}

@@ -389,6 +389,12 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	handleEOF := func() (lipapi.Event, bool, error) {
 		attempt := slot.require()
+		if assembler := attempt.toolCallAssembler(); assembler != nil {
+			if err := assembler.completionError(); err != nil {
+				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err)
+				return lipapi.Event{}, false, err
+			}
+		}
 		clearAttemptToolState(p, attempt)
 		if gates := p.completionGatesFromContext(ctx); len(gates) > 0 {
 			p.abandonIncompleteGateBuffer()
@@ -666,6 +672,10 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					continue
 				}
 				return out, err
+			}
+			if err := toolFinal.popDrainError(); err != nil {
+				terminal.partialFailure(ctx, p, facts.terminalFacts(), attempt, false, err)
+				return lipapi.Event{}, err
 			}
 		}
 		if ev, ok := p.popGateDrainHead(); ok {

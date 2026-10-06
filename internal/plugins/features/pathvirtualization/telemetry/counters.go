@@ -57,8 +57,24 @@ import (
 // The last slot is never reached by a healthy build, so a series holding one is itself the
 // signal that a dimension was fed a condition this build does not define.
 const (
-	outboundOutcomeSlots  = 4
-	expansionOutcomeSlots = 3
+	// outboundOutcomeSlots is one slot per member of the outbound outcome vocabulary
+	// ([outbound.OutcomeWorkspaceUnresolved] is the last) plus ONE bounded slot for a
+	// value outside it.
+	//
+	// The extra slot is what makes the fold distinguishable from the last genuine member.
+	// Sharing it would report a value this build does not define as though the workspace
+	// had failed to resolve, so the series would contradict the WorkspaceUnresolved scalar,
+	// which the switch in recordOutcome increments only for a genuine one.
+	outboundOutcomeSlots = 5
+	// expansionOutcomeSlots is one slot per member of the expansion outcome vocabulary
+	// ([expansion.OutcomeRejected] is the last) plus ONE bounded slot for a value
+	// outside it.
+	//
+	// Sharing that slot with the last member is worse here than in the outbound
+	// direction, because the last member is a client-facing REFUSAL: an unrecognised
+	// decision published as OutcomeRejected asserts refusals that never happened while
+	// the Rejected scalar stays zero.
+	expansionOutcomeSlots = 4
 	skipReasonSlots       = 12
 	expansionReasonSlots  = 14
 	// passSlots is the size of the per-pass breakdown array: one slot per member of the
@@ -72,9 +88,13 @@ const (
 	passSlots = 4
 )
 
-// passUnknownSlot is the bounded slot every pass outside the vocabulary folds into. It is
-// deliberately NOT the last member's slot; see [passSlots].
-const passUnknownSlot = passSlots - 1
+// The bounded slots every out-of-vocabulary value folds into. None of them is a genuine
+// member's slot; see [outboundOutcomeSlots], [expansionOutcomeSlots], and [passSlots].
+const (
+	outboundOutcomeUnknownSlot  = outboundOutcomeSlots - 1
+	expansionOutcomeUnknownSlot = expansionOutcomeSlots - 1
+	passUnknownSlot             = passSlots - 1
+)
 
 // labelPass is the bounded label of one per-pass breakdown slot.
 //
@@ -725,8 +745,8 @@ func nonNegative(delta int64) int64 {
 // The fold is what makes the array total: a hostile or future value lands in a bounded slot
 // with a bounded label instead of indexing out of range or vanishing.
 func outcomeSlot(outcome outbound.Outcome) int {
-	if int(outcome) >= outboundOutcomeSlots {
-		return outboundOutcomeSlots - 1
+	if int(outcome) >= outboundOutcomeUnknownSlot {
+		return outboundOutcomeUnknownSlot
 	}
 	return int(outcome)
 }
@@ -748,8 +768,8 @@ func passSlot(pass outbound.Pass) int {
 // expansionOutcomeSlot maps a bounded expansion outcome onto its series position, folding
 // anything outside the closed vocabulary into the last slot.
 func expansionOutcomeSlot(outcome expansion.Outcome) int {
-	if int(outcome) >= expansionOutcomeSlots {
-		return expansionOutcomeSlots - 1
+	if int(outcome) >= expansionOutcomeUnknownSlot {
+		return expansionOutcomeUnknownSlot
 	}
 	return int(outcome)
 }

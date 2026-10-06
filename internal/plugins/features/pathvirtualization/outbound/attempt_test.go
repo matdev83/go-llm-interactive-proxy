@@ -826,21 +826,32 @@ func TestAttemptTransformIsSafeForConcurrentCandidates(t *testing.T) {
 
 	transform := attemptRewriteTransform(t)
 	const candidates = 24
-	results := make(chan string, candidates)
+	type result struct {
+		encoded string
+		err     error
+	}
+	results := make(chan result, candidates)
 	for range candidates {
 		go func() {
 			call := attemptItemCall(attemptPathArguments)
 			if _, err := transform.HandleAttempt(context.Background(), call, attemptWorkspace(), request.Services{}); err != nil {
-				results <- "error"
+				results <- result{err: err}
 				return
 			}
-			results <- attemptMarshal(t, *call)
+			encoded, err := json.Marshal(call)
+			results <- result{encoded: string(encoded), err: err}
 		}()
 	}
 	first := <-results
+	if first.err != nil {
+		t.Fatal(first.err)
+	}
 	for range candidates - 1 {
 		got := <-results
-		if got != first && got != "error" {
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if got.encoded != first.encoded {
 			t.Fatalf("concurrent candidates disagreed on the derived alias (requirements.md 5.6)")
 		}
 	}

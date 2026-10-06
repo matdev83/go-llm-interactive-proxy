@@ -362,7 +362,12 @@ func (w *callWalker) rewriteEnvelopePart(message, part int, value lipapi.Part) {
 	if !changed {
 		return
 	}
-	env.Arguments = mustMarshalJSONString(rewritten)
+	arguments, err := marshalJSONString(rewritten)
+	if err != nil {
+		w.err = err
+		return
+	}
+	env.Arguments = arguments
 	out, err := json.Marshal(env)
 	if err != nil {
 		w.err = err
@@ -387,16 +392,26 @@ func unwrapJSONString(raw []byte) ([]byte, bool) {
 	return []byte(inner), true
 }
 
-// mustMarshalJSONString renders rewritten argument bytes back into the wire's
-// JSON-string form. The input is a document the engine just produced, so
-// marshaling cannot fail; a failure would mean the engine published bytes that
-// are not a document, and failing the walk is the safe direction.
-func mustMarshalJSONString(raw []byte) json.RawMessage {
+// marshalJSONString renders rewritten argument bytes back into the wire's
+// JSON-string form, propagating a failure to the walk.
+//
+// It exists to mirror the item-argument re-wrap, which propagates the same
+// operation's error into w.err. An earlier version of this helper answered a
+// failure with the empty string instead, which contradicted its own stated policy
+// ("failing the walk is the safe direction") and would have let the walk report
+// SUCCESS while publishing an envelope whose arguments were entirely erased - and
+// the outbound accounting would still have counted the replacement.
+//
+// The input is a document the engine just produced, so marshaling cannot fail
+// today; that is precisely why the quiet direction is the wrong one to leave in
+// place. A helper that cannot report failure is a helper whose failure path is
+// unreviewable.
+func marshalJSONString(raw []byte) (json.RawMessage, error) {
 	out, err := json.Marshal(string(raw))
 	if err != nil {
-		return json.RawMessage(`""`)
+		return nil, err
 	}
-	return out
+	return out, nil
 }
 
 // toolNameForCallID resolves an unnamed result's tool through the historical

@@ -2,6 +2,7 @@
 # Exercise race scan coverage and failure propagation without running Go tests.
 set -euo pipefail
 script_dir="$(cd "$(dirname "$0")" && pwd)"
+bash "$script_dir/test-go-dev-guard.sh"
 # Bypass the development-host guard in scripts/race-check.sh: this self-test
 # exercises the scan logic with a stubbed toolchain and must run identically
 # on every host, including blocked dev machines.

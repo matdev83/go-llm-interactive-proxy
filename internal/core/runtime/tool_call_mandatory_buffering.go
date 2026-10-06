@@ -190,6 +190,9 @@ func (d *mandatoryDeclaration) requiresRejectPastOwnBound() bool {
 // own catalog would let one declarer's bug corrupt later finalization and
 // future calls. A panic is treated as applicable, because an undeterminable
 // scope for a mandatory declaration must fail closed rather than disappear.
+//
+// Each declarer receives its own copy, so mutation cannot change a sibling's
+// applicability decision and bypass that sibling's mandatory requirement.
 func (d *mandatoryDeclaration) appliesToTool(toolName string, tool lipapi.ToolDef, catalog []lipapi.ToolDef) bool {
 	if d.applicability == nil {
 		return true
@@ -425,6 +428,20 @@ type callRequirements struct {
 	// declaration that does not govern the call, so a call no declaration covers
 	// is bounded exactly as it was before the capability existed.
 	limitBytes int
+}
+
+// add records that decl governs this call and widens the call's physical ceiling
+// to the declarer's own bound.
+//
+// The requirement starts satisfied for a declarer that only OBSERVES: it declared
+// [toolcall.CompletenessBestEffort], so nothing can leave it pending and therefore
+// nothing can refuse a call through it. A declarer that must DECIDE starts pending,
+// and only a usable result from it clears that.
+func (r *callRequirements) add(decl *mandatoryDeclaration) {
+	r.items = append(r.items, callRequirement{decl: decl, pending: decl.requiresDecision()})
+	if decl.valid && decl.spec.MaxArgsBytes > r.limitBytes {
+		r.limitBytes = decl.spec.MaxArgsBytes
+	}
 }
 
 // requirementFor returns the applicable requirement declared by the finalizer at

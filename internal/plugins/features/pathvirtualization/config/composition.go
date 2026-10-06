@@ -61,6 +61,7 @@ package config
 // the expansion pass.
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/expansion"
@@ -87,9 +88,15 @@ import (
 //     (ReasonAmbiguousRegistration);
 //   - the repair subtree cannot be decoded, so its effective order is unknown
 //     (ReasonRepairConfigUnreadable);
-//   - this feature's own subtree cannot be decoded, which is the same refusal
-//     DecodeConfig would produce and exists so the guard cannot be used to route
-//     around this package's own validation (ReasonSelfConfigUnreadable).
+//   - this feature's own subtree cannot be decoded, which exists so the guard
+//     cannot be used to route around this package's own validation
+//     (ReasonSelfConfigUnreadable). The decoder's own verdict is JOINED onto that
+//     reason rather than replaced by it: the guard runs before the factory, so a
+//     discarded cause is a verdict produced nowhere, and the precise reason - an
+//     unknown key, a missing mode, an unusable bound - is what an operator needs
+//     from exactly the configuration that cannot be published. Both sides are
+//     bounded: this package's *Error renders as a literal reason and a literal
+//     location, so the join satisfies requirement 7.7.
 //
 // Every other generation returns nil, including the stock one: this feature
 // disabled, repair disabled, no repair registration at all, and the shipped
@@ -117,7 +124,7 @@ func ValidateGenerationComposition(registrations []lipsdk.Registration) error {
 	// package itself cannot publish.
 	resolved, cfgErr := Decode(self[0].Config.Node)
 	if cfgErr != nil {
-		return reject(ReasonSelfConfigUnreadable)
+		return errors.Join(reject(ReasonSelfConfigUnreadable), cfgErr)
 	}
 	if !resolved.Enabled {
 		return nil
@@ -140,6 +147,7 @@ func ValidateGenerationComposition(registrations []lipsdk.Registration) error {
 	// configuration surface beyond the fact that it exists.
 	repairCfg, repairErr := toolcallrepair.DecodeConfig(repairs[0].Config.Node)
 	if repairErr != nil {
+		// Repair errors can contain operator values; retain only the bounded verdict.
 		return reject(ReasonRepairConfigUnreadable)
 	}
 	if repairCfg.FinalizerOrder() >= expansion.FinalizerOrder {

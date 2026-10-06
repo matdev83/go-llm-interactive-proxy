@@ -61,7 +61,7 @@ const (
 // call depend on it would convert enabling measurement into a new way to reject
 // traffic it was only ever meant to watch. It declares
 // [CompletenessBestEffort]: its bound still widens assembly so the document can
-// be measured, and it can still never refuse.
+// be measured, and a well-formed declaration never requires a refusal.
 //
 // It is a declaration of intent. Honoring it is the assembler chokepoint's
 // responsibility; a finalizer that only records the declaration changes nothing
@@ -79,7 +79,8 @@ const (
 	// call depend on them. The declared bound still raises how much the call is
 	// assembled, which is what makes observation possible at all, but the
 	// requirement starts satisfied, so no failure of this or of any other
-	// finalizer can turn it into a refusal.
+	// finalizer can turn it into a refusal. A malformed declaration still fails
+	// validation and is refused as a publisher error.
 	CompletenessBestEffort CompletenessPolicy = "best_effort"
 )
 
@@ -113,6 +114,9 @@ type BufferingRequirement interface {
 	// ToolCallBufferingRequirement returns the declared completeness
 	// requirement. It must be deterministic and side-effect free: it is read
 	// during composition and must not depend on request state.
+	// It may be called concurrently for shared finalizers. It must perform only
+	// bounded in-memory work: no I/O, waiting on background work, or lock cycles.
+	// There is no context or timeout on this synchronous declaration method.
 	ToolCallBufferingRequirement() BufferingSpec
 }
 
@@ -153,6 +157,10 @@ type BufferingApplicability interface {
 	// ToolCallBufferingApplies reports whether this finalizer's declared
 	// completeness requirement governs one tool call. It must be deterministic,
 	// side-effect free, and independent of the call's argument bytes.
+	// Calls can overlap across requests/attempts on the same instance. Inputs
+	// are read-only; copy before retaining them. This synchronous method has no
+	// cancellation context: use bounded in-memory classification only, never
+	// I/O or waits for background work. The consumer isolates panics, not hangs.
 	ToolCallBufferingApplies(toolName string, tool lipapi.ToolDef, catalog []lipapi.ToolDef) bool
 }
 

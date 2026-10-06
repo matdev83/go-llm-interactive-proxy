@@ -404,7 +404,7 @@ func TestAttemptSessionReplacementDoesNotReuseAttemptLocalResources(t *testing.T
 	if got, published := slot.swapIfOpen(ready); !published || got != old || slot.require() != replacement {
 		t.Fatal("replacement must atomically publish the new attempt session")
 	}
-	old.toolFinal.clear()
+	old.discardSidebandState()
 	old.finalStreamObs.Finish(context.Background(), response.OutcomeReplaced)
 
 	if replacement.accounting.usageObserved {
@@ -425,7 +425,7 @@ func TestAttemptSessionReplacementDoesNotReuseAttemptLocalResources(t *testing.T
 	if replacement.controlTool != nil || replacement.controlTool.active() {
 		t.Fatal("replacement must not inherit the replaced attempt's control-tool activation")
 	}
-	if len(old.toolFinal.active) != 0 || len(old.toolFinal.drain) != 0 {
+	if old.toolCallAssembler() != nil {
 		t.Fatal("old tool finalizer was not discarded during replacement cleanup")
 	}
 }

@@ -355,6 +355,8 @@
 
 ## Implementation Notes
 
+- Concurrency remediation: preserved mandatory-safe lifecycles now drain through ordinary policy/reactor stages before the later optional-finalizer error is surfaced (not swallowed); incomplete mandatory calls/refusals survive EOF and response_finished. Attempt-local assembly has independent limits of 16 active buffers, 16 MiB logical argument bytes, 4096 retained fragments per call and 4096 tracked identities; retained originals/slice capacity add overhead, so this is not an RSS cap. SDK finalizers must be concurrency-safe and honor cancellation; context-free capability methods are bounded synchronous in-memory classification, with no I/O or background waits. Removed test-only clear in favor of the real detach chokepoint and corrected worker error reporting. Per-declarer catalog copying is REQUIRED isolation, not a defect: sharing one mutable copy lets extension code forge a sibling's applicability; cost remains linear and tests inspect the sibling's actual catalog/schema inputs.
+
 - Task 1.1: the RED test sizes its oversized fixture from the mutable assembler field `maxArgsBytes`; Task 7.2 should derive it from `defaultToolCallFinalizationMaxArgsBytes` so raising the effective mandatory bound cannot turn the fixture into a legitimate overflow-reject case.
 - Task 1.1: `golangci-lint` is unavailable in this environment, so `make dev-lint` / `make quality-checks` cannot run locally; `gofmt -l` and `go vet` are the available static signals.
 - Task 1.1: `internal/core/runtime/tool_call_mandatory_buffering_red_test.go` fails intentionally until Task 7.2 lands; coarse gates run before then will report this failure.

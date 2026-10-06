@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/schemainfer"
@@ -1887,20 +1887,8 @@ func TestInferenceDescendsOnlyThroughDeclaredObjectProperties(t *testing.T) {
 	}
 }
 
-// deepReadBudget is the wall-clock budget one inference call may spend reading a
-// declared chain deeper than any accepted pointer can name, multiplied by
-// raceCostFactor so the same assertion holds under the race detector.
-//
-// It is a fixed number of milliseconds rather than a ratio, so it is the weakest
-// kind of assertion in this file; it is here because nothing else in the suite
-// observes cost at all, and the regression it guards is a whole order of
-// magnitude. The value is two to three orders of magnitude above the bounded
-// cost measured for the cases below, so it fails only for a cost that scales
-// with nesting depth rather than with declared size.
-const deepReadBudget = raceCostFactor * time.Second
-
-// deepReadParityFactor is how many times more expensive a deep declaration may be
-// than a comparable one-level declaration.
+// deepReadParityFactor is how many times more BYTES a deep declaration may
+// allocate than a comparable one-level declaration.
 //
 // The comparison is the scale-free half of the bound: both declarations are read
 // whole, so a reader whose cost is proportional to declared size charges them
@@ -1909,7 +1897,26 @@ const deepReadBudget = raceCostFactor * time.Second
 // exactly the same — the deep one walks the window, the wide one stops at the node
 // budget — but it is four to five orders of magnitude below what an unbounded read
 // measured.
+//
+// It also happens to be the SAFE direction under measurement noise. Allocated
+// bytes are read from a process-wide counter, so a concurrent test in the same
+// binary adds the same offset to both sides; adding to both drives their ratio
+// toward one, so interference can only make this assertion pass, never fail. That
+// is the opposite of the wall-clock assertion this replaced, which failed under
+// load because an allocation-heavy call pays proportionally more GC and scheduler
+// cost than a light one.
 const deepReadParityFactor = 20
+
+// deepReadAmplification is how many times its own declared size one bounded read
+// may allocate.
+//
+// It is an absolute net for the shapes below, expressed per declared byte so it
+// holds for a chain and a sibling list alike rather than only for one fixture
+// size. The reader decodes every member value inside the window, so the honest
+// amplification is already in the hundreds; the factor leaves several times that
+// headroom while staying far below what a reader that rescans a subtree per
+// nesting level would allocate.
+const deepReadAmplification = 1024
 
 // TestInferArgumentsBoundsTheCostOfADeepDeclaredChain pins requirement 7.9 for
 // the declared-schema reader: audit and rewrite processing is bounded in CPU and
@@ -2011,46 +2018,86 @@ func TestInferArgumentsBoundsTheCostOfADeepDeclaredChain(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			start := time.Now()
 			got := infer(t, tc.schema)
-			elapsed := time.Since(start)
 			if got.Outcome != tc.want {
 				t.Fatalf("outcome = %q, want %q", got.Outcome, tc.want)
 			}
 			if pointers := canonicalPointers(got.Pointers); !slices.Equal(pointers, tc.point) {
 				t.Fatalf("pointers = %q, want %q", pointers, tc.point)
 			}
-			if elapsed > deepReadBudget {
-				t.Fatalf("reading %d declared bytes took %s, above the %s budget; a declaration deeper than any accepted pointer must not cost more than one shallower",
-					len(tc.schema), elapsed.Round(time.Millisecond), deepReadBudget)
-			}
 		})
 	}
-
-	t.Run("cost_tracks_declared_size_rather_than_nesting_depth", func(t *testing.T) {
-		t.Parallel()
-
-		// Two declarations of comparable size: 4000 declared levels on one branch,
-		// and one level holding comparably many siblings. Both are read whole, so
-		// their cost must stay in the same order. Before the bound this pair
-		// measured 9.6 s against 29 ms, a factor of 330.
-		deep := measureInfer(t, `{"type":"object","properties":{"path":{"type":"string"},"deep":`+declaredChain(4000, "leaf")+`}}`)
-		wide := measureInfer(t, declaredWideSchema(160*1024))
-		if deep > deepReadParityFactor*wide {
-			t.Fatalf("a declaration nested 4000 levels deep cost %s against %s for a comparable declaration at one level; the reader must not scale with nesting depth",
-				deep.Round(time.Millisecond), wide.Round(time.Millisecond))
-		}
-	})
 }
 
-// measureInfer returns the wall-clock cost of one inference call for schema.
-// The declarations measured against each other are large enough that the cost is
-// well above sub-microsecond scheduling noise, so one call per shape is enough.
-func measureInfer(t *testing.T, schema string) time.Duration {
+// TestInferArgumentsBoundsTheAllocatedCostOfADeepDeclaredChain is the cost half
+// of TestInferArgumentsBoundsTheCostOfADeepDeclaredChain, held separately so the
+// measurement is sound.
+//
+// Allocated bytes come from a process-wide counter, so measuring them inside a
+// t.Parallel subtest would fold every sibling subtest's own allocations into the
+// window and report the suite's concurrency rather than this reader's cost. This
+// test therefore declares no t.Parallel, and takes no t.Parallel in any subtest:
+// the whole binary runs these assertions in one goroutine at a time.
+//
+// It measures allocated bytes rather than wall-clock because that is what the
+// bound is actually about. A reader that rescans each subtree per nesting level
+// is quadratic in ALLOCATION as well as in time, so the same signal catches the
+// same regression, but unlike a stopwatch it does not move when the machine is
+// busy: an allocation-heavy read pays proportionally more GC and scheduler cost
+// than a light one, which is exactly how a wall-clock assertion here used to fail
+// under a loaded machine while the bounded reader was in fact still bounded.
+func TestInferArgumentsBoundsTheAllocatedCostOfADeepDeclaredChain(t *testing.T) {
+	// Two declarations of comparable size: 4000 declared levels on one branch, and
+	// one level holding comparably many siblings. Both are read whole, so their
+	// cost must stay in the same order. Before the bound this pair allocated its
+	// subtree once per nesting level, a factor of 330 against this measurement.
+	shapes := []struct {
+		name   string
+		schema string
+	}{
+		{
+			name:   "deep",
+			schema: `{"type":"object","properties":{"path":{"type":"string"},"deep":` + declaredChain(4000, "leaf") + `}}`,
+		},
+		{
+			name:   "wide",
+			schema: declaredWideSchema(160 * 1024),
+		},
+	}
+
+	cost := make(map[string]uint64, len(shapes))
+	for _, shape := range shapes {
+		cost[shape.name] = inferAllocatedBytes(t, shape.schema)
+	}
+
+	if deep, wide := cost["deep"], cost["wide"]; deep > deepReadParityFactor*wide {
+		t.Fatalf("reading %d declared bytes nested 4000 levels deep allocated %d bytes against %d for a comparable declaration at one level, a factor of %d above the %d allowed; the reader must not scale with nesting depth",
+			len(shapes[0].schema), deep, wide, deep/max(wide, 1), deepReadParityFactor)
+	}
+
+	for _, shape := range shapes {
+		if allowed := uint64(deepReadAmplification) * uint64(len(shape.schema)); cost[shape.name] > allowed {
+			t.Fatalf("reading the %s declaration allocated %d bytes for %d declared bytes, above the %d allowed; a bounded read must stay a constant multiple of declared size",
+				shape.name, cost[shape.name], len(shape.schema), allowed)
+		}
+	}
+}
+
+// inferAllocatedBytes returns the bytes one inference call for schema allocates.
+//
+// The first call is discarded and the process is collected before the measured
+// call, so the figure is the read itself rather than one-time package
+// initialization. The declarations measured against each other are large enough
+// that their cost dominates any residual noise, so one call per shape is enough.
+func inferAllocatedBytes(t *testing.T, schema string) uint64 {
 	t.Helper()
-	start := time.Now()
 	infer(t, schema)
-	return time.Since(start)
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	infer(t, schema)
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
 }
 
 // declaredChain builds `depth` declared container levels, each a `properties`

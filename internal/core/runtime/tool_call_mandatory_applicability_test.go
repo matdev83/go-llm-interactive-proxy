@@ -75,6 +75,12 @@ type scopedExpansionFin struct {
 	// disables it. It is a distinct production shape from a returned error: the
 	// consumer isolates it through safety.CallValue.
 	panicOnCall int
+	// mutate, when non-nil, is invoked from ToolCallBufferingApplies with the tool
+	// definition and catalog the consumer handed over. It exists so a HOSTILE
+	// declarer can be driven through the real isolation boundary: the consumer must
+	// hand over a detached copy, so a declarer that scribbles in place can corrupt
+	// only what it was given and never the assembler's own catalog.
+	mutate func(tool lipapi.ToolDef, catalog []lipapi.ToolDef)
 }
 
 var (
@@ -94,7 +100,10 @@ func (f *scopedExpansionFin) ToolCallBufferingRequirement() toolcall.BufferingSp
 // ToolCallBufferingApplies implements toolcall.BufferingApplicability by exact
 // tool name, which is the generic answer: a finalizer knows which of the tools on
 // the chain it actually inspects.
-func (f *scopedExpansionFin) ToolCallBufferingApplies(toolName string, _ lipapi.ToolDef, _ []lipapi.ToolDef) bool {
+func (f *scopedExpansionFin) ToolCallBufferingApplies(toolName string, tool lipapi.ToolDef, catalog []lipapi.ToolDef) bool {
+	if f.mutate != nil {
+		f.mutate(tool, catalog)
+	}
 	_, ok := f.selected[toolName]
 	return ok
 }
@@ -189,6 +198,9 @@ func streamToolCallNamed(t *testing.T, a *toolCallAssembler, id, toolName, argsJ
 	for {
 		ev, ok := a.popDrain()
 		if !ok {
+			if err == nil {
+				err = a.popDrainError()
+			}
 			return released.String(), err
 		}
 		if ev.Kind == lipapi.EventToolCallArgsDelta {

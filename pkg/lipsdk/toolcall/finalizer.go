@@ -90,6 +90,9 @@ type Result struct {
 	ReasonCode string
 }
 
+// Finalizer is a generation-shared completed-call decision. Methods must be safe
+// for concurrent invocation. Finalize must honor ctx and the synchronous work
+// ownership contract documented by this package.
 type Finalizer interface {
 	ID() string
 	Order() int

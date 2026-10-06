@@ -275,8 +275,15 @@ func (f *Finalizer) Finalize(
 		// canonical and this feature has nothing to say about it.
 		return passResult(ReasonNoSelectors), nil
 	}
+	// Requirements.md 8.5 and design.md section 7 step 9: the document this pass
+	// publishes must still be exactly one complete JSON value, because the assembler
+	// validates every finalizer's rewrite before the next finalizer sees it and before
+	// anything is released. The check runs BEFORE the single report, so one decision
+	// produces exactly one report whatever it turns out to be; see
+	// [decision.withValidatedPublication].
 	decision := f.decide(call, tool, meta).
-		withOverDeclaredBound(len(call.ArgsJSON) > f.spec.MaxArgsBytes)
+		withOverDeclaredBound(len(call.ArgsJSON) > f.spec.MaxArgsBytes).
+		withValidatedPublication()
 	f.record(decision)
 	if decision.reason.rejects() {
 		// A refusal publishes nothing: no arguments, no tool name, no document. The
@@ -286,17 +293,6 @@ func (f *Finalizer) Finalize(
 	}
 	if decision.published == nil {
 		return passResult(decision.reason), nil
-	}
-	// Requirements.md 8.5 and design.md section 7 step 9: the document this pass
-	// publishes must still be exactly one complete JSON value, because the assembler
-	// validates every finalizer's rewrite before the next finalizer sees it and before
-	// anything is released.
-	if !rewrite.PublishedJSONValid(decision.published) {
-		f.record(decision.withReason(ReasonInvalidRewrite))
-		return toolcall.Result{
-			Action:     toolcall.ActionReject,
-			ReasonCode: ReasonInvalidRewrite.String(),
-		}, nil
 	}
 	return toolcall.Result{
 		Action:     toolcall.ActionRewrite,
@@ -339,6 +335,28 @@ func (d decision) withOverDeclaredBound(over bool) decision {
 func (d decision) withReason(reason Reason) decision {
 	d.reason = reason
 	return d
+}
+
+// withValidatedPublication returns the decision as it will be both RECORDED and acted
+// on, applying design.md section 7 step 9's canonical-validation requirement
+// (requirements.md 8.5) before either.
+//
+// The ordering is the whole point of this step. A document that fails validation must
+// be re-labelled here rather than at the point of refusal, because recording first
+// would make one decision produce TWO reports: outcome() derives OutcomeExpanded from
+// a non-nil published document, so the first report would publish a call that is
+// released as nothing as a successful expansion - with its eligible, rewritten, and
+// byte figures - and the second would publish the refusal it actually was. That is
+// the one-report-per-decision contract on Reporter violated in the fail-closed cases,
+// which are exactly the accounting an operator has to be able to trust.
+//
+// A decision that publishes nothing is left alone: there is no document to validate,
+// and a pass-through reason must reach the client as itself.
+func (d decision) withValidatedPublication() decision {
+	if d.published == nil || rewrite.PublishedJSONValid(d.published) {
+		return d
+	}
+	return d.withReason(ReasonInvalidRewrite)
 }
 
 // decide performs design.md section 7 steps 1 through 9 and returns the verdict.
@@ -428,6 +446,13 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, met
 
 	// Step 2. Selector resolution reads the tool name this call ACTUALLY carries and
 	// the CURRENT declared schema for it, and nothing else.
+	//
+	// Do not reconcile this byte-exact choice with the assembler's canonical one;
+	// they answer different questions and are meant to disagree. The assembler asks
+	// "which tool is this?" to size the buffering window, so it canonicalizes, and
+	// widening that window fails safe. This step asks "which tool's SELECTORS govern
+	// these bytes?", which is a policy question, so it stays byte-exact. See
+	// [toolCallAssembler.deriveCallRequirements] for the assembler's side.
 	//
 	// The name is resolved BYTE-EXACTLY, with no pre-normalization, because this is
 	// the security boundary: a near-miss spelling must not inherit another tool's

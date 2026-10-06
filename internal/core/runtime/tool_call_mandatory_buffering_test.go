@@ -208,6 +208,9 @@ func streamMandatoryToolCall(t *testing.T, a *toolCallAssembler, id, argsJSON st
 	for {
 		ev, ok := a.popDrain()
 		if !ok {
+			if err == nil {
+				err = a.popDrainError()
+			}
 			return released.String(), err
 		}
 		if ev.Kind == lipapi.EventToolCallArgsDelta {
