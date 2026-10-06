@@ -735,24 +735,13 @@ func reasonForNoAlias(mapping pathvirtualization.Mapping) Reason {
 // narrow answer, and it is safe here for the same reason it is safe in decide:
 // with no selectors this pass would answer ReasonNoSelectors and hand the call
 // through untouched anyway.
-func (f *Finalizer) ToolCallBufferingApplies(toolName string, tool lipapi.ToolDef, catalog []lipapi.ToolDef) bool {
+func (f *Finalizer) ToolCallBufferingApplies(toolName string, tool lipapi.ToolDef, _ []lipapi.ToolDef) bool {
 	if f == nil || f.resolver == nil {
 		return false
 	}
-	// This answer is read ONCE, at call start, BEFORE any finalizer has run and
-	// before the arguments are complete, purely to decide how much of the call to
-	// buffer at all. Repair has not run yet at that point, so it cannot have told
-	// us the name it is about to produce. Anticipating it is therefore correct
-	// here and only here: buffering too much for a call that ends up unprofiled
-	// costs memory, while buffering too little releases the fragments before
-	// repair or this pass ever sees the complete document.
-	//
-	// It grants no authority. This method says only "buffer this call"; the
-	// selectors that decide anything are resolved BYTE-EXACTLY inside decide, so
-	// a call whose name never matches a profile still resolves ReasonNoSelectors
-	// and passes through untouched however it was buffered.
-	canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(catalog, toolName, tool)
-	return len(f.resolver.Resolve(canonicalName, declaredSchema(canonicalTool, canonicalName)).ArgPointers) > 0
+	// Use the same exact-name authority as decide. Speculative normalization
+	// would attach binding requirements to calls this finalizer does not govern.
+	return len(f.resolver.Resolve(toolName, declaredSchema(tool, toolName)).ArgPointers) > 0
 }
 
 func declaredSchema(tool lipapi.ToolDef, toolName string) []byte {

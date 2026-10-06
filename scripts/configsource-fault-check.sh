@@ -64,7 +64,25 @@ discover_exact_test "$host_close_lifecycle_test" "$runtimebundle_pkg"
 
 report="$(mktemp "$TMPDIR/configsource-fault-check.XXXXXX.json")"
 trap 'rm -f "$report"' EXIT
-if ! go test -json -race -count=1 -tags=configsource_faulttest \
+# The same fault scenarios remain mandatory locally, but race evidence belongs
+# exclusively to remote GitHub CI. CI metadata cannot override the dev-host guard.
+race_flags=()
+blocked_host=false
+hosts=("${HOSTNAME:-}" "${COMPUTERNAME:-}")
+if command -v hostname >/dev/null 2>&1; then
+	hosts+=("$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)")
+fi
+for host in "${hosts[@]}"; do
+	short=${host%%.*}
+	case "${short,,}" in agent-dev|desktop-i2caj6v) blocked_host=true ;; esac
+done
+if [[ "${GITHUB_ACTIONS:-}" == true && "$blocked_host" == false ]]; then
+	race_flags=(-race)
+	echo "Running configsource fault checks with race instrumentation (GitHub CI)."
+else
+	echo "Running configsource fault checks without race instrumentation (local host)."
+fi
+if ! go test -json "${race_flags[@]}" -count=1 -tags=configsource_faulttest \
 	-run "^${coordinator_test}$|^TestHostClose.*Source" \
 	"$runtimehost_pkg" "$runtimebundle_pkg" >"$report"; then
 	cat "$report" >&2

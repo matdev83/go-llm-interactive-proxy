@@ -349,28 +349,12 @@ func (a *toolCallAssembler) deriveCallRequirements(toolName string) *callRequire
 		// behavior can change for any call.
 		return nil
 	}
-	// Tool identity here is canonical, not merely exact — and that is DELIBERATELY
-	// the opposite of how expansion resolves a tool, so the two must not be
-	// "reconciled" later. They answer different questions:
-	//
-	//   - This step answers "which tool is this call?", and only to decide HOW MUCH
-	//     to assemble. Repair runs at order 40, before expansion's 41, and rewrites
-	//     the emitted name to the catalog spelling, so a call named `read-file`
-	//     becomes `read_file` before expansion ever sees it. Deriving applicability
-	//     from the exact spelling alone would therefore miss a call that IS the
-	//     catalog entry, and release it at the legacy bound before repair had a
-	//     chance to make it governable.
-	//   - Expansion answers "which tool's SELECTORS govern these bytes?", which is
-	//     a policy question, and resolves it byte-exactly so a near-miss spelling
-	//     cannot inherit another tool's selectors (requirement 3.6).
-	//
-	// So canonicalization here widens only the buffering window, which fails safe
-	// (more bytes assembled than strictly needed); refusing that would leave
-	// expansion's own declared bound unenforced on exactly the calls repair rewrote.
-	canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(a.catalog, toolName, lipapi.ToolDef{})
+	// Applicability is authority, not a guess about a name another finalizer might
+	// produce. A near-miss name must not inherit an exact-name requirement.
+	tool := lookupToolDef(a.catalog, toolName)
 	reqs := &callRequirements{limitBytes: a.maxArgsBytes}
 	for _, decl := range a.mandatory.declarations {
-		if !decl.appliesToTool(canonicalName, canonicalTool, a.catalog) {
+		if !decl.appliesToTool(toolName, tool, a.catalog) {
 			continue
 		}
 		reqs.add(decl)
@@ -533,12 +517,12 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 		switch res.Action {
 		case toolcall.ActionPass:
 			if req != nil {
-				// A requirement is satisfied HERE, by a usable decision on the complete
-				// arguments - never by having been invoked. The declarer saw these
-				// arguments and accepted them, so they are this call's mandatory-safe
-				// document whatever happens to a later finalizer.
+				// Only a binding decision protects this document against later
+				// failures. An observer must not change legacy fallback semantics.
 				req.pending = false
-				buf.retainMandatorySafe(name, args, rewrote)
+				if req.decl.requiresDecision() {
+					buf.retainMandatorySafe(name, args, rewrote)
+				}
 			}
 			continue
 		case toolcall.ActionReject:
@@ -558,7 +542,9 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 			rewrote = true
 			if req != nil {
 				req.pending = false
-				buf.retainMandatorySafe(name, args, true)
+				if req.decl.requiresDecision() {
+					buf.retainMandatorySafe(name, args, true)
+				}
 			}
 		default:
 			// Likewise for an action outside the closed vocabulary: unusable, but not

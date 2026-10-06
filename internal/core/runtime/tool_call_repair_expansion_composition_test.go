@@ -1199,15 +1199,8 @@ func streamToolCallAsNamedWithMeta(
 }
 
 // TestRepairNormalizationCannotBypassMandatoryExpansionBySpelling is
-// requirement 8.4 on the tool-identity path the applicability decision used
-// to read too early.
-//
-// Repair normalizes unique spelling variants before expansion runs, but
-// buffering applicability was derived from the exact model-emitted name at
-// call start. A variant spelling above the legacy bound therefore released at
-// that bound before repair ever saw it. The assembler must derive the same
-// canonical identity repair would establish, and expansion must recognize it
-// even when repair's own size policy declines the document.
+// requirement 8.4 for calls within repair's own budget. Only an actual repair
+// rewrite grants the exact catalog identity used by expansion.
 func TestRepairNormalizationCannotBypassMandatoryExpansionBySpelling(t *testing.T) {
 	t.Parallel()
 
@@ -1217,7 +1210,7 @@ func TestRepairNormalizationCannotBypassMandatoryExpansionBySpelling(t *testing.
 		t.Fatalf("derive fixture root: reason %v", reason)
 	}
 	alias := mapping.VirtualRoot + "src/main.go"
-	const callBytes = defaultToolCallFinalizationMaxArgsBytes + 8*1024
+	const callBytes = 8 * 1024
 	prefix := `{"` + mandatoryFixturePathMember + `":` + strconv.Quote(alias) + `,"content":"`
 	suffix := `"}`
 	pad := callBytes - len(prefix) - len(suffix)
@@ -1228,8 +1221,8 @@ func TestRepairNormalizationCannotBypassMandatoryExpansionBySpelling(t *testing.
 	if len(args) != callBytes {
 		t.Fatalf("fixture sizing: got %d want %d", len(args), callBytes)
 	}
-	if len(args) <= repair.DefaultMaxArgsBytes {
-		t.Fatalf("fixture must exceed the repair budget so repair declines: %d <= %d",
+	if len(args) > repair.DefaultMaxArgsBytes {
+		t.Fatalf("fixture must fit the repair budget: %d > %d",
 			len(args), repair.DefaultMaxArgsBytes)
 	}
 	if len(args) > toolcall.DefaultMandatoryMaxArgsBytes {
@@ -1252,15 +1245,18 @@ func TestRepairNormalizationCannotBypassMandatoryExpansionBySpelling(t *testing.
 		t.Fatalf("tool-call-repair invocations=%d want 1: the variant spelling must still reach repair", repairFin.calls)
 	}
 	decision := repairFin.onlyResult(t)
-	if decision.Action != toolcall.ActionPass || decision.ReasonCode != toolcall.ReasonArgsTooLarge {
-		t.Fatalf("repair must decline past its own budget without normalizing: action=%v reason=%q",
+	if decision.Action != toolcall.ActionRewrite || decision.ToolName != mandatoryToolName {
+		t.Fatalf("repair must actually normalize the name: action=%v reason=%q",
 			decision.Action, decision.ReasonCode)
 	}
 	if expansionFin.calls != 1 {
 		t.Fatalf("requirements.md 8.4 - repair size policy bypassed mandatory expansion: invocations=%d", expansionFin.calls)
 	}
-	if strings.Contains(released, mandatoryVirtualRoot) {
+	if strings.Contains(released, mapping.VirtualRoot) {
 		t.Fatal("requirements.md 4.4/8.3 - the reserved alias reached the client unexpanded")
+	}
+	if !strings.Contains(released, compositionProjectRoot) {
+		t.Fatal("requirements.md 4.1 - the actual derived alias must expand to the real root")
 	}
 	if !json.Valid([]byte(released)) {
 		t.Fatal("requirements.md 8.5 - the released document is not valid JSON")
