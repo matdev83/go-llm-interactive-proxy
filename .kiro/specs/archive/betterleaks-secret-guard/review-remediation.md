@@ -1,6 +1,8 @@
 # PR 726 focused review remediation
 
-Current disposition: tasks 12.1-12.3 close the full-head multipart, hybrid complexity, JSON scalar and partial log-mode findings with independent task approval. Tasks 13.1–13.5 address surviving CodeRabbit concerns and the full-path JSON allocation blocker, including cancellation and unused exact-only work. Final-head GitHub certification and focused maintainer re-review control readiness. PR #726 stays open with auto-merge disabled.
+Current disposition: tasks 12.1–14.3 are complete. PR [#726](https://github.com/matdev83/go-llm-interactive-proxy/pull/726) merged as `57634ea03627a6bae22434767e80461c6e40b494` on 2026-10-06. Required checks and dedicated SecretGuard Linux race/streaming/parity/CLI certification passed on final head `54240d3c55fccb7b32f1921c1605a81f8fd365ca`. The maintainer explicitly waived the LOC-shrinkage assertion (-795 versus -800), the sole failure in both QA and Node independence. The archived [validation-report.md](validation-report.md) records current evidence and limits.
+
+The remaining sections preserve historical repair checkpoints. Their earlier open-PR and withheld-merge statements are superseded by the current disposition above.
 
 Artifact labels below identify locally retained evidence bundles, not repository links. Public CI run and artifact links are recorded in PR #726; local profile bundles are not claimed to be downloadable artifacts.
 
