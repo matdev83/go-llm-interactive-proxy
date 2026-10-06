@@ -102,6 +102,7 @@ type attemptSessionTestObserverFactory struct {
 func (attemptSessionTestObserverFactory) ID() string                        { return "attempt-session-test-observer" }
 func (attemptSessionTestObserverFactory) Order() int                        { return 0 }
 func (attemptSessionTestObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+
 func (f *attemptSessionTestObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
 	o := &attemptSessionTestObserver{}
 	f.observers = append(f.observers, o)

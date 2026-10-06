@@ -17,6 +17,7 @@ import (
 type failingTerminalSink struct{ err error }
 
 func (f failingTerminalSink) AppendCall(context.Context, billing.CallUsageRecord) error { return f.err }
+
 func (f failingTerminalSink) AppendLeg(context.Context, billing.CallLegUsageRecord) error {
 	return f.err
 }
