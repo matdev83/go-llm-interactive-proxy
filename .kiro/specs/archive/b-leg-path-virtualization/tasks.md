@@ -9,7 +9,7 @@
 - When a task changes an upstream contract, update generated plane/architecture parity artifacts in the same task if required.
 - Suggested parallel work is marked `(P)` only when it can proceed after its stated dependencies.
 
-- [ ] 1. Characterize current tool-call assembly and request ordering
+- [x] 1. Characterize current tool-call assembly and request ordering
 - [x] 1.1 Add RED characterization for mandatory finalizer bypass above 64 KiB
   - Construct a completed tool call with arguments larger than the current default finalization cap and a test finalizer that declares expansion as required.
   - Prove current behavior would pass original fragments and therefore violate Requirement 4.5/4.6.
@@ -40,7 +40,7 @@
   - _Depends: none_
   - _Validation: focused conversationprojection/executor runtime tests_
 
-- [ ] 2. Implement the pure cross-platform path virtualization kernel (P)
+- [x] 2. Implement the pure cross-platform path virtualization kernel (P)
 - [x] 2.1 Implement host-independent path flavor parsing
   - Add POSIX, Windows drive, UNC, extended drive, and extended UNC recognition.
   - Reject relative paths, malformed roots, and Windows device paths.
@@ -77,7 +77,7 @@
   - _Depends: 2.2_
   - _Validation: feature unit tests_
 
-- [ ] 3. Implement path-bearing selector/profile policy (P)
+- [x] 3. Implement path-bearing selector/profile policy (P)
 - [x] 3.1 Implement validated JSON Pointer selectors
   - Parse/canonicalize explicit argument and structured-result pointers at config compile time.
   - Support string and array-of-string leaves only.
@@ -106,7 +106,7 @@
   - _Depends: 3.1_
   - _Validation: feature profile precedence tests_
 
-- [ ] 4. Implement canonical outbound virtualization
+- [x] 4. Implement canonical outbound virtualization
 - [x] 4.1 Build one pure call rewriter for both canonical authorities
   - Handle item-authoritative `ToolCallItem.Arguments` / structured `ToolResultItem`.
   - Handle legacy tool-call `PartJSON` and `PartToolResult` representations.
@@ -137,7 +137,7 @@
   - _Depends: 4.1_
   - _Validation: audit-vs-rewrite parity tests_
 
-- [ ] 5. Wire the two outbound feature passes
+- [x] 5. Wire the two outbound feature passes
 - [x] 5.1 Add candidate attempt transform
   - Derive mapping from `AttemptMeta.Workspace.ProjectRoot`.
   - Run the pure call rewriter in audit/rewrite mode.
@@ -170,7 +170,7 @@
   - _Depends: 1.3, 5.2_
   - _Validation: focused conversationprojection tests + executor PTB/backend tests + feature integration tests_
 
-- [ ] 6. Enrich complete tool-call finalizer context
+- [x] 6. Enrich complete tool-call finalizer context
 - [x] 6.1 Add read-only scope/session/workspace fields to `toolcall.Meta`
   - Match the authoritative view semantics already used by `hooks.ToolMeta`.
   - Preserve source compatibility for existing finalizers.
@@ -188,7 +188,7 @@
   - _Depends: 6.1_
   - _Validation: focused runtime metadata propagation tests_
 
-- [ ] 7. Make required path expansion impossible to bypass
+- [x] 7. Make required path expansion impossible to bypass
 - [x] 7.1 Introduce optional generic finalizer buffering/completeness capability
   - Do not add required methods to existing `toolcall.Finalizer`.
   - Define a generic optional contract equivalent to `BufferingRequirement{MaxArgsBytes, OverflowPolicy}`.
@@ -219,7 +219,7 @@
   - _Depends: 7.2, 6.2_
   - _Validation: `go test -count=1 ./internal/plugins/features/toolcallrepair/... ./internal/core/runtime/...` focused composition_
 
-- [ ] 8. Implement model→client path expansion
+- [x] 8. Implement model→client path expansion
 - [x] 8.1 Add path-expansion finalizer
   - Derive the current workspace-bound mapping from `meta.Workspace.ProjectRoot`.
   - Resolve selectors against exact tool name/tool schema.
@@ -242,7 +242,7 @@
   - _Depends: 8.1_
   - _Validation: focused runtime stream tests_
 
-- [ ] 9. Add typed feature configuration, registration, and diagnostics
+- [x] 9. Add typed feature configuration, registration, and diagnostics
 - [x] 9.1 Implement config decode/validation
   - Disabled by default.
   - Strict `audit|rewrite` mode.
@@ -273,7 +273,7 @@
   - _Depends: 9.2_
   - _Validation: metrics/inventory tests_
 
-- [ ] 10. Certify continuity, protocol neutrality, and failure behavior (P)
+- [x] 10. Certify continuity, protocol neutrality, and failure behavior (P)
 - [x] 10.1 Add restart/reload, stale-workspace, and provider-continuation characterization
   - Prove the same root derives the same fixed-V1 workspace tag/alias without stored mapping after feature object/process recreation.
   - Cover provider-side continuation shape (`PreviousResponseID`) with consistent alias derivation.
@@ -309,7 +309,7 @@
   - _Depends: 8.2, 9.2_
   - _Validation: focused feature + runtime tests_
 
-- [ ] 11. Measure performance and realized savings (P)
+- [x] 11. Measure performance and realized savings (P)
 - [x] 11.1 Add microbenchmarks and representative fixtures
   - Benchmark path parsing/mapping including workspace-tag derivation, selector-guided argument mutation, idempotent second pass, and completed-call expansion.
   - Include long Windows worktree path and long POSIX monorepo/worktree path.
@@ -328,7 +328,7 @@
   - _Depends: 9.3_
   - _Validation: feature audit/metrics tests_
 
-- [ ] 12. Final integration and release-readiness review
+- [x] 12. Final integration and release-readiness review
 - [x] 12.1 Run focused architecture and quality gates
   - Run feature package tests, SDK/toolcall tests, focused runtime tests, architecture guards, and formatting/static checks.
   - Run `make quality-checks` and the smallest complete applicable parity suite.
@@ -624,3 +624,15 @@ The four blockers were ONE defect and were repaired as one change. `resolveManda
 - THIRD REVIEW REMEDIATION (six findings) IMPLEMENTED. (1) Output-bound allocation: `rewrite.ApplySelectedValuesLimited` aborts with `ErrOutputOverLimit` once the published bytes exceed the caller's bound, plus projection from observed growth aborts before visiting the remaining leaves. Fault injection ignoring the bound allocates 604 MB on the fixture (same order as the 742 MB probe); with it, under 64 MB. Audit mode maps the error to AuditMode, not refusal. (2) Change-size gate: no code change; the `allow-large-change` label is already on PR #731 and CI maps it to `LIP_ALLOW_LARGE_CHANGE`. (3) String-wrapped item arguments: unwrap the wire's JSON-string spelling, rewrite the inner document, re-wrap only when changed; bare strings keep the direct path so skip reasons are unchanged. (4) Responses envelopes: narrow envelope detection (object, function_call, known keys only, name/call_id/arguments present), rewrite inner args, re-marshal preserving shape; ordinary content untouched. (5) Unnamed results: lazy historical call-ID index over items, legacy parts, and envelopes; ambiguous IDs resolve to nothing; canonical validation already forbids orphans/duplicates, so the guard is for unvalidated inputs. (6) Metadata: `cloneFinalizerMeta` detaches Scope/Session/Workspace reference fields per Finalize invocation. Fault injection sharing one meta reproduces the probe exactly (second finalizer observes the forged role). CAUGHT BY THE SUITE: a package-level key map tripped `TestStreamToolCall_NoPriorRootDictionaryExists`; replaced with a pure function.
 - FOURTH REVIEW REMEDIATION (one finding) IMPLEMENTED. An oversized mandatory-buffered call moves from active to refusing mid-stream, and the old hasActiveCalls read only the active set. A proxy-owned completion drawn before the call's finished event therefore saw no unresolved call and could publish a successful answer over the still-pending overflow refusal. hasActiveCalls now counts refusing entries too; a finished event surfaces the typed refusal and only then is the call resolved, so a response ending without the finished event cannot silently discard it - the automatic completion stays suppressed. Guard: TestToolCallAssembler_RefusingCallsCountAsUnresolved plus the legacy pass-through control TestToolCallAssembler_ReleasedLegacyOverflowIsNotUnresolved, which pins that released legacy calls still count as resolved. NON-VACUITY: reverting the one-line fix fails the first test at "a call with a pending overflow refusal must count as unresolved" while the control passes on both.
 - FIFTH REVIEW REMEDIATION (three code blockers + two CI items) IMPLEMENTED. (1) **Audit mode was not behaviorally inert (P1).** An audit finalizer declared a nonzero `BufferingSpec`, and a BINDING declaration refuses a call whose requirement is still undecided. So enabling measurement-only audit turned any unrelated extension failure into a new hard `mandatory_buffering_incomplete` rejection. `OverflowPassThrough` alone never prevented this: that policy speaks only about SIZE, while the refusal came from the requirement being undecided. Fixed by extending the GENERIC contract rather than by weakening a feature: `toolcall.CompletenessPolicy` (`CompletenessMandatory` default, `CompletenessBestEffort`) on `BufferingSpec`; `Validate` rejects best-effort combined with `OverflowReject`, because refusing IS the decision a best-effort declarer disclaims. A best-effort declaration still raises the call's buffering ceiling - that is what makes measurement possible at all - but `deriveCallRequirements` starts its requirement satisfied and it never sets `mandatoryBoundDeclared`. Declaring NO requirement was rejected as the fix: it also stops enforcement, but it would shrink audit's measurement window from the configured bound (default 1 MiB) back to the shared assembly default (64 KiB), so audit would silently never see the large calls an operator most wants measured. Regression `TestRealExpansionAuditModeCannotRefuseThroughAnotherFinalizersFailure` drives all three unusable surfaces (Go error, action outside the closed vocabulary, invalid rewrite envelope) from a finalizer ordered below expansion, plus a rewrite-mode control that MUST still refuse. NON-VACUITY: reverting only the audit `Completeness` value to `Mandatory` fails all three audit sub-cases while the control passes on both builds. (2) **Exact-name authority was bypassed (P1/P2).** `expansion.Finalizer.decide` canonicalized the tool name via `toolcall.CanonicalToolIdentity` before handing it to the resolver, so with a catalog containing `read_file` a model call named `read-file` inherited that tool's selectors, expansion, and buffering policy - even with repair absent, and even with repair present but declining the call past its own budget. That changed the authority from "the exact tool that reached expansion" to "any name repair could theoretically normalize", which requirement 3.6 forbids. Both resolution sites inside `decide` now resolve `call.ToolName` BYTE-EXACTLY and `decide` no longer takes a catalog. The repair TOCTOU is closed by ORDERING instead: repair runs first (order 40 vs expansion 41), returns the normalized name on its rewrite result, and the assembler installs it before the next finalizer is invoked, so by the time `decide` runs `call.ToolName` already IS the repaired name when repair repaired anything and the original name when repair declined. `ToolCallBufferingApplies` deliberately KEEPS canonicalization: it is read once at call start, before any finalizer has run, purely to decide how much to buffer, so it must anticipate repair - and it grants no authority, because the selectors that decide anything are resolved exactly. Regression `TestExpansionFinalizerKeepsExactNameAuthorityOverNearMissSpellings` uses a POPULATED catalog (the pre-existing near-miss test passes an empty one, which is why the coverage hole survived) with an exact-name control that must expand and a near-miss that must stay `ReasonNoSelectors`, including the schema-inference variant. NON-VACUITY: restoring canonical identity in `decide` fails it at `got "expanded"`. (3) **The output-size projection could refuse valid expansions (P2).** The heuristic multiplied the average growth of already-changed leaves across every remaining selected leaf, but a selector can target an array holding one substantially expanding alias beside thousands of selected, ordinary values that are `Eligible=false` and add ZERO growth, so a document far inside the bound was refused as `expanded_too_large`. That is not failing closed on a violated bound; it is failing closed on a guess. Replaced with an EXACT lower bound and restructured into decide-then-build: pass one decides every leaf once in ascending byte order, refuses on the first unusable leaf, and accumulates the finished size (source bytes for inert leaves, decoded length for eligible ones, plus every verbatim gap); pass two builds the document in ONE allocation of the measured size. Nothing is averaged. Regression `TestExpansionFinalizerExpandsOneGrowingAliasBesideManyInertLeaves` uses a 4009-byte real root so one alias grows ~3.98 KB, puts that alias FIRST in a 6000-element selected array of ordinary paths, asserts the exact expanded size (218927 bytes) is inside the 8 MiB bound, and asserts non-vacuity in both directions - that the input fits, that the expansion fits, and that the old averaged projection WOULD have exceeded the bound. NON-VACUITY: restoring the projection fails it at `reason="expanded_too_large"`. The two-pass shape also tightened the round-4 allocation guard from 74 MB to 26 MB on its fixture, because the abort no longer doubles an output buffer it was always going to discard; that test's budget moved 64 -> 40 MiB to ratchet the new shape. (4) **no-node was an exemption-propagation failure, not an unknown.** The GitHub log shows `TestConversationViewChangedGoFileCountUnderGate` failing at 171 changed Go files > 100: that test honors `LIP_ALLOW_LARGE_CHANGE`, and `ci.yml`/`qa.yml` map the `allow-large-change` label to it, but `node-independence.yml` did not. Added the same workflow-level `env:` mapping there, and to `secret-guard-contracts.yml`, which runs the archtest family through `make parity-checks` and had the same gap. Both also gain `types: [.., labeled, unlabeled]`, without which applying the label could not re-run the gate it unblocks. (5) Windows `TestManagerRetire_TwoGenerationsRetireIndependently` is the known executor timing flake and is not touched by this branch. Integrated `origin/main` (2 commits: the BetterLeaks spec archival and this branch's own #743).
+
+## Completion Status
+
+- [x] All 12 tasks and their 32 sub-tasks implemented, each TDD-driven with RED characterization first.
+- [x] Five adversarial review rounds completed; every P1/P2 finding fixed on the branch and proven non-vacuous by fault injection.
+- [x] Per-call, per-declarer mandatory buffering; exact-name expansion authority; activation of newly applicable requirements after a tool-name rewrite; observation-only audit via `toolcall.CompletenessPolicy`; decide-then-build output bounds.
+- [x] Remote CI green on the delivered head: Ubuntu/Windows/macOS, QA, no-node, SecretGuard race contracts, CodeQL, Security, database parity, billing certification, repo hygiene.
+- [x] Merged to `main` as squash commit `7ee60a6b` (PR #731, `feat(pathvirtualization): virtualize reserved paths across the tool-call pipeline`).
+- [x] Residual work is explicitly deferred, not silently closed:
+  - The shared Go cache lane ceiling raise (128–1536 → 8192 MiB) is carried by #731 to unblock it, but `main` still carries #745's `build_mib: 7168` defect independently; the contract fix belongs on `main`.
+  - `TestPendingReal_claimFailureStopsCustomerSettlementAndBillingHandoff` failed once under remote race load (`leglifecycle: a-leg canceled` instead of the withdrawn-publication error) and did not recur. It passes repeatedly in isolation; the cause is unproven, not fixed.
+  - Attempt-local limits (16 active calls, 16 MiB buffered arguments) are stricter than `lipapi.MaxItems` and remain an operator-facing documentation item, deliberately not a merge blocker.
