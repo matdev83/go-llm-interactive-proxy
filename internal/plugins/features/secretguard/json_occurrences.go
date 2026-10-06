@@ -271,6 +271,13 @@ func decodedJSONOccurrenceValue(raw []byte) (jsonOccurrenceValue, error) {
 }
 
 func firstJSONOccurrenceValue(raw []byte) ([]byte, error) {
+	// Complete values need syntax validation only. json.Valid scans the
+	// admitted bytes directly, avoiding the decoder's growing input copy on
+	// every occurrence traversal. Trim only JSON whitespace to preserve the
+	// canonical decoder's first-value InputOffset.
+	if json.Valid(raw) {
+		return bytes.TrimRight(raw, " \t\r\n"), nil
+	}
 	// Validate and bound the same first JSON value as canonical decoding.
 	// The decoder validates syntax before calling UnmarshalJSON. Discard that
 	// validated value rather than cloning it or building a second decoded tree;

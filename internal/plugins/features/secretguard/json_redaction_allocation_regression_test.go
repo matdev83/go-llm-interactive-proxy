@@ -54,6 +54,44 @@ func TestHybridJSONRedactionAllocationTracksAdmittedBytes(t *testing.T) {
 	}
 }
 
+func TestJSONFirstValueValidationAllocationTracksSyntaxOnly(t *testing.T) {
+	raw, _ := scalarDenseJSON(DefaultScanMaxBytes)
+	// Include trailing JSON whitespace: the returned interval must still end
+	// at the first value, exactly as the canonical decoder's InputOffset does.
+	raw = append(raw, ' ', '\t', '\r', '\n')
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	var canonical json.RawMessage
+	if err := dec.Decode(&canonical); err != nil {
+		t.Fatal(err)
+	}
+	validate := func() {
+		first, err := firstJSONOccurrenceValue(raw)
+		if err != nil || len(first) != int(dec.InputOffset()) || !bytes.Equal(first, raw[:dec.InputOffset()]) {
+			t.Fatal("validation changed the canonical first-value interval")
+		}
+	}
+	validate()
+	runtime.GC()
+	previousLimit := debug.SetMemoryLimit(math.MaxInt64)
+	previousGC := debug.SetGCPercent(-1)
+	defer debug.SetMemoryLimit(previousLimit)
+	defer debug.SetGCPercent(previousGC)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	validate()
+	runtime.ReadMemStats(&after)
+	if before.NumGC != after.NumGC {
+		t.Fatal("GC occurred during validation allocation measurement")
+	}
+	allocated := after.TotalAlloc - before.TotalAlloc
+	// Syntax validation borrows the admitted bytes. A decoder-sized copy is
+	// unnecessary for a complete value and is multiplied by mapper traversals.
+	t.Logf("admitted_bytes=%d validation_bytes=%d", len(raw), allocated)
+	if allocated > uint64(len(raw)) {
+		t.Fatalf("syntax-only validation allocated an admitted-sized copy: bytes=%d admitted=%d", allocated, len(raw))
+	}
+}
+
 func TestJSONIdentityMappingAvoidsPerByteBoundaries(t *testing.T) {
 	t.Parallel()
 	for _, raw := range []string{"9007199254740993", "false", "null", `"plain-string"`, `"café"`} {

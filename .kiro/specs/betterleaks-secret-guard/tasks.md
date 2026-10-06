@@ -361,6 +361,23 @@
   - _Boundary: feature JSON occurrence parser, private rewrite bridge, exact-engine no-hit allocation and directly related adversarial semantic/allocation tests_
   - _Validation: strict full-path allocation RED/GREEN on the near-2 MiB scalar-dense positive fixture; identity/escaped and duplicate-key controls; complete feature tests; focused architecture/static checks; same-head remote CI_
 
+## 14. Integration and Linux CI allocation repair
+
+- [x] 14.1 Integrate current main while preserving discovery wiring
+  - Resolve dependency and execution-plane conflicts with main 3d5697e6, retaining its Smithy update and named plane construction plus BetterLeaks capability/diagnostics. Ratchet preservation through an independent main-only negative overlay and the frozen-plane regression.
+  - _Boundary: module metadata, runtimebundle SecretGuard planes and focused regression; upstream merge only elsewhere_
+  - _Validation: module tidy/verify; runtimebundle and runtime SecretGuard tests; unchanged architecture gates; explicit-zero posture and capability identity_
+
+- [x] 14.2 Eliminate unnecessary complete-value decoder buffers
+  - Reproduce syntax-validation allocation, validate complete JSON without decoder input copies, and preserve canonical first-value fallback and offset semantics. Keep existing 32x/40x full-path ceilings unchanged.
+  - _Requirements: 4.2, 5.3, 6.3–6.7, 8.7, 8.8_
+  - _Boundary: feature JSON occurrence validation and focused allocation regression_
+  - _Validation: allocation RED/GREEN; complete feature suite; first-value fuzz; independent whitespace/large-number/UTF8/surrogate/depth/trailing-content controls; scoped lint_
+
+- [ ] 14.3 Complete fresh-head GitHub certification
+  - Require conflict-free integration and completion of all relevant checks, including Linux race allocation/streaming contracts. Preserve failure logs and distinguish cancelled-scope cascades from executed tests.
+  - _Validation: same-head CI/QA/security/module/platform and dedicated SecretGuard contracts; no merge or auto-merge_
+
 ## Implementation Notes
 
 - Tasks 13.1–13.5 repair the surviving CodeRabbit findings and the additional full-path JSON allocation review blocker. Task 13.5 received independent APPROVED review with mixed sparse/dense mapping controls and an offset-corruption negative control; complete feature tests, scoped lint and 30-second canonical parser fuzzing pass. Final-head remote CI and maintainer re-review remain delivery requirements. The maintainer requests all still-valid issues; workers use gpt-6.1-sol at medium reasoning. A host thread limit restricted dispatch to one worker, with parent implementation and independent worker review for the small fixes. No merge or auto-merge is authorized. Billing allocation findings are repaired in billing, not hidden by downstream SecretGuard test changes.
