@@ -55,9 +55,20 @@ if [[ "$(go env GOOS)" == "linux" ]]; then
 	bash "$SCRIPT_DIR/configsource-fault-check.sh"
 fi
 
-echo ""
-echo "Running race detector scan..."
-bash "$SCRIPT_DIR/race-check.sh" --staged
+# The race detector is owned by remote CI: nightly race/fuzz
+# (.github/workflows/race-fuzz-nightly.yml), the connector race workflows, and
+# the release gate. Local commits do not run it, because a full -race scan of
+# the billing, runtime, and runtimebundle suites takes hours on a developer
+# machine and has repeatedly starved the rest of this gate of its time budget.
+# Set LIP_PRECOMMIT_RACE=1 to opt a local commit back into the staged scan.
+if [[ "${LIP_PRECOMMIT_RACE:-}" == "1" ]]; then
+	echo ""
+	echo "Running race detector scan..."
+	bash "$SCRIPT_DIR/race-check.sh" --staged
+else
+	echo ""
+	echo "Skipping race detector scan (remote CI owns it; LIP_PRECOMMIT_RACE=1 to opt in)."
+fi
 
 if [[ "${LIP_SKIP_LINT:-}" != "1" ]]; then
 	echo ""

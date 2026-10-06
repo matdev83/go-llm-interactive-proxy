@@ -126,6 +126,7 @@ type charBundleStreamObserverFactory struct{ id string }
 func (s charBundleStreamObserverFactory) ID() string                      { return s.id }
 func (charBundleStreamObserverFactory) Order() int                        { return 0 }
 func (charBundleStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+
 func (charBundleStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
 	return nil, nil
 }

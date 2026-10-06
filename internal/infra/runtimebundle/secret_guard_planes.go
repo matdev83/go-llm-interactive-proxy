@@ -19,20 +19,29 @@ func secretGuardFromPlanes(frozen lipfeature.FrozenPlaneSet) (extensions.SecretG
 	if execCfg == nil || execCfg.IsZero() {
 		return extensions.SecretGuardPlane{}, nil
 	}
-	var categories []string
-	if len(execCfg.SourceCategories) > 0 {
-		categories = append([]string(nil), execCfg.SourceCategories...)
+	categories := append([]string(nil), execCfg.SourceCategories...)
+	plane := extensions.SecretGuardPlane{
+		MatcherResolver:    execCfg.MatcherResolver,
+		Capability:         execCfg.Capability,
+		DecisionObserver:   execCfg.DecisionObserver,
+		AuditFailurePolicy: execCfg.AuditFailurePolicy,
+		AccessMode:         execCfg.AccessMode,
+		ConfigVersion:      execCfg.ConfigVersion,
 	}
-	return extensions.SecretGuardPlane{
-			MatcherResolver:    execCfg.MatcherResolver,
-			DecisionObserver:   execCfg.DecisionObserver,
-			AuditFailurePolicy: execCfg.AuditFailurePolicy,
-			AccessMode:         execCfg.AccessMode,
-			ConfigVersion:      execCfg.ConfigVersion,
-		}, &diag.InventoryExtras{
-			SecretGuardCatalogEntryCount: execCfg.CatalogEntryCount,
-			SecretGuardSourceCategories:  categories,
-			SecretGuardAccessMode:        execCfg.AccessMode,
-			SecretGuardAction:            execCfg.CatalogAction,
-		}
+	inventory := &diag.InventoryExtras{
+		SecretGuardCatalogEntryCount:      execCfg.CatalogEntryCount,
+		SecretGuardSourceCategories:       categories,
+		SecretGuardAccessMode:             execCfg.AccessMode,
+		SecretGuardAction:                 execCfg.CatalogAction,
+		SecretGuardLocalAutoDiscovery:     execCfg.LocalAutoDiscoveryEnabled,
+		SecretGuardBetterLeaksEnabled:     execCfg.BetterLeaksEnabled,
+		SecretGuardBetterLeaksVersion:     execCfg.BetterLeaksVersion,
+		SecretGuardBetterLeaksConfigHash:  execCfg.BetterLeaksConfigHash,
+		SecretGuardBetterLeaksRuleCount:   execCfg.BetterLeaksRuleCount,
+		SecretGuardBetterLeaksConfidence:  execCfg.BetterLeaksConfidence,
+		SecretGuardBetterLeaksDecodeDepth: execCfg.BetterLeaksDecodeDepth,
+		SecretGuardBetterLeaksWorkers:     execCfg.BetterLeaksWorkers,
+		SecretGuardDiscoveryDetectorCount: execCfg.DiscoveryDetectorCount,
+	}
+	return plane, inventory
 }

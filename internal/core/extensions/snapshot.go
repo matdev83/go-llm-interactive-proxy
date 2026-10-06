@@ -34,6 +34,7 @@ type snapCtxKey struct{}
 type SecretGuardPlane struct {
 	Guards             []secretguard.Guard
 	MatcherResolver    secretguard.MatcherResolver
+	Capability         any
 	DecisionObserver   secretguard.Observer
 	AuditFailurePolicy secretguard.AuditFailurePolicy
 	AccessMode         string

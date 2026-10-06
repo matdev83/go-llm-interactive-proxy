@@ -32,7 +32,7 @@ func TestPostingOwnershipKindsAreDistinct(t *testing.T) {
 			t.Fatalf("kind %q must be valid", k)
 		}
 	}
-	if (PostingOperationKind("bogus")).Valid() {
+	if PostingOperationKind("bogus").Valid() {
 		t.Fatalf("bogus kind must be invalid")
 	}
 }
@@ -51,7 +51,7 @@ func TestPostingOwnershipOwnerReusesWriterLineage(t *testing.T) {
 	if !PostingPinPinned.Valid() || !PostingPinCompleted.Valid() {
 		t.Fatalf("pin statuses must be valid")
 	}
-	if (PostingPinStatus("bogus")).Valid() {
+	if PostingPinStatus("bogus").Valid() {
 		t.Fatalf("bogus pin status must be invalid")
 	}
 }

@@ -142,7 +142,12 @@ func validatePromptFilename(name string) error {
 }
 
 func loadPrompt(dir, name string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(dir, name))
+	cleanPath := filepath.Clean(filepath.Join(dir, name))
+	rel, err := filepath.Rel(dir, cleanPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == "." {
+		return "", fmt.Errorf("%s: invalid path: path traversal detected", ID)
+	}
+	b, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return "", fmt.Errorf("%s: prompt_filename %q: %w", ID, name, err)
 	}

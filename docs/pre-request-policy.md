@@ -33,6 +33,8 @@ Policies:
 - `deny_on_pattern`: allow unless `deny_pattern` matches the auxiliary model output.
 - `allow_on_pattern`: deny unless `allow_pattern` matches the auxiliary model output.
 
-`prompt_filename` must be a plain filename under `prompt_dir`; path traversal and subdirectories are rejected.
+`prompt_filename` in YAML configuration must be a plain filename under `prompt_dir`; path traversal and subdirectories are rejected during configuration decoding. Directly constructed `NewHandlers(Config)` inputs also receive a lexical path-boundary check before file loading.
+
+`prompt_dir` is trusted operator configuration, not a filesystem sandbox. Prompt reads follow filesystem symlinks; a lexical path check does not confine symlink targets. Keep the prompt directory and its entries under trusted control, and do not use this feature to read filenames or directories supplied by untrusted request clients.
 
 For streaming clients, `server.pre_request_keepalive` may emit HTTP `102 Processing` informational responses while admission is pending. It does not commit the final response status, so normal protocol errors such as a `403` denial remain unchanged.

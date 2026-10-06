@@ -31,6 +31,30 @@ const (
 	SourceCategoryUnknown     SourceCategory = "unknown"
 )
 
+// Detector IDs are closed because they are emitted to operator-facing
+// diagnostics and audit sinks. Empty is retained for compatibility with
+// existing exact-match producers that predate detector provenance.
+const (
+	DetectorIDExact       = "exact"
+	DetectorIDBetterLeaks = "betterleaks"
+	// FailureKindDetectorFailure is a bounded decision classifier for a
+	// detector scan error or finding-cap exhaustion. It is valid on log
+	// decisions, which preserve the request while recording safe failure
+	// metadata.
+	FailureKindDetectorFailure = "detector_failure"
+	// FailureKindUnrewritableDetectedSecret is returned when redact discovers a
+	// secret whose original representation cannot be safely rewritten.
+	FailureKindUnrewritableDetectedSecret = "unrewritable_detected_secret"
+)
+
+// Confidence values are the only confidence bands that may cross the SDK
+// boundary. Empty means that the detector did not provide confidence metadata.
+const (
+	ConfidenceLow    = "low"
+	ConfidenceMedium = "medium"
+	ConfidenceHigh   = "high"
+)
+
 // Finding is safe match metadata. It must never carry a secret value or content excerpt.
 type Finding struct {
 	SecretRefName   string
@@ -38,6 +62,35 @@ type Finding struct {
 	SourceCategory  SourceCategory
 	Location        string
 	OccurrenceCount int
+	// DetectorID identifies the closed detector vocabulary that produced this
+	// finding. It may be empty for legacy exact findings.
+	DetectorID string
+	// RuleID is a bounded detector rule identifier. BetterLeaks findings must
+	// carry the identifier resolved from the pinned detector inventory.
+	RuleID string
+	// Confidence is low, medium, high, or empty when unavailable.
+	Confidence string
+}
+
+// PositionalOccurrence is safe positional attribution for one exact match.
+// Start and End are byte offsets into the input passed to ScanOccurrences and
+// describe the half-open span input[Start:End], with
+// 0 <= Start < End <= len(input). Finding.OccurrenceCount is 1; DetectorID may
+// be empty for legacy exact matchers. Implementations must not expose secret
+// bytes, hashes, or detector objects.
+type PositionalOccurrence struct {
+	Start   int
+	End     int
+	Finding Finding
+}
+
+// PositionalMatcher is an optional Matcher capability. Feature-owned code may
+// use it to deduplicate detector reports by admitted-content span while the
+// Matcher contract remains safe-finding based. Each returned occurrence refers
+// to the supplied input bytes; positions must not refer to another buffer.
+type PositionalMatcher interface {
+	Matcher
+	ScanOccurrences(input []byte) []PositionalOccurrence
 }
 
 // Decision is the Evaluate result: outcome, safe findings, and scan metadata.
@@ -75,6 +128,10 @@ type Meta struct {
 // Services are opaque capabilities available to a Guard. No raw secret accessor is provided.
 type Services struct {
 	MatcherResolver MatcherResolver
+	// Capability is an opaque generation-frozen feature service. Generic guards
+	// and runtime do not interpret its concrete value; the owning feature may
+	// type-assert it inside its private boundary.
+	Capability any
 }
 
 // MatcherResolver resolves the request-scoped opaque Matcher. Implementations own secret bytes privately.
