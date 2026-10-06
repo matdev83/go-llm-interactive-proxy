@@ -24,16 +24,19 @@ import (
 )
 
 // certificationHybridRemoteYAML is a valid remote-rule reload posture. It is
-// built while composing the candidate generation (never at request time), and the
-// referenced credential deliberately resolves to nothing so the certification
-// stays hermetic: an eligible remote attempt must fail open to unknown with zero
-// egress (requirements 6.9, 6.10, 12.9).
+// built while composing the candidate generation (never at request time).
+// Requirement 6.10 means the referenced credential must resolve during that
+// composition step. The test therefore supplies a temporary value only for
+// publication, then removes it before any remote-eligible turn (requirements
+// 6.10, 7.1, 7.5, 12.9).
 const certificationHybridRemoteYAML = "mode: hybrid\nremote:\n  provider: jev\n  api_key_env: TYPESAFE_API_KEY\n" +
 	"  timeout: 750ms\n  max_attempts_per_session: 1\n  lease_ttl: 2s\n  retry_backoff: 0s\n  positive_threshold: 0.90\n"
 
-// certificationCountingTransport counts external requests. Reload is only
-// hermetic while no egress can hide behind it, so the whole reload sequence is
-// observed through it.
+// certificationCountingTransport counts requests made through the package
+// default HTTP client. It remains a useful auxiliary guard, but it is not the
+// hermeticity proof for the Jev path: the remote adapter uses a dedicated
+// client, so the proof is the missing credential, which refuses the attempt
+// before any transport is used.
 type certificationCountingTransport struct{ calls atomic.Int32 }
 
 func (tr *certificationCountingTransport) RoundTrip(*http.Request) (*http.Response, error) {
@@ -122,13 +125,12 @@ func certificationClassify(
 // durable row is byte-identical (no state was erased), and the reloaded
 // generation's own policy is genuinely different (the reload was not a no-op).
 func TestSessionClassificationReloadKeepsProcessStateAndDurableRows(t *testing.T) {
-	// Serial: this case observes the default HTTP transport and one referenced
-	// credential for the whole reload sequence. The credential resolves so that
-	// requirement 6.10 lets each remote-capable generation publish; the property
-	// under test is that a reload builds a NEW generation without discarding
-	// process state or durable rows, which a resolvable (but unused) credential
-	// leaves genuinely observable.
-	t.Setenv("TYPESAFE_API_KEY", "reload-unused-token")
+	// Serial: this case observes the default HTTP transport and controls one
+	// referenced credential for the whole reload sequence. The credential starts
+	// absent. It is supplied only long enough to publish the remote-rule
+	// generation, then removed before any remote-eligible classification, so the
+	// suite cannot reach an external service.
+	t.Setenv("TYPESAFE_API_KEY", "")
 	originalTransport := http.DefaultTransport
 	transport := &certificationCountingTransport{}
 	http.DefaultTransport = transport
@@ -202,6 +204,9 @@ func TestSessionClassificationReloadKeepsProcessStateAndDurableRows(t *testing.T
 	}
 
 	// ---- reload 2: changed remote rules ----
+	// Supply the referenced credential only for the composition step that
+	// requirement 6.10 checks.
+	t.Setenv("TYPESAFE_API_KEY", "reload-publication-only-token")
 	reloadedRemote := certificationCompile(t, rt, true, certificationHybridRemoteYAML)
 	if reloadedRemote.classifier == nil {
 		t.Fatal("remote-rule reload published no classifier")
@@ -209,6 +214,11 @@ func TestSessionClassificationReloadKeepsProcessStateAndDurableRows(t *testing.T
 	if reloadedRemote.classifier == reloadedHeuristic.classifier {
 		t.Fatal("the remote-rule reload reused the previous generation's classifier policy object")
 	}
+	// Remove the credential immediately after publication. The following
+	// remote-eligible turn must therefore exercise the documented
+	// post-publication path: acquire a lease, refuse the remote attempt before
+	// HTTP, complete the lease, and remain unknown with zero egress.
+	t.Setenv("TYPESAFE_API_KEY", "")
 	reloadedRemote.start(t)
 	assertReloadKeptProcessState(t, rt, coordinator, database, promotedSession, persisted)
 	// A restored positive is returned from durable state before any remote attempt
@@ -217,8 +227,9 @@ func TestSessionClassificationReloadKeepsProcessStateAndDurableRows(t *testing.T
 		t.Fatalf("remote-rule reload lost the persisted positive: got %+v, want %+v", got, promoted)
 	}
 	// The remote rules are live: an eligible unknown session takes a durable lease
-	// and then fails open to unknown because the referenced credential resolves to
-	// nothing. No egress happens.
+	// and then fails open to unknown because the publication-only credential was
+	// removed before this turn. That ordering refuses the attempt before HTTP, so
+	// no egress can happen.
 	const remoteEligibleSession = "session-reload-remote-eligible"
 	if got := certificationClassify(t, reloadedRemote.classifier, remoteEligibleSession, certificationWeakUserAgent); got != (session.Classification{}) {
 		t.Fatalf("remote-eligible unknown session classified %+v, want unknown without a remote positive", got)

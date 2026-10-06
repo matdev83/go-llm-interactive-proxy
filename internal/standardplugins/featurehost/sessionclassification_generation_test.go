@@ -67,20 +67,22 @@ const classificationJevRemoteYAML = "mode: jev\nremote:\n  provider: jev\n  api_
 // requirements 6.1/6.2/6.3/8.3 at the generation boundary: composing a
 // remote-capable mode constructs its decider without contacting the service, and
 // classifying reaches no external service. The default HTTP transport is observed
-// because a remote-capable mode is exactly the configuration where an egress
-// would appear.
+// as an auxiliary guard because it can catch accidental use of the shared
+// client.
 //
-// The credential reference deliberately resolves to nothing here, so an ambiguous
-// turn's remote attempt is refused before egress and fails open to unknown
-// (requirement 6.9). That keeps the composed suite hermetic while still proving
-// the request survives a refused remote attempt.
+// The credential is supplied only for composition: requirement 6.10 will not
+// publish a remote-capable generation otherwise. It is removed before every
+// classification, so a remote-eligible turn exercises the documented
+// post-publication refusal before HTTP rather than the network. That keeps the
+// composed suite hermetic while still proving the request survives a refused
+// remote attempt.
 func TestCompileGeneration_RemoteCapableModesMakeNoClassifierRequest(t *testing.T) {
 	// Serial: this case temporarily observes the default HTTP transport and the
-	// referenced credential. The credential must resolve, because requirement
-	// 6.10 refuses to publish a remote-capable generation without one; the
-	// property under test is that publication makes NO request, which a
-	// resolvable credential makes a stronger claim than an absent one.
-	t.Setenv("TYPESAFE_API_KEY", "compile-generation-unused-token")
+	// referenced credential. The credential must resolve during composition,
+	// because requirement 6.10 refuses to publish a remote-capable generation
+	// without one. It is removed before classification, so publication is tested
+	// with a credential and turns are tested without network access.
+	t.Setenv("TYPESAFE_API_KEY", "compile-generation-publication-only-token")
 	originalTransport := http.DefaultTransport
 	transport := &countingClassificationRoundTripper{}
 	http.DefaultTransport = transport
@@ -145,6 +147,9 @@ func TestCompileGeneration_RemoteCapableModesMakeNoClassifierRequest(t *testing.
 					t.Fatalf("generation lifecycle Start: %v", err)
 				}
 			}
+			// Remove the composition-only credential now: a remote-eligible
+			// classification must refuse before HTTP and never leave the test.
+			t.Setenv("TYPESAFE_API_KEY", "")
 			got, err := classifier.Classify(ctx, sdkclassification.Input{
 				Session:  session.SessionView{AuthoritativeSessionID: "sess-no-network"},
 				Evidence: sdkclassification.Evidence{ClientUserAgent: tc.userAgent},
