@@ -374,11 +374,23 @@
   - _Boundary: feature JSON occurrence validation and focused allocation regression_
   - _Validation: allocation RED/GREEN; complete feature suite; first-value fuzz; independent whitespace/large-number/UTF8/surrogate/depth/trailing-content controls; scoped lint_
 
-- [ ] 14.3 Complete fresh-head GitHub certification
-  - Require conflict-free integration and completion of all relevant checks, including Linux race allocation/streaming contracts. Preserve failure logs and distinguish cancelled-scope cascades from executed tests.
-  - _Validation: same-head CI/QA/security/module/platform and dedicated SecretGuard contracts; no merge or auto-merge_
+- [x] 14.3 Complete fresh-head GitHub certification
+  - Record conflict-free integration and all same-head check outcomes, including Linux race allocation/streaming contracts. Preserve failure logs and distinguish cancelled-scope cascades from executed tests. The maintainer explicitly waived the final LOC-shrinkage assertion; its failures remain reported rather than presented as successful checks.
+  - _Validation: required CI/security/module/platform and dedicated SecretGuard contracts passed at 54240d3c55fccb7b32f1921c1605a81f8fd365ca; qa/no-node fail solely on the waived -795 versus -800 LOC assertion. Authorized admin merge confirmed as 57634ea03627a6bae22434767e80461c6e40b494._
+
+## Completion Status
+
+- [x] All implementation and remediation tasks are complete; PR [#726](https://github.com/matdev83/go-llm-interactive-proxy/pull/726) merged on 2026-10-06 as `57634ea03627a6bae22434767e80461c6e40b494`.
+- [x] Same-head required checks and dedicated SecretGuard Linux race, incremental-streaming, parity and CLI certification passed at `54240d3c55fccb7b32f1921c1605a81f8fd365ca`; see [validation-report.md](validation-report.md) for run links.
+- [x] The maintainer waived `TestShrinkage_NetReductionMeetsRequirement115` (-795 lines versus the -800 target), causing the only failures in `qa` and `no-node`. Tests, thresholds and workflows remain unchanged.
+- [x] Merged-main source matches the tested implementation tree; local `main` is synchronized with the merge commit.
+- [x] The complete 13-file bundle is archived with completed metadata and no unchecked tasks. Bundle links and the relocated helper root resolve correctly; `go test ./tools/kiro/speccheck`, `make docs-check`, and diff checks passed.
+
+The configurable 64 MiB scan ceiling remains unbenchmarked. It is an evidence limitation, not a claim of certified performance. Historical failed local gates are retained in the validation report.
 
 ## Implementation Notes
+
+These notes record earlier implementation checkpoints. Statements below about an open PR or withheld merge authorization describe those earlier checkpoints; the completion status above and current validation report supersede them.
 
 - Tasks 13.1–13.5 repair the surviving CodeRabbit findings and the additional full-path JSON allocation review blocker. Task 13.5 received independent APPROVED review with mixed sparse/dense mapping controls and an offset-corruption negative control; complete feature tests, scoped lint and 30-second canonical parser fuzzing pass. Final-head remote CI and maintainer re-review remain delivery requirements. The maintainer requests all still-valid issues; workers use gpt-6.1-sol at medium reasoning. A host thread limit restricted dispatch to one worker, with parent implementation and independent worker review for the small fixes. No merge or auto-merge is authorized. Billing allocation findings are repaired in billing, not hidden by downstream SecretGuard test changes.
 
