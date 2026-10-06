@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 // allowedRootMarkdown is the set of markdown files allowed at repository root.
@@ -116,11 +118,15 @@ func TestRootHygiene_NoLooseTextOrLogFiles(t *testing.T) {
 func isGitIgnored(rootDir, name string) bool {
 	tracked := exec.Command("git", "ls-files", "--error-unmatch", "--", name)
 	tracked.Dir = rootDir
+	// rootDir selects the repository to inspect. Git exports GIT_DIR to every hook
+	// it runs, so an inherited GIT_DIR would answer for the ambient repository.
+	tracked.Env = gitscope.Environ()
 	if tracked.Run() == nil {
 		return false
 	}
 	ignored := exec.Command("git", "check-ignore", "-q", name)
 	ignored.Dir = rootDir
+	ignored.Env = gitscope.Environ()
 	return ignored.Run() == nil
 }
 

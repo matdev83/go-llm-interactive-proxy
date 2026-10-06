@@ -91,6 +91,25 @@ func (p *responsePipeline) prepareRecvEvent(ctx context.Context, facts recvTurnF
 	}
 	if toolFinal := attempt.toolCallAssembler(); toolFinal != nil && toolFinal.enabled() {
 		meta := toolcall.Meta{TraceID: facts.traceID, ALegID: facts.aLegID, BLegID: attempt.bleg.BLegID, AttemptSeq: attempt.bleg.Seq}
+		// Completed tool-call finalizers read the same authoritative request
+		// views the tool policy plane, the tool reactor plane, and the completion
+		// gate plane read. All four planes derive them from the one frozen
+		// recvViews snapshot through cloneRecvViews: completion gates here,
+		// tool policies in applyToolPolicies, and reactors via the hookMeta copy
+		// plus the projected context ApplyToolReactors re-reads. viewsFor returns
+		// a fresh detached copy per call, so a finalizer cannot reach this
+		// request's producer snapshot or a sibling consumer through the maps and
+		// slices it is handed. Nothing here is derived from client-supplied
+		// metadata.
+		//
+		// An absent snapshot is a supported state, not a failure: viewsFor then
+		// reports false, the additive views stay zero, and that is exactly what a
+		// finalizer already observed for such a request. Failing the request here
+		// would also diverge from the sibling population sites elsewhere in this
+		// file, which guard viewsFor the same way.
+		if views, ok := facts.viewsFor(ctx); ok {
+			meta.Scope, meta.Session, meta.Workspace = views.Scope, views.Session, views.Workspace
+		}
 		held, err := toolFinal.ingest(ctx, ev, meta)
 		if err != nil {
 			p.clearToolClassification()

@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 func main() {
@@ -82,6 +84,7 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 func gitOutput(repo string, args ...string) ([]byte, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repo
+	cmd.Env = gitscope.Environ()
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

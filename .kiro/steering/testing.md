@@ -62,7 +62,7 @@ Select evidence from the semantics changed, not from habit:
 | Parser/decoder/codec | focused tests + fuzzing where practical |
 | Frontend/backend protocol behavior | family contract/conformance tests + focused wire tests |
 | Routing/B2BUA/commitment | core runtime/routing tests; prove no post-commit recovery |
-| Cancellation/goroutine/stream lifecycle | focused concurrency tests + race evidence where practical |
+| Cancellation/goroutine/stream lifecycle | focused non-race tests locally + remote GitHub CI race evidence |
 | Feature/extension-plane behavior | feature tests + SDK/architecture guards; generator check when plane metadata changes |
 | Host/generation publication/reload | candidate rollback, publication isolation, retirement/cleanup tests |
 | Persistence/schema/migrations | focused store tests + applicable `dbparity` gate/topology proof |

@@ -9,6 +9,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
+	pathvirtualizationbundle "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/bundle"
+	pathvirtualizationconfig "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
@@ -295,6 +297,34 @@ func featureToolCallRepair(n yaml.Node) (lipfeature.FeatureBundle, error) {
 		return lipfeature.FeatureBundle{}, err
 	}
 	return toolcallrepair.FeatureBundle(cfg)
+}
+
+// featurePathVirtualization builds the B-leg path virtualization bundle.
+//
+// It decodes AND compiles the operator subtree in one call, because
+// requirements.md 7.5 requires an invalid selector, a conflicting profile, an
+// unsupported bound, or an ambiguous configuration to fail generation compilation
+// before publication, and the only way that survives a later edit is a single call a
+// factory cannot forget to make. An absent subtree, an empty mapping, and an
+// explicit `enabled: false` all decode to an inert resolution, which contributes
+// nothing at all, so a stock deployment builds no attempt transform, no
+// request-part hook, and no expansion finalizer (requirements.md 7.1, 8.1).
+//
+// No workspace authority is bound here, and none is needed: the runtime pins one per
+// logical turn and projects it onto both stages the two outbound passes read, so the
+// late pass is armed by the same pin the early pass uses rather than by anything this
+// composition root could hand it. A factory signature that took a workspace view would
+// be a service locator, and binding the SDK's unbound default would leave the late pass
+// inert in the only shipping composition.
+func featurePathVirtualization(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	resolved, err := pathvirtualizationconfig.Decode(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	if resolved.Disabled() {
+		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+	}
+	return pathvirtualizationbundle.FeatureBundle(resolved)
 }
 
 func featureInterleavedThinking(n yaml.Node) (lipfeature.FeatureBundle, error) {

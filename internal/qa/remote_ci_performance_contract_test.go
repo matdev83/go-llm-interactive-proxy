@@ -37,6 +37,18 @@ func TestQAFastPreflight_SupersededCIJobsRemainCancelable(t *testing.T) {
 	}
 }
 
+// maxCacheLaneBuildMiB is the largest per-lane retained build cache this contract
+// accepts. The floor is 128 MiB: below it a lane evicts its own entries before
+// anything is published. The ceiling is 8192 MiB, raised from 1536 by #745's
+// node-independence measurement: the full no-Node host lane produced 6014 MiB on
+// main, so a 1536 MiB snapshot discarded almost all of it and every later run
+// spent 7-9 minutes in its first unit pass. The ceiling stays bounded at 8 GiB so
+// a lane cannot silently claim unbounded repository cache.
+const (
+	minCacheLaneBuildMiB = 128
+	maxCacheLaneBuildMiB = 8192
+)
+
 func TestQAFastPreflight_AllGoWorkflowsUseSharedCachePolicy(t *testing.T) {
 	t.Parallel()
 	var policy map[string]struct {
@@ -99,7 +111,7 @@ func TestQAFastPreflight_AllGoWorkflowsUseSharedCachePolicy(t *testing.T) {
 		}
 	}
 	for lane, owner := range policy {
-		if producers[lane] != 1 || owner.BuildMiB < 128 || owner.BuildMiB > 1536 {
+		if producers[lane] != 1 || owner.BuildMiB < minCacheLaneBuildMiB || owner.BuildMiB > maxCacheLaneBuildMiB {
 			t.Errorf("%s needs one bounded, complete main producer", lane)
 		}
 	}

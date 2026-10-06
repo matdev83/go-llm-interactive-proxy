@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 // archtestFS is an abstraction over file reading/walking to support both
@@ -116,6 +118,10 @@ func loadGitCommitFSContext(ctx context.Context, root string, sha string) (*gitC
 	}()
 
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "archive", "--format=tar", sha)
+	// root selects the repository whose commit tree is archived. Git exports
+	// GIT_DIR to every hook it runs, so an inherited GIT_DIR would archive the
+	// ambient repository's tree instead of the pinned one under root.
+	cmd.Env = gitscope.Environ()
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	cmd.Stdout = &out

@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # labeled/unlabeled so applying or removing the exemption actually re-runs the
+    # gate it unblocks, instead of waiting for the next push to notice.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
 
 permissions:

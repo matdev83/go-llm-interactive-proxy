@@ -6,6 +6,34 @@ tests, builds, linting, cache lifecycle, and the automated cost watchdog.
 
 ## Use during development
 
+### Development-host race guard
+
+Race verification runs in remote GitHub CI, not on interactive development
+machines. `scripts/race-check.sh` protects the Make target; a PATH-level Go
+wrapper also prevents accidental direct race-enabled commands before compilation.
+
+On this Linux development host, the real Go command is `/usr/local/bin/go`
+(the toolchain symlink). With `~/.local/bin` first on PATH, install the wrapper:
+
+```sh
+# Inspect any existing user Go shim before replacing it.
+test ! -e "$HOME/.local/bin/go" && test ! -L "$HOME/.local/bin/go" &&
+  install -m 755 scripts/go-dev-guard.sh "$HOME/.local/bin/go"
+hash -r
+command -v go
+go version
+bash scripts/test-go-dev-guard.sh
+```
+
+The wrapper rejects race-enabled test/build/run/install/list/vet/generate/tool
+commands on `agent-dev` and `DESKTOP-I2CAJ6V`, including flags supplied through
+`GOFLAGS` or the persisted Go environment file. It preserves ordinary argument
+boundaries and exit statuses. CI markers and the Make-script override do not
+disable the development-host wrapper. Tests use a fake toolchain; they never
+run the race detector. The wrapper is an accident guard, not a security sandbox:
+agents must respect it rather than invoke the real toolchain directly. Native
+Windows shells require an equivalent executable shim; this installer is POSIX.
+
 ```sh
 make dev-test PKGS='./internal/core/routing/...'
 make dev-build PKGS='./cmd/lipstd'

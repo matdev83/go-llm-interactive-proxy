@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 func TestCIScopeClassifier_Contracts(t *testing.T) {
@@ -89,6 +91,11 @@ func TestCIScopeClassifier_SelfTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", script, "--self-test")
+	// The shell self-test builds throwaway repositories with `git -C "$tmp"
+	// init/commit`. Git exports GIT_DIR to every hook it runs, so an inherited
+	// GIT_DIR would initialise and commit inside the real repository, destroying
+	// its index and refs.
+	cmd.Env = gitscope.Environ()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("scope self-test failed: %v\n%s", err, output)

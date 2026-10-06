@@ -179,6 +179,60 @@ func TestWithViews_DetachedChildMasksParentSessionAuthority(t *testing.T) {
 	}
 }
 
+// TestWithViews_ProjectsPinnedWorkspaceToPublicSDKContext is the fourth member of the
+// projection trio. Session, scope, and principal were already projected onto their
+// public SDK context seams for feature plugins; workspace was not, which left a plugin
+// reached at a stage whose metadata carries no workspace view with no sanctioned way to
+// read the authoritative project root at all.
+func TestWithViews_ProjectsPinnedWorkspaceToPublicSDKContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := execctx.WithViews(context.Background(), execctx.Views{
+		Workspace: workspace.WorkspaceView{
+			ID: "ws-1", ProjectRoot: "/repo", DirtyTree: true,
+			Markers: []string{"go.mod"},
+			Labels:  map[string]string{"kind": "git"},
+		},
+	})
+	got, ok := workspace.WorkspaceViewFromContext(ctx)
+	if !ok || got.ID != "ws-1" || got.ProjectRoot != "/repo" || !got.DirtyTree {
+		t.Fatalf("public workspace view = %+v ok=%v", got, ok)
+	}
+	if len(got.Markers) != 1 || got.Markers[0] != "go.mod" || got.Labels["kind"] != "git" {
+		t.Fatalf("public workspace view lost a reference-typed payload: %+v", got)
+	}
+	// The projected snapshot must be detached from the internal aggregate as well, so a
+	// consumer mutating what it read cannot reach the stored views.
+	got.Labels["kind"] = "mutated"
+	got.Markers[0] = "mutated"
+	again, ok := workspace.WorkspaceViewFromContext(ctx)
+	if !ok || again.Labels["kind"] != "git" || again.Markers[0] != "go.mod" {
+		t.Fatalf("public workspace view aliases the stored snapshot: %+v ok=%v", again, ok)
+	}
+}
+
+// TestWithViews_EmptyWorkspaceStillOverwritesInheritedAuthority is the same rule the
+// session projection documents: an EMPTY view is attached rather than skipped, so a
+// child that pins no workspace cannot inherit a parent's through the context chain. It
+// is what makes the detached auxiliary path, which deliberately pins an empty view,
+// inert for every workspace-reading consumer instead of inheriting the parent turn's
+// project root.
+func TestWithViews_EmptyWorkspaceStillOverwritesInheritedAuthority(t *testing.T) {
+	t.Parallel()
+
+	parent := execctx.WithViews(context.Background(), execctx.Views{
+		Workspace: workspace.WorkspaceView{ID: "ws-parent", ProjectRoot: "/parent/repo"},
+	})
+	child := execctx.WithViews(parent, execctx.Views{Session: session.SessionView{ALegID: "child-a-leg"}})
+	got, ok := workspace.WorkspaceViewFromContext(child)
+	if !ok {
+		t.Fatal("an empty pinned view must be projected as present, not absent")
+	}
+	if got.ID != "" || got.ProjectRoot != "" {
+		t.Fatalf("child inherited the parent workspace authority: %+v", got)
+	}
+}
+
 func TestWithViews_DetachedChildMasksPrimarySecureTurnPolicy(t *testing.T) {
 	t.Parallel()
 

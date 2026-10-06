@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
+	pathvirtualizationconfig "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
@@ -143,6 +144,7 @@ func StandardBundle() Bundle {
 			{ID: partsnoop.ID, Factory: featurePartsNoop},
 			{ID: toolreactornoop.ID, Factory: featureToolReactorNoop},
 			{ID: toolcallrepair.ID, Factory: featureToolCallRepair},
+			{ID: pathvirtualizationconfig.ID, Factory: featurePathVirtualization},
 			{ID: refsubmit.ID, Factory: featureRefSubmit},
 			{ID: refparts.ID, Factory: featureRefParts},
 			{ID: reftool.ID, Factory: featureRefTool},

@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 func TestClassifyPath_CoversArchitectureZones(t *testing.T) {
@@ -153,6 +155,10 @@ func TestParsePorcelainZ_UsesGitRenameRecordOrdering(t *testing.T) {
 	runGit := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		// repo is a throwaway fixture repository. Git exports GIT_DIR to every hook
+		// it runs, so an inherited GIT_DIR would initialise and commit inside the
+		// real repository instead of the fixture, destroying its index and refs.
+		cmd.Env = gitscope.Environ()
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, output)
 		}
@@ -175,6 +181,7 @@ func TestParsePorcelainZ_UsesGitRenameRecordOrdering(t *testing.T) {
 	runGit("mv", "old/provider.yaml", "new/provider.yaml")
 
 	status := exec.Command("git", "-C", repo, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	status.Env = gitscope.Environ()
 	data, err := status.Output()
 	if err != nil {
 		t.Fatalf("git status: %v", err)

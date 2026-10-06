@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 // GitStatusReport classifies tracked, staged, and untracked paths at HEAD.
@@ -12,6 +14,7 @@ import (
 // path separators and rename handling stable across operating systems.
 func GitStatusReport(repoRoot string) (Report, error) {
 	cmd := exec.Command("git", "-C", repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	cmd.Env = gitscope.Environ()
 	data, err := cmd.Output()
 	if err != nil {
 		return Report{}, fmt.Errorf("git status: %w", err)
@@ -28,6 +31,7 @@ func GitStatusReport(repoRoot string) (Report, error) {
 // before the final orchestration commit.
 func GitBaseReport(repoRoot, base string) (Report, error) {
 	cmd := exec.Command("git", "-C", repoRoot, "diff", "--name-only", "--no-renames", "-z", base)
+	cmd.Env = gitscope.Environ()
 	diffData, err := cmd.Output()
 	if err != nil {
 		return Report{}, fmt.Errorf("git diff from %s: %w", base, err)

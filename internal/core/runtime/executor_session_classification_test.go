@@ -118,6 +118,7 @@ type orderingSecretGuardSpy struct {
 func (g orderingSecretGuardSpy) ID() string                           { return g.id }
 func (g orderingSecretGuardSpy) Order() int                           { return 0 }
 func (g orderingSecretGuardSpy) FailureMode() secretguard.FailureMode { return secretguard.FailOpen }
+
 func (g orderingSecretGuardSpy) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
 	g.ord.append("SecretGuard")
 	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil

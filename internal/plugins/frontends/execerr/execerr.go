@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
@@ -43,6 +44,45 @@ const ClientRejectWireMessage = "request rejected"
 // spendable/account billing denials (HTTP 429). Credit and journal types stay
 // out of lipapi; classification uses billing sentinels only.
 const InsufficientCreditWireMessage = "insufficient credit"
+
+// Mandatory-buffering wire messages. They are the stable client-safe messages for a
+// completed tool call the tool-call assembler refused closed because a finalizer
+// published a mandatory completeness requirement the assembler could not honor
+// (requirements.md 4.5, 4.6, 8.3).
+//
+// The refusal is a decision about the client's OWN tool call, so it is a client reject
+// rather than an internal fault. Before this mapping it fell through to
+// [InternalWireMessage], which told a client nothing: "the proxy will not run this tool
+// call for you" and "the proxy broke" arrived as the same 5xx string.
+//
+// Every message here is a compile-time literal and every one is selected by a switch over
+// the assembler's own bounded refusal code. The refusal's Reason field is an exported
+// string on an exported struct, so it is never rendered - see
+// [mandatoryBufferingWireMessage].
+const (
+	// MandatoryBufferingOverflowWireMessage is the message for a completed call whose
+	// assembled arguments exceed a bound a finalizer declared with
+	// [toolcall.OverflowReject].
+	MandatoryBufferingOverflowWireMessage = "tool call arguments exceed the declared completion bound"
+
+	// MandatoryBufferingDeclarationInvalidWireMessage is the message for a call refused
+	// because a finalizer published a present-but-unusable mandatory declaration. That
+	// is an operator configuration fault rather than a request fault, and it is still
+	// reported as a reject of this call because refusing closed is what the declaration
+	// asked for.
+	MandatoryBufferingDeclarationInvalidWireMessage = "tool call completion requirement is unusable"
+
+	// MandatoryBufferingIncompleteWireMessage is the message for a call refused because
+	// an unrelated finalizer failed before a declared mandatory requirement could be
+	// decided on the complete arguments.
+	MandatoryBufferingIncompleteWireMessage = "tool call could not be completed"
+
+	// MandatoryBufferingWireMessage is the bounded fallback for a refusal whose code is
+	// outside the set above. It exists so an unknown or future code renders a stable
+	// constant rather than the code itself, and rather than an empty message a client
+	// would have to guess about.
+	MandatoryBufferingWireMessage = "tool call rejected"
+)
 
 // BillingUnavailableWireMessage is the stable client-safe wire message when the
 // authorization store cannot complete admission (HTTP 503).
@@ -140,6 +180,15 @@ func ClassifyExecute(err error) Outcome {
 		}
 		return Outcome{Kind: KindClientReject, Status: http.StatusBadRequest, Message: msg, Err: err}
 	}
+	// A mandatory-buffering refusal is checked BEFORE the generic capability-reject
+	// branch because it is the more specific answer: it is the assembler's own typed
+	// refusal for one tool call, and a chain carrying both would otherwise be described
+	// by whichever was wrapped outermost. It is classified here rather than inside
+	// internal/core/runtime because the wire shape is frontend policy; core publishes the
+	// typed refusal and the predicate, and nothing else.
+	if runtime.IsMandatoryBufferingError(err) {
+		return mandatoryBufferingOutcome(err)
+	}
 	if lipapi.IsReject(err) {
 		msg := ClientRejectWireMessage
 		var rej *lipapi.RejectError
@@ -203,6 +252,52 @@ func OpenAIWireErrorType(status int) string {
 		return "api_error"
 	default:
 		return "invalid_request_error"
+	}
+}
+
+// mandatoryBufferingOutcome maps the tool-call assembler's typed refusal onto a client
+// reject carrying one compile-time message.
+//
+// It is the whole wire mapping for [runtime.MandatoryBufferingError], and it is bounded in
+// both directions: the status is the one this package already uses for a client reject of
+// a request, and the message is selected from a fixed set of constants. Nothing from the
+// refusal reaches the client. FinalizerID and ToolCallID are classification-only fields
+// and are absent from the typed error's own Error text for the same reason; MaxArgsBytes
+// is a declared bound rather than request content, but publishing it would still vary per
+// deployment, so it stays out too.
+//
+// The status is uniform across all three codes on purpose. Only the overflow code is a
+// size condition, so a per-code status would have to publish 413 for one of them and
+// something else for the other two, and the other two are not size problems: one is a
+// publisher's unusable declaration and one is an unrelated finalizer's failure. A client
+// reads one code from the message rather than inferring the condition from the status.
+func mandatoryBufferingOutcome(err error) Outcome {
+	msg := MandatoryBufferingWireMessage
+	var refusal *runtime.MandatoryBufferingError
+	if errors.As(err, &refusal) && refusal != nil {
+		msg = mandatoryBufferingWireMessage(refusal.Reason)
+	}
+	return Outcome{Kind: KindClientReject, Status: http.StatusBadRequest, Message: msg, Err: err}
+}
+
+// mandatoryBufferingWireMessage selects one compile-time message from the assembler's
+// bounded refusal code.
+//
+// The code is SELECTED rather than rendered, which is the whole content-freedom argument:
+// [runtime.MandatoryBufferingError.Reason] is an exported string field on an exported
+// struct, so a value assembled by a caller - or by a future build that adds a code without
+// updating this switch - would otherwise reach a client verbatim. Every branch returns a
+// literal, so the function is total over any string it is handed.
+func mandatoryBufferingWireMessage(reason string) string {
+	switch reason {
+	case runtime.ReasonMandatoryBufferingOverflow:
+		return MandatoryBufferingOverflowWireMessage
+	case runtime.ReasonMandatoryBufferingDeclarationInvalid:
+		return MandatoryBufferingDeclarationInvalidWireMessage
+	case runtime.ReasonMandatoryBufferingIncomplete:
+		return MandatoryBufferingIncompleteWireMessage
+	default:
+		return MandatoryBufferingWireMessage
 	}
 }
 

@@ -52,6 +52,7 @@ if [[ "$(go env GOOS)" == "linux" ]]; then
 	bash "$SCRIPT_DIR/configsource-certify.sh"
 	echo ""
 	echo "Running mandatory source-ownership fault lifecycle tests..."
+	bash "$SCRIPT_DIR/test-configsource-fault-check.sh"
 	bash "$SCRIPT_DIR/configsource-fault-check.sh"
 fi
 

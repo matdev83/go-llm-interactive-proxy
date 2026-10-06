@@ -20,6 +20,21 @@ import (
 // FilteredBaseline is the frozen filtered call (without never_backend, without steering) carried
 // from early projection; when provided it is used to distinguish legitimate user collisions from
 // duplicate steering. If empty, it is derived on the fly.
+//
+// Transform-stable carry-forward. A backend-only content rewrite performed after early
+// projection can change the identity the frozen after-message anchor names even though the
+// complete-message trajectory is unchanged, because MessageIdentityOf hashes normalized
+// semantic content. When that happens Reassert proves a one-to-one structural lineage from the
+// supplied frozen FilteredBaseline to the cleaned call and re-injects the overlay at the same
+// logical boundary. The proof never reads the conversation-view store, and identity equality is
+// deliberately not part of it: a rewrite of the anchored payload always drifts that identity, so
+// an identity-equality proof would refuse every legitimate rewrite, while identity is also weaker
+// than the structural proof because the normalized atom drops several stable identities. Any
+// insertion, deletion, reorder, role/kind change, stable-ID or reference change, or
+// authority/partition change refuses the proof outright; in those cases the stored anchor still
+// drives exact resolution and the configured anchor-missing policy remains authoritative.
+// MessageIdentityOf, the stored MessageAnchor{Identity, Occurrence}, persistence, overlay
+// lifecycle, and the anchor-missing/fallback policy are all unchanged by this path.
 func Reassert(call lipapi.Call, snap Snapshot, provenance []OverlayProvenance, filteredBaseline lipapi.Call) (lipapi.Call, *ProjectionEvidence, error) {
 	// Derive provenance if empty but snap has steering (fallback).
 	if len(provenance) == 0 && len(snap.Steering) > 0 {
@@ -50,7 +65,12 @@ func Reassert(call lipapi.Call, snap Snapshot, provenance []OverlayProvenance, f
 	// If filteredBaseline not provided, derive it for collision disambiguation.
 	var filtered lipapi.Call
 	hasFiltered := false
-	if len(filteredBaseline.Instructions) > 0 || len(filteredBaseline.Messages) > 0 || len(filteredBaseline.Items) > 0 {
+	// hasFrozenBaseline records that the caller supplied the request-local frozen
+	// filtered baseline it froze at early projection. Only that pre-rewrite evidence
+	// can support transform-stable carry-forward; a baseline derived on the fly from
+	// the already-rewritten call carries no lineage information at all.
+	hasFrozenBaseline := len(filteredBaseline.Instructions) > 0 || len(filteredBaseline.Messages) > 0 || len(filteredBaseline.Items) > 0
+	if hasFrozenBaseline {
 		filtered = lipapi.CloneCall(filteredBaseline)
 		hasFiltered = true
 	} else {
@@ -114,7 +134,15 @@ func Reassert(call lipapi.Call, snap Snapshot, provenance []OverlayProvenance, f
 			cleaned.Instructions, cleaned.Messages = removeExtraProvIdentitiesLegacy(cleaned.Instructions, cleaned.Messages, provenance, filtered)
 		}
 	}
-	out, ev, err := Project(cleaned, snap)
+	// Transform-stable carry-forward. Exact identity resolution above remains the
+	// normal path; this only supplies a request-local anchor for an after-message
+	// placement whose stored anchor stopped resolving because a backend-only content
+	// rewrite changed that complete message's identity. The carried anchor exists
+	// only when the FROZEN filtered baseline and the cleaned trajectory prove a
+	// one-to-one structural lineage, and it is never derived from a conversation-view
+	// store read. never_backend filtering and projection-owned overlay removal above
+	// are already applied and are not bypassed here.
+	out, ev, err := projectWithLineage(cleaned, snap, carriedAnchorsForReassert(snap, provenance, filteredBaseline, hasFrozenBaseline, cleaned))
 	if err != nil {
 		return lipapi.Call{}, nil, err
 	}
@@ -122,6 +150,19 @@ func Reassert(call lipapi.Call, snap Snapshot, provenance []OverlayProvenance, f
 		return lipapi.Call{}, nil, fmt.Errorf("%w: %v", ErrProjectionFailed, err)
 	}
 	return out, ev, nil
+}
+
+// carriedAnchorsForReassert derives the request-local carried anchors for one final
+// reassertion, or nil when none may be carried.
+//
+// The frozen filtered baseline is the ONLY admissible basis. When the caller
+// supplied none, no request-local pre-rewrite evidence exists, so nothing is carried
+// and the existing exact-resolution / anchor-missing-policy behavior is unchanged.
+func carriedAnchorsForReassert(snap Snapshot, provenance []OverlayProvenance, filteredBaseline lipapi.Call, hasFrozenBaseline bool, cleaned lipapi.Call) carriedAnchors {
+	if !hasFrozenBaseline {
+		return nil
+	}
+	return deriveCarriedAnchors(snap, provenance, filteredBaseline, cleaned)
 }
 
 func filterItemsByNeverSet(items []lipapi.Item, neverSet map[MessageIdentity]struct{}) []lipapi.Item {

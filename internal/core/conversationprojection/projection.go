@@ -82,11 +82,25 @@ type ProjectionEvidence struct {
 // Project derives the backend-effective call from call and snap.
 // It is pure, deterministic and never mutates the input call.
 // Exclusion is applied first, then steering injection; result is validated.
+//
+// Project is the early-projection authority: it always resolves persisted anchors
+// by exact identity and always applies the configured anchor-missing policy. It
+// never carries a placement forward across an identity drift; only the final
+// reassertion seam may do that, and only through projectWithLineage.
 func Project(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvidence, error) {
+	return projectWithLineage(call, snap, nil)
+}
+
+// projectWithLineage is Project with an optional request-local set of carried
+// anchors. A carried anchor is consulted ONLY for an after-message overlay whose
+// stored anchor failed to resolve exactly, so exact identity-based resolution
+// stays the normal path and the anchor-missing policy stays authoritative
+// whenever lineage is unavailable or the carried anchor does not resolve either.
+func projectWithLineage(call lipapi.Call, snap Snapshot, carried carriedAnchors) (lipapi.Call, *ProjectionEvidence, error) {
 	if call.HasItemAuthority() {
-		return projectItems(call, snap)
+		return projectItems(call, snap, carried)
 	}
-	return projectLegacy(call, snap)
+	return projectLegacy(call, snap, carried)
 }
 
 // ResolveAfterIngressTailAnchor resolves the terminal forwardable user message
@@ -262,7 +276,7 @@ func ResolveAfterIngressTailAnchor(call lipapi.Call, snap Snapshot) (MessageAnch
 // item authority projection
 // ---------------------------------------------------------------------------
 
-func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvidence, error) {
+func projectItems(call lipapi.Call, snap Snapshot, carried carriedAnchors) (lipapi.Call, *ProjectionEvidence, error) {
 	exclusion := make(map[MessageIdentity]struct{}, len(snap.NeverBackend))
 	for _, t := range snap.NeverBackend {
 		exclusion[t.Identity] = struct{}{}
@@ -323,6 +337,10 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 	type resolved struct {
 		ov  Overlay
 		idx int
+		// anchor is the anchor this projection actually resolved for ov. It is the
+		// stored anchor for every exact resolution; it is the request-local carried
+		// anchor only on the proven-lineage path. The stored anchor is never mutated.
+		anchor *MessageAnchor
 	}
 	var resolvedAnchors []resolved
 	var fallbackOverlays []Overlay
@@ -335,6 +353,25 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 		if err != nil {
 			return lipapi.Call{}, nil, fmt.Errorf("%w: overlay %s: %v", ErrProjectionFailed, ov.OverlayID, err)
 		}
+		effective := ov.Placement.Anchor
+		if !found {
+			// Identity drifted: the stored anchor no longer names any complete message
+			// in the cleaned trajectory. A carried anchor exists only when request-local
+			// evidence already proved a one-to-one structural lineage for this exact
+			// placement; without it the configured anchor-missing policy applies
+			// unchanged.
+			if carriedAnchor, ok := carried[ov.OverlayID]; ok {
+				carriedIdx, carriedFound, carriedErr := resolveAnchorInItems(filtered, carriedAnchor)
+				if carriedErr != nil {
+					return lipapi.Call{}, nil, fmt.Errorf("%w: overlay %s: %v", ErrProjectionFailed, ov.OverlayID, carriedErr)
+				}
+				if carriedFound {
+					idx, found = carriedIdx, true
+					cp := carriedAnchor
+					effective = &cp
+				}
+			}
+		}
 		if !found {
 			switch ov.AnchorMissingPolicy {
 			case AnchorStablePrefixFallback:
@@ -346,7 +383,7 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 				return lipapi.Call{}, nil, fmt.Errorf("%w: unknown policy for overlay %s", ErrProjectionFailed, ov.OverlayID)
 			}
 		} else {
-			resolvedAnchors = append(resolvedAnchors, resolved{ov: ov, idx: idx})
+			resolvedAnchors = append(resolvedAnchors, resolved{ov: ov, idx: idx, anchor: effective})
 		}
 	}
 	// Merge fallbacks into stable and re-sort.
@@ -439,10 +476,9 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 		if _, ok := provIndex[r.ov.OverlayID]; !ok {
 			idx = -1
 		}
-		anchorCopy := r.ov.Placement.Anchor
 		var cp *MessageAnchor
-		if anchorCopy != nil {
-			tmp := *anchorCopy
+		if r.anchor != nil {
+			tmp := *r.anchor
 			cp = &tmp
 		}
 		provenance = append(provenance, OverlayProvenance{
@@ -471,7 +507,7 @@ func projectItems(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvid
 // legacy authority projection
 // ---------------------------------------------------------------------------
 
-func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvidence, error) {
+func projectLegacy(call lipapi.Call, snap Snapshot, carried carriedAnchors) (lipapi.Call, *ProjectionEvidence, error) {
 	exclusion := make(map[MessageIdentity]struct{}, len(snap.NeverBackend))
 	for _, t := range snap.NeverBackend {
 		exclusion[t.Identity] = struct{}{}
@@ -523,6 +559,10 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 		ov      Overlay
 		isInstr bool
 		idx     int
+		// anchor is the anchor this projection actually resolved for ov. It is the
+		// stored anchor for every exact resolution; it is the request-local carried
+		// anchor only on the proven-lineage path. The stored anchor is never mutated.
+		anchor *MessageAnchor
 	}
 	var resolvedAnchors []resolved
 	var fallbackOverlays []Overlay
@@ -535,6 +575,25 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 		if err != nil {
 			return lipapi.Call{}, nil, fmt.Errorf("%w: overlay %s: %v", ErrProjectionFailed, ov.OverlayID, err)
 		}
+		effective := ov.Placement.Anchor
+		if !found {
+			// Identity drifted: the stored anchor no longer names any complete message
+			// in the cleaned trajectory. A carried anchor exists only when request-local
+			// evidence already proved a one-to-one structural lineage for this exact
+			// placement; without it the configured anchor-missing policy applies
+			// unchanged.
+			if carriedAnchor, ok := carried[ov.OverlayID]; ok {
+				carriedIsInstr, carriedIdx, carriedFound, carriedErr := resolveAnchorLegacy(filteredInstr, filteredMsgs, carriedAnchor)
+				if carriedErr != nil {
+					return lipapi.Call{}, nil, fmt.Errorf("%w: overlay %s: %v", ErrProjectionFailed, ov.OverlayID, carriedErr)
+				}
+				if carriedFound {
+					isInstr, idx, found = carriedIsInstr, carriedIdx, true
+					cp := carriedAnchor
+					effective = &cp
+				}
+			}
+		}
 		if !found {
 			switch ov.AnchorMissingPolicy {
 			case AnchorStablePrefixFallback:
@@ -546,7 +605,7 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 				return lipapi.Call{}, nil, fmt.Errorf("%w: unknown policy", ErrProjectionFailed)
 			}
 		} else {
-			resolvedAnchors = append(resolvedAnchors, resolved{ov: ov, isInstr: isInstr, idx: idx})
+			resolvedAnchors = append(resolvedAnchors, resolved{ov: ov, isInstr: isInstr, idx: idx, anchor: effective})
 		}
 	}
 	if len(fallbackOverlays) > 0 {
@@ -565,6 +624,16 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 	})
 
 	// Assemble instructions and messages with placement-aware provenance.
+	// effectiveAnchors records the anchor each resolved overlay was actually placed
+	// against: the stored anchor for every exact resolution, and the request-local
+	// carried anchor only on the proven-lineage path. Downstream stages verify
+	// placement against this value, so it must describe the position in THIS call.
+	effectiveAnchors := make(map[string]*MessageAnchor, len(resolvedAnchors))
+	for _, r := range resolvedAnchors {
+		if r.anchor != nil {
+			effectiveAnchors[r.ov.OverlayID] = r.anchor
+		}
+	}
 	provenanceCapacity, err := checkedCapacity(len(stable), len(resolvedAnchors))
 	if err != nil {
 		return lipapi.Call{}, nil, fmt.Errorf("%w: projection provenance capacity overflow", err)
@@ -589,8 +658,8 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 				idx := len(finalInstr)
 				finalInstr = append(finalInstr, overlayToMessage(ov))
 				var cp *MessageAnchor
-				if ov.Placement.Anchor != nil {
-					tmp := *ov.Placement.Anchor
+				if anchor := effectiveAnchors[ov.OverlayID]; anchor != nil {
+					tmp := *anchor
 					cp = &tmp
 				}
 				provenanceLegacy = append(provenanceLegacy, OverlayProvenance{
@@ -648,8 +717,8 @@ func projectLegacy(call lipapi.Call, snap Snapshot) (lipapi.Call, *ProjectionEvi
 				idxInMsgs := len(finalMsgs)
 				finalMsgs = append(finalMsgs, overlayToMessage(ov))
 				var cp *MessageAnchor
-				if ov.Placement.Anchor != nil {
-					tmp := *ov.Placement.Anchor
+				if anchor := effectiveAnchors[ov.OverlayID]; anchor != nil {
+					tmp := *anchor
 					cp = &tmp
 				}
 				provenanceLegacy = append(provenanceLegacy, OverlayProvenance{

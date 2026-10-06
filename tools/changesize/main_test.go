@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 func TestRun_StagedRejectsOverLimit(t *testing.T) {
@@ -148,6 +150,10 @@ func git(t *testing.T, repo string, args ...string) []byte {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repo
+	// Repo points at a throwaway fixture repository. Git exports GIT_DIR to every
+	// hook it runs, so an inherited GIT_DIR would initialise and commit inside the
+	// real repository instead of the fixture, destroying its index and refs.
+	cmd.Env = gitscope.Environ()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
