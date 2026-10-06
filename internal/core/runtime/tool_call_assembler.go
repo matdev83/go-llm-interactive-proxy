@@ -288,7 +288,10 @@ func (a *toolCallAssembler) deriveCallRequirements(toolName string) *callRequire
 		if !decl.appliesToTool(canonicalName, canonicalTool, a.catalog) {
 			continue
 		}
-		reqs.items = append(reqs.items, callRequirement{decl: decl, pending: true})
+		// A best-effort declarer asked for the complete document to observe, not
+		// to decide, so its requirement starts satisfied: nothing can leave it
+		// pending and therefore nothing can refuse a call through it.
+		reqs.items = append(reqs.items, callRequirement{decl: decl, pending: decl.requiresDecision()})
 		if decl.valid && decl.spec.MaxArgsBytes > reqs.limitBytes {
 			reqs.limitBytes = decl.spec.MaxArgsBytes
 		}

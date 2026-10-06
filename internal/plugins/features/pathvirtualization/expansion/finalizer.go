@@ -184,14 +184,25 @@ func NewFinalizer(
 	}
 	// Measurement must not enforce. Audit mode needs the same complete document
 	// to detect and measure, so it declares the same bound; past that bound it
-	// declares pass-through rather than refusal. An oversized call in audit mode
-	// keeps pre-existing pass-through behavior instead of failing because
-	// measurement was turned on. Only rewrite mode declares OverflowReject.
+	// declares pass-through rather than refusal, and it declares the bound
+	// BEST-EFFORT rather than binding, so the requirement can never refuse a
+	// call. Both halves are load-bearing. The pass-through policy alone is not
+	// enough, because a binding requirement refuses the call whenever it is
+	// still undecided - including when some UNRELATED finalizer fails first,
+	// which would make turning measurement on into a new hard rejection of
+	// traffic it was only ever meant to watch (requirements.md 7.3).
+	//
+	// Declaring no requirement at all would also stop enforcement, but it would
+	// shrink the measurement window from this configured bound back to the
+	// shared assembly default, so audit would silently never see the large calls
+	// an operator most wants measured. Only rewrite mode binds.
 	overflow := toolcall.OverflowPassThrough
+	completeness := toolcall.CompletenessBestEffort
 	if mode == rewrite.ModeRewrite {
 		overflow = toolcall.OverflowReject
+		completeness = toolcall.CompletenessMandatory
 	}
-	spec := toolcall.BufferingSpec{MaxArgsBytes: bound, Overflow: overflow}
+	spec := toolcall.BufferingSpec{MaxArgsBytes: bound, Overflow: overflow, Completeness: completeness}
 	if err := spec.Validate(); err != nil {
 		return nil, fmt.Errorf("path_virtualization: invalid mandatory expansion bound: %w", err)
 	}

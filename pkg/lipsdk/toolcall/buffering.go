@@ -51,6 +51,38 @@ const (
 	OverflowReject OverflowPolicy = "reject"
 )
 
+// CompletenessPolicy states what a declared bound is FOR, which is a different
+// question from what must happen past it.
+//
+// A declarer that must DECIDE on the arguments cannot tolerate an incomplete
+// view, so it declares [CompletenessMandatory] and may refuse the call. A
+// declarer that only needs the complete document to OBSERVE - measure savings,
+// count what it would change - is making no security decision, so making the
+// call depend on it would convert enabling measurement into a new way to reject
+// traffic it was only ever meant to watch. It declares
+// [CompletenessBestEffort]: its bound still widens assembly so the document can
+// be measured, and it can still never refuse.
+//
+// It is a declaration of intent. Honoring it is the assembler chokepoint's
+// responsibility; a finalizer that only records the declaration changes nothing
+// by itself.
+type CompletenessPolicy string
+
+const (
+	// CompletenessMandatory is the default and the only value that makes a
+	// declared bound binding: the declarer must decide on the complete arguments
+	// before the call may be released, and an undecided requirement refuses the
+	// call closed.
+	CompletenessMandatory CompletenessPolicy = ""
+
+	// CompletenessBestEffort asks for the complete arguments without making the
+	// call depend on them. The declared bound still raises how much the call is
+	// assembled, which is what makes observation possible at all, but the
+	// requirement starts satisfied, so no failure of this or of any other
+	// finalizer can turn it into a refusal.
+	CompletenessBestEffort CompletenessPolicy = "best_effort"
+)
+
 // BufferingRequirement is the optional capability a finalizer implements when it
 // must receive the complete assembled tool-call arguments before the call may be
 // released.
@@ -137,6 +169,16 @@ type BufferingSpec struct {
 	// is unspecified and means [OverflowPassThrough], which is the
 	// pre-existing behavior; it is not valid without a declared bound.
 	Overflow OverflowPolicy
+
+	// Completeness states whether this bound is required to DECIDE or only to
+	// OBSERVE. The empty value is unspecified and means
+	// [CompletenessMandatory], so an existing declaration is mandatory without
+	// having said so.
+	//
+	// A best-effort declaration still raises the call's buffering ceiling - that
+	// is what lets it measure a call larger than the shared default - but it
+	// never makes the call fail closed. See [CompletenessPolicy].
+	Completeness CompletenessPolicy
 }
 
 // DeclaresMandatoryBound reports whether this spec is a well-formed declaration
@@ -161,9 +203,12 @@ func (s BufferingSpec) DeclaresMandatoryBound() bool {
 // Validate reports whether this spec is a well-formed declaration.
 //
 // The zero spec is valid and declares nothing. Otherwise the bound must lie
-// inside [MinMandatoryMaxArgsBytes, MaxMandatoryMaxArgsBytes] and the policy
-// must be either unspecified, [OverflowPassThrough], or [OverflowReject]; a
-// policy without a declared bound is rejected because it cannot bound anything.
+// inside [MinMandatoryMaxArgsBytes, MaxMandatoryMaxArgsBytes], the policy must be
+// either unspecified, [OverflowPassThrough], or [OverflowReject], and the
+// completeness must be either unspecified or [CompletenessBestEffort]; a policy
+// without a declared bound is rejected because it cannot bound anything, and a
+// best-effort declaration that also rejects is rejected because it would claim
+// both to bind and not to bind.
 //
 // Both a feature's configuration validation and a consumer reading a
 // declaration should call this rather than re-deriving the range, so the
@@ -173,16 +218,31 @@ func (s BufferingSpec) Validate() error {
 		if s.Overflow != "" {
 			return fmt.Errorf("toolcall: buffering overflow policy %q declared without a mandatory max args bound", s.Overflow)
 		}
+		if s.Completeness != CompletenessMandatory {
+			return fmt.Errorf("toolcall: buffering completeness policy %q declared without a max args bound", s.Completeness)
+		}
 		return nil
 	}
 	if s.MaxArgsBytes < MinMandatoryMaxArgsBytes || s.MaxArgsBytes > MaxMandatoryMaxArgsBytes {
 		return fmt.Errorf("toolcall: mandatory max args bound %d outside the configurable range [%d, %d]",
 			s.MaxArgsBytes, MinMandatoryMaxArgsBytes, MaxMandatoryMaxArgsBytes)
 	}
+	switch s.Completeness {
+	case CompletenessMandatory, CompletenessBestEffort:
+	default:
+		return fmt.Errorf("toolcall: unknown buffering completeness policy %q", s.Completeness)
+	}
 	switch s.Overflow {
 	case "", OverflowPassThrough, OverflowReject:
-		return nil
 	default:
 		return fmt.Errorf("toolcall: unknown mandatory buffering overflow policy %q", s.Overflow)
 	}
+	if s.Completeness == CompletenessBestEffort && s.Overflow == OverflowReject {
+		// Refusing IS the decision a best-effort declarer said it does not make.
+		// Accepting both would let one declaration claim it neither binds nor
+		// refuses, which is the one reading no consumer could honor; rejecting
+		// the combination makes the publisher choose which it meant.
+		return fmt.Errorf("toolcall: best-effort buffering completeness cannot reject past its bound")
+	}
+	return nil
 }

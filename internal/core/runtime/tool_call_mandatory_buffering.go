@@ -151,6 +151,23 @@ type mandatoryDeclaration struct {
 	// answer, or nil when it published none - in which case the conservative
 	// reading applies and the declaration governs every call.
 	applicability toolcall.BufferingApplicability
+
+	// observesOnly records that the declarer asked for the complete arguments
+	// to MEASURE rather than to DECIDE, by declaring
+	// [toolcall.CompletenessBestEffort]. Its bound still widens assembly - that
+	// is the only way a call larger than the shared default becomes observable at
+	// all - but it never binds the call: the requirement starts satisfied, so no
+	// failure of this or of any other finalizer can refuse a call through it.
+	observesOnly bool
+}
+
+// requiresDecision reports whether this declaration must be decided before the
+// call it governs may be released. A best-effort declarer must not: it asked for
+// the complete document in order to watch it, and turning an unrelated
+// finalizer's failure into a hard rejection of a call it never decided about
+// would make enabling measurement into a new source of refusals.
+func (d *mandatoryDeclaration) requiresDecision() bool {
+	return !d.observesOnly
 }
 
 // requiresRejectPastOwnBound reports what this declaration requires of a call
@@ -231,11 +248,11 @@ type mandatoryBuffering struct {
 	declaredCount int
 
 	// mandatoryBoundDeclared records that at least one declaration is a
-	// well-formed mandatory completeness requirement. It is the only thing that
+	// well-formed BINDING completeness requirement. It is the only thing that
 	// turns on the requirement 4.6 failure clause: a call may not fall back to
 	// replaying its original fragments while an APPLICABLE requirement is still
-	// undecided. A zero-spec opt-in and a present-but-malformed declaration
-	// never set it.
+	// undecided. A zero-spec opt-in, a present-but-malformed declaration, and a
+	// best-effort declarer never set it.
 	mandatoryBoundDeclared bool
 
 	// invalidDeclaration records that some finalizer published the capability
@@ -285,6 +302,7 @@ func resolveMandatoryBuffering(finalizers []toolcall.Finalizer, legacyMaxArgsByt
 			spec:          spec,
 			valid:         spec.Validate() == nil,
 			applicability: applicabilityOf(fin),
+			observesOnly:  spec.Completeness == toolcall.CompletenessBestEffort,
 		}
 		if !decl.valid {
 			// Case 3: opted in, but the declaration cannot bound anything.
@@ -301,9 +319,14 @@ func resolveMandatoryBuffering(finalizers []toolcall.Finalizer, legacyMaxArgsByt
 			continue
 		}
 		// Case 2: a well-formed mandatory bound applies, to the calls this
-		// declarer says it applies to.
+		// declarer says it applies to. A best-effort declarer gets the same entry,
+		// so its own bound is still enforced and still widens the ceiling, but it
+		// does not make the requirement BINDING for the call: nothing can refuse
+		// through it.
 		mb.declarations = append(mb.declarations, decl)
-		mb.mandatoryBoundDeclared = true
+		if decl.requiresDecision() {
+			mb.mandatoryBoundDeclared = true
+		}
 		if spec.MaxArgsBytes > mb.assemblyMaxArgsBytes {
 			mb.assemblyMaxArgsBytes = spec.MaxArgsBytes
 		}

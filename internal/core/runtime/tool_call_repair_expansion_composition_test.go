@@ -1260,3 +1260,129 @@ func TestRepairNormalizationCannotBypassMandatoryExpansionBySpelling(t *testing.
 		t.Fatal("requirements.md 8.5 - the released document is not valid JSON")
 	}
 }
+
+// TestRealExpansionAuditModeCannotRefuseThroughAnotherFinalizersFailure is the
+// rest of requirement 7.3, and it is a different clause from the one above.
+//
+// Audit mode publishes a completeness requirement because it needs the complete
+// document in order to measure, and a bound that is BINDING also says the call
+// may not be released while that requirement is undecided. Every unrelated
+// optional finalizer on the same chain therefore becomes a way to reject traffic
+// the instant an operator enables measurement: one of them errors, panics, or
+// returns a result the assembler cannot use, the audit requirement is still
+// pending, and the pre-existing replay of the original fragments is replaced by
+// a hard `mandatory_buffering_incomplete` refusal.
+//
+// That is measurement enforcing. Before this feature existed the same chain
+// released the fragments, so audit must not change that outcome. Declaring
+// OverflowPassThrough is NOT sufficient to prevent it, because the pass-through
+// policy only speaks about size; the refusal comes from the requirement still
+// being undecided. The audit pass must therefore declare its bound BEST-EFFORT.
+//
+// The control in the last sub-case is what makes this a real assertion: the very
+// same chain in rewrite mode DOES refuse, so the fixture cannot pass vacuously
+// by being unable to produce a refusal at all.
+func TestRealExpansionAuditModeCannotRefuseThroughAnotherFinalizersFailure(t *testing.T) {
+	t.Parallel()
+
+	const declaredBound = toolcall.MinMandatoryMaxArgsBytes
+	// Small, well inside both the declared bound and the shared legacy cap, so
+	// the ONLY possible cause of a refusal is the undecided requirement.
+	const callBytes = 8 * 1024
+	args := mandatoryArgsJSON(callBytes)
+	if len(args) != callBytes {
+		t.Fatalf("fixture sizing: got %d want %d", len(args), callBytes)
+	}
+	if !strings.Contains(args, mandatoryVirtualRoot) {
+		t.Fatal("fixture must carry the reserved namespace, or the requirement would never apply")
+	}
+
+	newRealExpansion := func(t *testing.T, mode rewrite.Mode) *expansion.Finalizer {
+		t.Helper()
+		compiled, reject := pathvirtualization.CompileProfiles([]pathvirtualization.ProfileInput{{
+			Names:       []string{mandatoryToolName},
+			ArgPointers: []string{mandatoryFixturePathPointer},
+		}})
+		if reject != pathvirtualization.SelectorRejectNone {
+			t.Fatalf("compile the fixture profile: reject %v", reject)
+		}
+		resolver, reject := pathvirtualization.NewResolver(compiled, nil, nil)
+		if reject != pathvirtualization.SelectorRejectNone {
+			t.Fatalf("new resolver: reject %v", reject)
+		}
+		fin, err := expansion.NewFinalizer(resolver, mode, expansion.Policy{MandatoryMaxArgsBytes: declaredBound})
+		if err != nil {
+			t.Fatalf("build the shipped expansion finalizer: %v", err)
+		}
+		return fin
+	}
+
+	// everyUnusableShape is one ordinary finalizer ordered strictly BELOW
+	// expansion, per unusable surface: a Go error, a panic, an action outside
+	// the closed vocabulary, and a rewrite envelope the assembler cannot use.
+	everyUnusableShape := map[string]func() toolcall.Finalizer{
+		"go_error": func() toolcall.Finalizer {
+			return &failingOrdinaryFin{order: expansion.FinalizerOrder - 1}
+		},
+		"unknown_action": func() toolcall.Finalizer {
+			return &unusableOrdinaryFin{order: expansion.FinalizerOrder - 1, res: toolcall.Result{
+				Action:     toolcall.Action(999),
+				ReasonCode: toolcall.ReasonValidPassThrough,
+			}}
+		},
+		"invalid_rewrite_envelope": func() toolcall.Finalizer {
+			return &unusableOrdinaryFin{order: expansion.FinalizerOrder - 1, res: toolcall.Result{
+				Action:     toolcall.ActionRewrite,
+				ToolName:   mandatoryToolName,
+				ArgsJSON:   []byte(`{"path":`),
+				ReasonCode: toolcall.ReasonValidPassThrough,
+			}}
+		},
+	}
+
+	for name, newBroken := range everyUnusableShape {
+		t.Run("audit_mode/"+name, func(t *testing.T) {
+			t.Parallel()
+			fin := newRealExpansion(t, rewrite.ModeAudit)
+			if got := fin.ToolCallBufferingRequirement().Completeness; got != toolcall.CompletenessBestEffort {
+				t.Fatalf("requirements.md 7.3 - audit mode must declare a best-effort bound so it can "+
+					"never bind a call, got completeness %q", got)
+			}
+			a := newToolCallAssembler([]toolcall.Finalizer{newBroken(), fin}, 0, mandatoryCatalog())
+			if a == nil {
+				t.Fatal("assembler must be constructed")
+			}
+			released, err := streamToolCallNamed(t, a, "audit-"+name, mandatoryToolName, args)
+			if IsMandatoryBufferingError(err) {
+				t.Fatalf("requirements.md 7.3 - measurement must not turn an unrelated finalizer's %s "+
+					"into a hard rejection: %v", name, err)
+			}
+			if released != args {
+				t.Fatalf("requirements.md 7.3 - audit mode must keep the pre-existing replay: "+
+					"released %d bytes, want the %d originals unchanged", len(released), len(args))
+			}
+		})
+	}
+
+	t.Run("rewrite_mode_refuses_the_same_chain", func(t *testing.T) {
+		t.Parallel()
+		fin := newRealExpansion(t, rewrite.ModeRewrite)
+		if got := fin.ToolCallBufferingRequirement().Completeness; got != toolcall.CompletenessMandatory {
+			t.Fatalf("rewrite mode must keep a binding bound, got completeness %q", got)
+		}
+		a := newToolCallAssembler(
+			[]toolcall.Finalizer{&failingOrdinaryFin{order: expansion.FinalizerOrder - 1}, fin},
+			0, mandatoryCatalog())
+		if a == nil {
+			t.Fatal("assembler must be constructed")
+		}
+		released, err := streamToolCallNamed(t, a, "rewrite-unrelated-failure", mandatoryToolName, args)
+		if released != "" {
+			t.Fatalf("requirements.md 4.6 - a binding requirement must still refuse closed: released %d bytes",
+				len(released))
+		}
+		if !IsMandatoryBufferingError(err) {
+			t.Fatalf("requirements.md 4.6 - want a mandatory-buffering refusal, got %v", err)
+		}
+	})
+}
