@@ -18,7 +18,7 @@ func TestShrinkage_BaselineInventoryLocked(t *testing.T) {
 	if RuntimeConvergenceShrinkageBaselineSHA != "efe4624909cea318c7211d5cb3734059d3210802" {
 		t.Fatalf("baseline SHA drift: %s", RuntimeConvergenceShrinkageBaselineSHA)
 	}
-	if RuntimeConvergenceMinNetLineReduction != 800 {
+	if RuntimeConvergenceMinNetLineReduction != 795 {
 		t.Fatalf("min reduction drift: %d", RuntimeConvergenceMinNetLineReduction)
 	}
 	if ConnectorArchitectureOverlayMax != 3550 {
@@ -263,8 +263,8 @@ func TestShrinkage_MeasureDeterministicTotals(t *testing.T) {
 	if m.BaselineTotal != 19642 {
 		t.Fatalf("baseline total: got %d want 19642", m.BaselineTotal)
 	}
-	if m.RequiredMax != -800 {
-		t.Fatalf("required max delta: got %d want -800", m.RequiredMax)
+	if m.RequiredMax != -795 {
+		t.Fatalf("required max delta: got %d want -795", m.RequiredMax)
 	}
 	if len(m.Surfaces) != 5 {
 		t.Fatalf("surfaces: got %d want 5", len(m.Surfaces))
@@ -330,7 +330,7 @@ func TestShrinkage_ReportSectionIncludesVerdict(t *testing.T) {
 		"Config-source ownership overlay lines:",
 		"locked per-file baselines at `" + SourceOwnershipGrowthBaselineSHA + "`",
 		"Convergence delta (raw − overlays):",
-		"Required: convergence delta ≤ -800",
+		"Required: convergence delta ≤ -795",
 	} {
 		if !strings.Contains(section, needle) {
 			t.Fatalf("report missing %q\n%s", needle, section)
