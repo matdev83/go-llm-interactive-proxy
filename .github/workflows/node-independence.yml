@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # labeled/unlabeled so applying or removing the exemption actually re-runs the
+    # gate it unblocks, instead of waiting for the next push to notice.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
 
 permissions:
@@ -14,6 +17,14 @@ concurrency:
   # instead of consuming another hosted runner.
   group: node-independence-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
+
+# The oversized-PR exemption is label-driven, so every workflow that can run a
+# gate that counts changed Go files must resolve it the same way. Omitting it here
+# made this workflow the one place a deliberately oversized PR still failed
+# TestConversationViewChangedGoFileCountUnderGate, because the test honors
+# LIP_ALLOW_LARGE_CHANGE but nothing in this workflow set it.
+env:
+  LIP_ALLOW_LARGE_CHANGE: ${{ contains(github.event.pull_request.labels.*.name, 'allow-large-change') && '1' || '' }}
 
 jobs:
   changes:
