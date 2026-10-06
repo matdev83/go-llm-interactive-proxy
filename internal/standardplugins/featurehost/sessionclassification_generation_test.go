@@ -76,8 +76,11 @@ const classificationJevRemoteYAML = "mode: jev\nremote:\n  provider: jev\n  api_
 // the request survives a refused remote attempt.
 func TestCompileGeneration_RemoteCapableModesMakeNoClassifierRequest(t *testing.T) {
 	// Serial: this case temporarily observes the default HTTP transport and the
-	// referenced credential.
-	t.Setenv("TYPESAFE_API_KEY", "")
+	// referenced credential. The credential must resolve, because requirement
+	// 6.10 refuses to publish a remote-capable generation without one; the
+	// property under test is that publication makes NO request, which a
+	// resolvable credential makes a stronger claim than an absent one.
+	t.Setenv("TYPESAFE_API_KEY", "compile-generation-unused-token")
 	originalTransport := http.DefaultTransport
 	transport := &countingClassificationRoundTripper{}
 	http.DefaultTransport = transport

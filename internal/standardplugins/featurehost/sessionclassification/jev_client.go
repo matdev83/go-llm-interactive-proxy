@@ -194,7 +194,10 @@ func withJevEndpoint(endpoint string) JevOption {
 // constructed only for the modes that require a remote decision, so a heuristic
 // generation can never hold a live endpoint, and the hard timeout it enforces is
 // the generation's own validated timeout (requirements 6.1, 6.2, 6.3, 6.4, 6.7,
-// 6.10; design.md 703).
+// 6.10; design.md 703). It also refuses to construct unless the configured
+// credential reference resolves, which is what makes requirement 6.10's
+// "fail before publication" hold: an unusable jev/hybrid posture never becomes a
+// published classifier.
 func NewJevDecider(policy featurestate.RemotePolicy, options ...JevOption) (featurestate.RemoteDecider, error) {
 	if policy.Mode() != featurestate.ModeJev && policy.Mode() != featurestate.ModeHybrid {
 		return nil, fmt.Errorf("%w: mode %q never constructs a jev decider",
@@ -213,7 +216,34 @@ func NewJevDecider(policy featurestate.RemotePolicy, options ...JevOption) (feat
 			return nil, err
 		}
 	}
+	// Requirement 6.10 requires an absent or unusable credential to reject the
+	// candidate generation BEFORE publication, rather than surfacing on the first
+	// request that happens to need a remote decision. Validating here means a
+	// jev/hybrid generation with no resolvable credential is never published as
+	// working remote mode. Only the environment variable's presence is checked:
+	// the value is neither stored nor echoed, and credential still resolves it
+	// per call so a later rotation takes effect without republishing.
+	if err := jevCredentialResolvable(decider.credentialEnv); err != nil {
+		return nil, err
+	}
 	return decider, nil
+}
+
+// jevCredentialResolvable reports whether the configured environment-variable
+// reference currently resolves to a non-blank value. It is the publication-time
+// half of the credential contract; credential resolves the value itself per call.
+// The variable NAME is operator configuration and may appear in a diagnostic,
+// but no part of the value is ever read into an error (requirements 6.10, 7.1, 7.5).
+func jevCredentialResolvable(credentialEnv string) error {
+	if strings.TrimSpace(credentialEnv) == "" {
+		return fmt.Errorf("%w: no credential reference is configured",
+			featurestate.ErrRemoteNotConfigured)
+	}
+	if strings.TrimSpace(os.Getenv(credentialEnv)) == "" {
+		return fmt.Errorf("%w: the configured jev credential reference %q resolves to no value",
+			featurestate.ErrRemoteNotConfigured, credentialEnv)
+	}
+	return nil
 }
 
 // jevNewClient builds the one HTTP client the adapter uses. It is the repository's
@@ -284,15 +314,22 @@ func (d *jevDecider) Decide(ctx context.Context, in featurestate.RemoteInput) (f
 // credential resolves the configured environment-variable reference at call time.
 // The value is never stored, echoed, or returned; a missing or unusable value is a
 // bounded credential failure that makes no request (requirements 7.1, 7.5, 8.3).
+// credential resolves the configured environment-variable reference at call time.
+// The value is never stored, echoed, or returned; a missing or unusable value is a
+// bounded credential failure that makes no request (requirements 7.1, 7.5, 8.3).
+//
+// This stays a per-call check even though jevCredentialResolvable already rejected a
+// generation with no resolvable credential: the variable's value can be unset or
+// blanked after publication, and that must degrade to a bounded refusal on the turn
+// rather than to egress with an empty bearer header.
 func (d *jevDecider) credential() (string, error) {
-	value := os.Getenv(d.credentialEnv)
-	if strings.TrimSpace(value) == "" {
+	if err := jevCredentialResolvable(d.credentialEnv); err != nil {
 		return "", &JevError{
 			Kind: JevFailureCredentialMissing,
 			Err:  errors.New("the configured jev credential reference resolves to no value"),
 		}
 	}
-	return value, nil
+	return os.Getenv(d.credentialEnv), nil
 }
 
 // jevStatusFailure maps a non-success status onto the bounded failure vocabulary.

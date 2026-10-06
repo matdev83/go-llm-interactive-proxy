@@ -123,8 +123,12 @@ func certificationClassify(
 // generation's own policy is genuinely different (the reload was not a no-op).
 func TestSessionClassificationReloadKeepsProcessStateAndDurableRows(t *testing.T) {
 	// Serial: this case observes the default HTTP transport and one referenced
-	// credential for the whole reload sequence.
-	t.Setenv("TYPESAFE_API_KEY", "")
+	// credential for the whole reload sequence. The credential resolves so that
+	// requirement 6.10 lets each remote-capable generation publish; the property
+	// under test is that a reload builds a NEW generation without discarding
+	// process state or durable rows, which a resolvable (but unused) credential
+	// leaves genuinely observable.
+	t.Setenv("TYPESAFE_API_KEY", "reload-unused-token")
 	originalTransport := http.DefaultTransport
 	transport := &certificationCountingTransport{}
 	http.DefaultTransport = transport

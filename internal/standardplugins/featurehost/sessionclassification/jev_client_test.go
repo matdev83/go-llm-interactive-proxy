@@ -49,14 +49,11 @@ func jevTestPolicy(t *testing.T, timeout time.Duration) featurestate.RemotePolic
 
 // jevTestDecider builds the adapter against a test endpoint with the credential
 // already present in the environment.
+// jevTestDecider publishes one decider with a resolvable credential, which
+// requirement 6.10 now demands at construction time.
 func jevTestDecider(t *testing.T, endpoint string, timeout time.Duration) featurestate.RemoteDecider {
 	t.Helper()
 	t.Setenv(jevTestCredentialEnv, jevTestToken)
-	return jevTestDeciderWithoutCredential(t, endpoint, timeout)
-}
-
-func jevTestDeciderWithoutCredential(t *testing.T, endpoint string, timeout time.Duration) featurestate.RemoteDecider {
-	t.Helper()
 	decider, err := NewJevDecider(jevTestPolicy(t, timeout), withJevEndpoint(endpoint))
 	if err != nil {
 		t.Fatalf("NewJevDecider: %v", err)
@@ -821,53 +818,62 @@ func TestJevDeciderRedactsTheCredentialEverywhere(t *testing.T) {
 	}
 }
 
-// TestJevDeciderReportsAMissingCredentialAtCallTime proves the credential is a
-// reference resolved per call, never a value captured at construction
-// (requirements 6.10, 7.1, 8.3).
-func TestJevDeciderReportsAMissingCredentialAtCallTime(t *testing.T) {
-	t.Run("absent", func(t *testing.T) {
+// TestJevDeciderReportsAMissingCredential proves the credential contract has two
+// halves. An absent or blank credential rejects the CANDIDATE GENERATION before
+// publication (requirement 6.10), and a credential that becomes unusable after
+// publication is refused per call without any request (requirements 7.1, 8.3).
+func TestJevDeciderReportsAMissingCredential(t *testing.T) {
+	t.Run("absent at publication", func(t *testing.T) {
 		var calls atomic.Int32
 		server := jevServer(t, jevSuccessHandler(t, &calls, jevAnswerBody("0.95")))
 		t.Setenv(jevTestCredentialEnv, "")
-		decider := jevTestDeciderWithoutCredential(t, server.URL, 2*time.Second)
 
-		decision, err := decider.Decide(context.Background(), jevMaximalRemoteInput())
+		decider, err := NewJevDecider(jevTestPolicy(t, 2*time.Second), withJevEndpoint(server.URL))
 		if err == nil {
-			t.Fatalf("an absent credential produced %+v", decision)
+			t.Fatalf("a generation with an absent credential published %T", decider)
 		}
-		if got := JevFailureKindOf(err); got != JevFailureCredentialMissing {
+		if !errors.Is(err, featurestate.ErrRemoteNotConfigured) {
+			t.Fatalf("error = %v, want it to wrap ErrRemoteNotConfigured", err)
+		}
+		if decider != nil {
+			t.Fatal("a refused generation must not hand back a decider")
+		}
+		if calls.Load() != 0 {
+			t.Fatalf("a refused generation still produced %d requests", calls.Load())
+		}
+	})
+
+	t.Run("whitespace only at publication", func(t *testing.T) {
+		server := jevServer(t, jevSuccessHandler(t, nil, jevAnswerBody("0.95")))
+		t.Setenv(jevTestCredentialEnv, "   ")
+
+		if _, err := NewJevDecider(jevTestPolicy(t, 2*time.Second), withJevEndpoint(server.URL)); err == nil {
+			t.Fatal("a generation with a whitespace credential was published")
+		}
+	})
+
+	t.Run("unset after publication", func(t *testing.T) {
+		var calls atomic.Int32
+		server := jevServer(t, jevSuccessHandler(t, &calls, jevAnswerBody("0.95")))
+		t.Setenv(jevTestCredentialEnv, jevTestToken)
+		decider := jevTestDecider(t, server.URL, 2*time.Second)
+
+		t.Setenv(jevTestCredentialEnv, "")
+		_, unsetErr := decider.Decide(context.Background(), jevMaximalRemoteInput())
+		if unsetErr == nil {
+			t.Fatal("expected a credential unset after publication to be refused")
+		}
+		if got := JevFailureKindOf(unsetErr); got != JevFailureCredentialMissing {
 			t.Fatalf("failure kind = %q, want %q", got, JevFailureCredentialMissing)
 		}
 		if calls.Load() != 0 {
-			t.Fatalf("an absent credential still produced %d requests", calls.Load())
+			t.Fatalf("an unset credential still produced %d requests", calls.Load())
 		}
-	})
 
-	t.Run("whitespace only", func(t *testing.T) {
-		var calls atomic.Int32
-		server := jevServer(t, jevSuccessHandler(t, &calls, jevAnswerBody("0.95")))
-		t.Setenv(jevTestCredentialEnv, "   ")
-		decider := jevTestDeciderWithoutCredential(t, server.URL, 2*time.Second)
-
-		if _, err := decider.Decide(context.Background(), jevMaximalRemoteInput()); err == nil {
-			t.Fatal("a whitespace credential produced a decision")
-		}
-		if calls.Load() != 0 {
-			t.Fatalf("a whitespace credential still produced %d requests", calls.Load())
-		}
-	})
-
-	t.Run("set after construction", func(t *testing.T) {
-		server := jevServer(t, jevSuccessHandler(t, nil, jevAnswerBody("0.95")))
-		t.Setenv(jevTestCredentialEnv, "")
-		decider := jevTestDeciderWithoutCredential(t, server.URL, 2*time.Second)
-		if _, err := decider.Decide(context.Background(), jevMaximalRemoteInput()); err == nil {
-			t.Fatal("expected the unset credential to be refused")
-		}
 		t.Setenv(jevTestCredentialEnv, jevTestToken)
 		decision, err := decider.Decide(context.Background(), jevMaximalRemoteInput())
 		if err != nil {
-			t.Fatalf("a credential set after construction was not resolved: %v", err)
+			t.Fatalf("a credential restored after publication was not resolved: %v", err)
 		}
 		if decision.CodingProbability != 0.95 {
 			t.Fatalf("CodingProbability = %v, want 0.95", decision.CodingProbability)

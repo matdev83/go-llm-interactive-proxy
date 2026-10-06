@@ -273,12 +273,23 @@ Consequences an operator should plan for:
   A threshold of zero or below, a threshold above one, or a non-number is refused.
 - `config.remote.api_key_env` must name an environment variable — a
   bounded identifier. A credential value is never accepted in configuration.
+- For `mode: jev` or `mode: hybrid`, the named environment variable must
+  **currently resolve to a non-blank value in the process that compiles the
+  generation**. An absent or blank reference rejects the candidate generation,
+  the same as any other unservable setting.
 
 An unservable configuration is rejected when the candidate generation is
 compiled, so a bad mode, impossible threshold, non-positive timeout, invalid
 attempt or lease bound, contradictory local/remote setting, or unbounded matcher
 data fails **before** publication rather than serving a partially configured
 mode.
+
+Credential resolution is checked at publication and again per request. The value
+is never stored in the adapter: only the variable's name is retained, and the
+value is read afresh on each attempt. A variable that is unset or blanked *after*
+publication therefore degrades to a bounded per-turn refusal with no request
+made — it does not produce egress with an empty `Authorization` header. Restart
+or reload the proxy after rotating the credential in the environment.
 
 ### Canonical examples
 

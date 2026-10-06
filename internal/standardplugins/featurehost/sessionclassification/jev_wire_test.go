@@ -758,7 +758,28 @@ func TestJevResponseRefusalsNameTheOffendingMember(t *testing.T) {
 			name: "trailing bytes",
 			body: `{"model":"m","answers":{"` + jevQuestionID + `":{"type":"noul","noul":0.5}},` +
 				`"usage":{"input_tokens":1,"output_tokens":1}} trailing`,
-			want: "more than one document",
+			want: "trailing data",
+		},
+		// json.Decoder.More reports false for these because it reads a trailing
+		// ']' or '}' as an enclosing-delimiter token, so each of them once
+		// passed as a complete single document.
+		{
+			name: "trailing close bracket",
+			body: `{"model":"m","answers":{"` + jevQuestionID + `":{"type":"noul","noul":0.5}},` +
+				`"usage":{"input_tokens":1,"output_tokens":1}}]`,
+			want: "trailing data",
+		},
+		{
+			name: "trailing close brace",
+			body: `{"model":"m","answers":{"` + jevQuestionID + `":{"type":"noul","noul":0.5}},` +
+				`"usage":{"input_tokens":1,"output_tokens":1}}}`,
+			want: "trailing data",
+		},
+		{
+			name: "trailing bracket run",
+			body: `{"model":"m","answers":{"` + jevQuestionID + `":{"type":"noul","noul":0.5}},` +
+				`"usage":{"input_tokens":1,"output_tokens":1}}]}}`,
+			want: "trailing data",
 		},
 		{
 			name: "absent model",

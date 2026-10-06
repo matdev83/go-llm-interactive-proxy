@@ -16,7 +16,9 @@ import (
 // structurally cannot reach the network, and it is what distinguishes this gate
 // from a mode check the caller could bypass.
 func TestNewRemoteDeciderBuildsOnlyForRemoteCapableModes(t *testing.T) {
-	t.Parallel()
+	// Requirement 6.10 now refuses a candidate whose credential does not resolve,
+	// so the cases that must publish need a resolvable reference in the environment.
+	t.Setenv(jevTestCredentialEnv, jevTestToken)
 
 	validRemote := func() *featurestate.RemoteConfig {
 		timeout := 750 * time.Millisecond
@@ -76,8 +78,6 @@ func TestNewRemoteDeciderBuildsOnlyForRemoteCapableModes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			decider, err := NewRemoteDecider(tc.cfg)
 			if tc.wantErr {
 				if err == nil {

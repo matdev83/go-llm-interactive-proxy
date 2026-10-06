@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strconv"
 
@@ -280,8 +281,22 @@ func jevUnmarshalResponse(body []byte) (jevResponse, error) {
 	if err := parser.Decode(&decoded); err != nil {
 		return jevResponse{}, jevUnusableAnswer("the jev response is not one decodable document")
 	}
-	if parser.More() {
+	// A second document must be refused, and the only sound way to prove the
+	// first one ended is to ask for whatever follows it and require EOF.
+	// json.Decoder.More is NOT that check: it reports whether the NEXT token
+	// continues an enclosing array or object, so it reads a trailing ']' or '}'
+	// as a delimiter and answers false while bytes remain. That accepted
+	// "{...}]", "{...}}" and "{...}]}}" as complete documents.
+	var trailing json.RawMessage
+	switch err := parser.Decode(&trailing); {
+	case errors.Is(err, io.EOF):
+		// The single documented document ended exactly at end of body.
+	case err == nil:
 		return jevResponse{}, jevUnusableAnswer("the jev response carries more than one document")
+	default:
+		// Non-whitespace bytes that are not a valid document are malformed
+		// trailing data, not a second answer.
+		return jevResponse{}, jevUnusableAnswer("the jev response carries trailing data")
 	}
 	return decoded, nil
 }
