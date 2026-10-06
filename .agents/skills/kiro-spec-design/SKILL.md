@@ -1,6 +1,6 @@
 ---
 name: kiro-spec-design
-description: Create comprehensive technical design for a specification
+description: Create a proportional technical design for a specification
 metadata:
   shared-rules: "design-principles.md, design-discovery-full.md, design-discovery-light.md, design-synthesis.md, design-review-gate.md"
 ---
@@ -10,6 +10,7 @@ metadata:
 
 <background_information>
 - **Success Criteria**:
+  - The design serves the V1 slice within the delivery budget, reusing existing seams
   - All requirements mapped to technical components with clear interfaces
   - The design makes responsibility boundaries explicit enough to guide task generation and review
   - Appropriate architecture discovery and research completed
@@ -25,7 +26,7 @@ metadata:
 **Read all necessary context**:
 - `.kiro/specs/$1/spec.json`, `requirements.md`, `design.md` (if exists)
 - `.kiro/specs/$1/research.md` (if exists, contains gap analysis from `/kiro-validate-gap`)
-- Core steering context: `product.md`, `tech.md`, `structure.md`
+- Core steering context: `product.md`, `delivery.md`, `tech.md`, `structure.md`
 - Additional steering files only when directly relevant to requirement coverage, architecture boundaries, integrations, runtime prerequisites, security/performance constraints, or team conventions that affect implementation readiness
 - `.kiro/settings/templates/specs/design.md` for document structure
 - Read `rules/design-principles.md` from this skill's directory for design principles
@@ -43,7 +44,7 @@ metadata:
    - **New Feature** (greenfield) → Full discovery required
    - **Extension** (existing system) → Integration-focused discovery
    - **Simple Addition** (CRUD/UI) → Minimal or no discovery
-   - **Complex Integration** → Comprehensive analysis required
+   - **Complex Integration** → Full discovery, scoped to the V1 slice
 
 2. **Execute Appropriate Discovery Process**:
 
@@ -110,9 +111,9 @@ After all findings return, synthesize in main context before proceeding.
    - **Boundary-first requirement**: Before expanding supporting sections, make the boundary explicit. The draft must clearly define what this spec owns, what it does not own, which dependencies are allowed, and what changes would require downstream revalidation.
    - **Integrate all discovery findings and synthesis outcomes**: Use researched information (APIs, patterns, technologies) and synthesis decisions (generalizations, build-vs-adopt, simplifications) throughout component definitions, architecture decisions, and integration points
    - **File Structure Plan** (required): Populate the File Structure Plan section with concrete file paths and responsibilities. Analyze the codebase to determine which files need to be created vs. modified. Each file must have one clear responsibility. This section directly drives task `_Boundary:_` annotations and implementation Task Briefs — vague file structures produce vague implementations.
-   - **Testing Strategy**: Derive test items from requirements' acceptance criteria, not generic patterns. Each test item should reference specific components and behaviors from this design. E2E paths must map to the critical user flows identified in requirements. Avoid vague entries like "test login works" -- instead specify what is being verified and why it matters.
+   - **Testing Strategy**: Derive test items from the V1 acceptance criteria, following Test Proportionality in `.kiro/steering/testing.md`; reuse existing generic architecture rules instead of designing new ones. Each test item should reference specific components and behaviors from this design. E2E paths must map to the critical user flows identified in requirements. Avoid vague entries like "test login works" -- instead specify what is being verified and why it matters.
    - If existing design.md found in Step 1, use it as reference context (merge mode)
-   - Apply design rules: Type Safety, Visual Communication, Formal Tone
+   - Apply design rules: Proportionality, Go Contracts, Visual Communication, Formal Tone
    - Use language specified in spec.json
    - Keep this as a draft until the review gate passes; do not write `design.md` yet
 
@@ -138,12 +139,8 @@ After all findings return, synthesize in main context before proceeding.
    - Update `updated_at` timestamp
 
 ## Critical Constraints
- - **Type Safety**:
-   - Enforce strong typing aligned with the project's technology stack.
-   - For statically typed languages, define explicit types/interfaces and avoid unsafe casts.
-   - For TypeScript, never use `any`; prefer precise types and generics.
-   - For dynamically typed languages, provide type hints/annotations where available (e.g., Python type hints) and validate inputs at boundaries.
-   - Document public interfaces and contracts clearly to ensure cross-component type safety.
+ - **Proportionality**: The design covers the V1 slice only, within the `design.md` budget in `.kiro/steering/delivery.md`. Deferred items appear only in the Non-Goals list.
+ - **Go Contracts**: Follow `rules/design-principles.md` (Go Contracts); document exported surfaces only.
 - **Requirements Traceability IDs**: Use numeric requirement IDs only (e.g. "1.1", "1.2", "3.1", "3.3") exactly as defined in requirements.md. Do not invent new IDs or use alphabetic labels.
 </instructions>
 

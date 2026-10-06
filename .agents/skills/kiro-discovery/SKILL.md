@@ -20,7 +20,7 @@ description: Entry point for new work. Determines the best action path or work d
 Gather **only metadata** to determine the action path. Do NOT read full file contents yet.
 
 - **Specs inventory**: Scan `.kiro/specs/*/spec.json` for `name`, `phase` fields and `approvals` status. Note feature names and their current status.
-- **Steering existence**: Check which files exist in `.kiro/steering/` (product.md, tech.md, structure.md, roadmap.md). Do NOT read their contents yet.
+- **Steering existence**: Check which files exist in `.kiro/steering/` (product.md, delivery.md, tech.md, structure.md, roadmap.md). Do NOT read their contents yet.
 - **Roadmap check**: If `.kiro/steering/roadmap.md` exists, read it. This contains project-level context (approach, scope, constraints, spec list) from a previous discovery session. Use it to restore project context.
 - **Top-level structure**: List the project root directory to note key directories and files. Do NOT recurse into subdirectories.
 
@@ -107,13 +107,13 @@ If the viability check reveals issues, present them to the user and revisit the 
 ## Step 6: Refine and Confirm
 
 - Address user's questions or concerns about the approaches
-- Narrow scope if needed: favor smaller, deliverable increments and cleaner responsibility seams
+- Cut the work to a V1 slice within the budgets in `.kiro/steering/delivery.md`; list the rest as Deferred follow-ups
+- Prefer vertical slices that ship end-to-end value with their first consumer
 - For Path D/E: propose work decomposition with dependency ordering
   - Each new boundary-worthy feature = one spec
   - Existing spec extensions are explicitly listed with their target spec
   - Truly small direct-implementation items are listed separately instead of being forced into a spec
   - Dependencies between specs/workstreams are explicit
-  - Consider vertical slices (end-to-end value) vs horizontal layers (one layer at a time) based on the project needs
 - Confirm the final direction
 
 ## Step 7: Write Files to Disk
@@ -140,7 +140,9 @@ Write `.kiro/specs/<feature-name>/brief.md` to disk with this structure:
 [chosen approach and why]
 
 ## Scope
-- **In**: [what this feature includes]
+- **V1 slice**: [smallest change that delivers observable value and degrades safely]
+- **First consumer**: [who uses it in this or the next PR]
+- **Deferred**: [follow-up items, one line each]
 - **Out**: [what's explicitly excluded]
 
 ## Boundary Candidates

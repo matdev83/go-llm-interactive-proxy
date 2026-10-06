@@ -17,6 +17,12 @@ Conduct interactive quality review of technical design documents to ensure they 
 
 ## Core Review Criteria
 
+### 0. Proportionality (Critical)
+- The design serves the V1 slice and stays within the budgets in `.kiro/steering/delivery.md`
+- Existing seams are reused; each new stage, plane, store, SDK contract, or remote integration is tied to a V1 requirement
+- Deferred scope (optional integrations, restart durability, distributed coordination, secondary-path parity, extra observability) is absent from components and tasks unless the user asked for it
+- The test strategy follows Test Proportionality in `.kiro/steering/testing.md`
+
 ### 1. Existing Architecture Alignment (Critical)
 - Integration with existing system boundaries and layers
 - Consistency with established architectural patterns
@@ -30,14 +36,14 @@ Conduct interactive quality review of technical design documents to ensure they 
 - Alignment with established data modeling patterns
 
 ### 3. Extensibility & Maintainability
-- Design flexibility for future requirements
+- Deferred scope can be added later without reworking the V1 slice
 - Clear separation of concerns and single responsibility
 - Testability and debugging considerations
 - Appropriate complexity for requirements
 
-### 4. Type Safety & Interface Design
-- Proper type definitions and interface contracts
-- Avoidance of unsafe patterns (e.g., `any` in TypeScript)
+### 4. Go Contracts & Interface Design
+- Small consumer-owned interfaces; exported surface kept minimal
+- Explicit types in public contracts; wrapped errors
 - Clear API boundaries and data structures
 - Input validation and error handling coverage
 
@@ -62,7 +68,7 @@ Acknowledge 1-2 strong aspects to maintain balanced feedback.
 
 ### Step 4: Decide GO/NO-GO
 - **GO**: No critical architectural misalignment, requirements addressed, clear implementation path, acceptable risks
-- **NO-GO**: Fundamental conflicts, critical gaps, high failure risk, disproportionate complexity
+- **NO-GO**: Fundamental conflicts, critical gaps, high failure risk, or disproportionate scope (budget exceeded or deferred scope present); for scope, the next step is a split proposal
 
 ## Traceability & Evidence
 

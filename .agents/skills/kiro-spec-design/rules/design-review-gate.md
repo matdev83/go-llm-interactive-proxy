@@ -2,9 +2,18 @@
 
 Before writing `design.md`, review the draft design and repair local issues until the design passes or a true spec gap is discovered.
 
+## Proportionality Review
+
+Run this first.
+
+- The design serves the V1 slice in `requirements.md`. Components, data models, metrics, and files that serve only deferred items are removed.
+- Each new stage, plane, persisted table, SDK contract, remote integration, or architecture check carries a one-line justification tied to a V1 requirement; otherwise it is replaced by an existing seam or removed.
+- The test strategy follows Test Proportionality in `.kiro/steering/testing.md`.
+- If the slice cannot be designed within budget, stop and propose a split instead of writing `design.md`.
+
 ## Requirements Coverage Review
 
-- Every numeric requirement ID from `requirements.md` must appear in the design traceability mapping and be backed by one or more concrete components, contracts, flows, data models, or operational decisions.
+- Every numeric requirement ID from `requirements.md` must appear in the Components table (Requirements column) and be backed by one or more concrete components, contracts, flows, data models, or operational decisions.
 - Every requirement that introduces an external dependency, integration point, runtime prerequisite, migration concern, observability need, security constraint, or performance target must be reflected explicitly in `design.md`.
 - If coverage is missing because the design draft is incomplete, repair the draft and review again.
 - If coverage cannot be completed cleanly because requirements are ambiguous, contradictory, or underspecified, stop and return to the requirements phase instead of inventing design detail.
@@ -36,6 +45,7 @@ Before writing `design.md`, review the draft design and repair local issues unti
 ## Mechanical Checks
 
 Before applying judgment, verify these mechanically:
+- **Budget**: The draft is at most 300 lines. Count them.
 - **Requirements traceability**: Extract all numeric requirement IDs from `requirements.md`. Scan the design draft for each ID. Report any IDs not found in the design.
 - **Boundary section populated**: `Boundary Commitments`, `Out of Boundary`, `Allowed Dependencies`, and `Revalidation Triggers` must not be empty or placeholder-only.
 - **File Structure Plan populated**: The File Structure Plan section must contain concrete file paths (not just "TBD" or empty). Scan for placeholder text in that section.
