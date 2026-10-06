@@ -95,6 +95,9 @@ jobs:
           # The shared composite owns cache identity, size and main publication.
           cache: false
 
+      # The full lane produced 6,014 MiB on main; a 1,536 MiB snapshot evicted
+      # most entries; the next runs spent 7-9 minutes in the first unit pass.
+      # policy.json retains up to 7 GiB for this lane (including growth room).
       - name: Restore bounded no-node Go cache
         if: needs.changes.result == 'success' && needs.changes.outputs.host == 'true'
         uses: ./.github/actions/go-cache
