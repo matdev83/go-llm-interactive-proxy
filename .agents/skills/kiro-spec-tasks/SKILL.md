@@ -10,7 +10,7 @@ metadata:
 
 <background_information>
 - **Success Criteria**:
-  - All requirements mapped to specific tasks
+  - All V1 requirements mapped to at most 12 leaf tasks, each carrying its own tests
   - Tasks properly sized (1-3 hours each)
   - Clear task progression with proper hierarchy
   - Natural language descriptions focused on capabilities
@@ -25,7 +25,7 @@ metadata:
 **Read all necessary context**:
 - `.kiro/specs/$1/spec.json`, `requirements.md`, `design.md`
 - `.kiro/specs/$1/tasks.md` (if exists, for merge mode)
-- Core steering context: `product.md`, `tech.md`, `structure.md`
+- Core steering context: `product.md`, `delivery.md`, `tech.md`, `structure.md`
 - Additional steering files only when directly relevant to requirements coverage, design boundaries, runtime prerequisites, or team conventions that affect task executability
 
 **Validate approvals**:
@@ -60,7 +60,6 @@ After all parallel research completes, synthesize findings before generating tas
 - Keep normal implementation tasks within a single responsibility boundary; if work crosses boundaries, make it an explicit integration task
 - Collapse single-subtask structures by promoting them to major tasks and avoid duplicating details on container-only major tasks (use template patterns accordingly)
 - Apply `(P)` markers to tasks that satisfy parallel criteria (omit markers when sequential mode requested)
-- Mark optional test coverage subtasks with `- [ ]*` only when they strictly cover acceptance criteria already satisfied by core implementation and can be deferred post-MVP
 - If existing tasks.md found, merge with new content
 
 ### Step 3: Review Task Plan
@@ -69,7 +68,8 @@ After all parallel research completes, synthesize findings before generating tas
 - Run the `Task Plan Review Gate` from `rules/tasks-generation.md`
 - Review coverage:
   - Every requirement ID appears in at least one task
-  - Every design component, contract, integration point, runtime prerequisite, and validation concern is represented
+  - Every design component, contract, and integration point is represented
+  - At most 12 leaf tasks; tests live inside implementation tasks
 - Review executability:
   - Each sub-task is an executable 1-3 hour work unit
   - Each sub-task has a verifiable deliverable
@@ -150,7 +150,7 @@ Provide brief summary in the language specified in spec.json:
    - ✅ Task dependencies verified
    - ✅ Task plan review gate passed
    - ✅ Independent task-graph sanity review passed
-   - ✅ Testing tasks included
+   - ✅ Tests included inside implementation tasks; at most 12 leaf tasks
 4. **Next Action**: Review tasks and proceed when ready
 
 **Format**: Concise (under 200 words)

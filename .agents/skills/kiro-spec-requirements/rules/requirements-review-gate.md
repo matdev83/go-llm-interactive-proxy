@@ -13,9 +13,19 @@ Use boundary terminology consistently across phases without turning requirements
 
 Requirements should clarify the feature boundary in user- or operator-observable terms, not in architecture ownership or implementation detail.
 
+## Slice Review
+
+Run this first; it decides how much the rest of the review has to cover. Budgets and default deferrals live in `.kiro/steering/delivery.md`.
+
+- The draft describes one V1 slice: the smallest change that delivers observable value and degrades safely.
+- Every requirement is needed for the V1 slice to deliver its value. Anything that only makes the feature more durable, more distributed, more observable, or reachable through a secondary path moves to `Deferred` unless the user asked for it.
+- Requirements state product behaviour. Testing, certification matrices, regression gates, and architecture ratchets are not requirements; remove them.
+- A substrate feature names its first consumer.
+- If the slice still exceeds the budget, propose a split to the user instead of writing the requirements.
+
 ## Scope and Coverage Review
 
-- The draft must cover the feature's core user journeys, major scope boundaries, primary error cases, and meaningful edge conditions that are visible to the user or operator.
+- The draft must cover the V1 slice's core user journeys, scope boundaries, and primary error cases that are visible to the user or operator.
 - If the feature touches adjacent systems, specs, or workflows, the draft must make clear what this feature expects from them and what it does not own when that distinction affects user-visible behavior or operator expectations.
 - Business/domain rules, compliance constraints, security/privacy expectations, and operational constraints that materially shape user-visible behavior must be reflected explicitly when they are in scope.
 - If coverage is missing because the draft is incomplete, repair the draft and review again.
@@ -39,6 +49,8 @@ Requirements should clarify the feature boundary in user- or operator-observable
 ## Mechanical Checks
 
 Before applying judgment, verify these mechanically:
+- **Budget**: At most 5 requirement areas and 25 acceptance criteria. Count them.
+- **Deferred section present**: `V1 Slice` and `Deferred` sections exist and are filled in.
 - **Numeric IDs present**: Every requirement heading has a numeric ID (1, 1.1, 2, etc.). Scan the draft for headings without IDs.
 - **Acceptance criteria exist**: Every requirement has at least one EARS-format acceptance criterion. Scan for requirements with no "When/If/While/Where" acceptance statements.
 - **No implementation language**: Scan for technology-specific terms (database names, framework names, API patterns) that belong in design, not requirements. Flag any found.

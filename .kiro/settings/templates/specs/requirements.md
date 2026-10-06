@@ -3,6 +3,16 @@
 ## Introduction
 {{INTRODUCTION}}
 
+## V1 Slice
+<!-- The smallest change that delivers observable value and degrades safely. Budgets: .kiro/steering/delivery.md (at most 5 requirement areas, 25 acceptance criteria). -->
+- **Delivers**: {{OBSERVABLE_VALUE}}
+- **First consumer**: {{WHO_OR_WHAT_USES_IT_IN_THIS_OR_NEXT_PR}}
+- **Safe degradation**: {{BEHAVIOUR_WHEN_THE_FEATURE_CANNOT_DECIDE_OR_FAILS}}
+
+## Deferred
+<!-- Each item becomes a one-paragraph follow-up issue. Optional remote integrations, restart durability, distributed coordination, secondary-path parity, and extra observability start here unless the user asked for them. -->
+- {{DEFERRED_ITEM}} — follow-up: {{ISSUE_OR_TBD}}
+
 <!-- Optional when scope could be misread or the feature touches adjacent systems/specs -->
 ## Boundary Context (Optional)
 - **In scope**: {{IN_SCOPE_BEHAVIORS}}
@@ -32,4 +42,4 @@
 1. When [event], the [system] shall [response/action]
 2. When [event] and [condition], the [system] shall [response/action]
 
-<!-- Additional requirements follow the same pattern -->
+<!-- Additional requirements follow the same pattern. Requirements describe product behaviour; tests, certification, and regression gates are never requirements. -->

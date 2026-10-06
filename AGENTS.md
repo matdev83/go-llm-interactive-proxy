@@ -10,6 +10,7 @@
 ## Source Of Truth
 
 - Steering is durable project memory: `.kiro/steering/`.
+- Delivery slices, budgets, deferral, red-main handling: `.kiro/steering/delivery.md`. Read it before writing an issue, spec, task plan, or PR.
 - Fast package map: `.kiro/steering/structure.md`.
 - API/translation rules: `.kiro/steering/api-standards.md`.
 - Routing/failover/B2BUA rules: `.kiro/steering/routing-and-orchestration.md`.
@@ -19,8 +20,10 @@
 
 ## Work Rules
 
-- TDD by default: test/interface first, implementation second.
+- Ship a **slice**: the smallest change that delivers observable value and degrades safely. Everything else goes to a Deferred list and follow-up issues.
+- TDD by default: test/interface first, implementation second. Tests prove the slice; they are not the deliverable.
 - Smallest correct diff wins; avoid speculative abstractions.
+- A feature branch carries only its slice. Failures that reproduce on `origin/main` are recorded in the PR body; their fixes go in a separate PR from `main`.
 - Ask only when intent materially changes the result and repo context cannot resolve it.
 - Never claim success without direct verification evidence.
 - Preserve user-authored changes; never use destructive git commands unless explicitly requested.
@@ -33,7 +36,7 @@ Keep `main` branch clean. It should be only a PR merge receiver, never a merge d
 - Otherwise, create a sibling worktree from `main` with an adequately named `fix/`, `spec/`, or `feat/` branch and work there, never on `main`.
 - Run `codegraph init` from the root of every newly created worktree before implementation. When reusing a dedicated worktree, run it only if `.codegraph/` is absent.
 
-The source-change gate limits a commit or PR to **100 modified `*.go` files** (100 changed files gate on Go sources). Skill, catalog, and documentation paths do not consume this gate. Split large Go refactors so they stay reviewable and mergeable. Pre-commit, the recommended pre-push hook, and PR CI apply the same limit to staged paths or the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning.
+The source-change gate limits a commit or PR to **100 modified `*.go` files** (100 changed files gate on Go sources). Skill, catalog, and documentation paths do not consume this gate. Split large Go refactors so they stay reviewable and mergeable. Pre-commit, the recommended pre-push hook, and PR CI apply the same limit to staged paths or the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning. The overrides are maintainer-only: agents never set them or apply the label. When the gate fires, stop, propose a split into slices, and report.
 
 ## Skill Loading
 
@@ -97,8 +100,8 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 ## Kiro Specs
 
 - Specs are opt-in only: `/kiro:*`, explicit `.kiro/specs/...`, or explicit spec-driven request.
-- Use specs for new features, breaking changes, architecture changes, protocol/plugin contract changes, routing semantics, or unclear requirements.
-- Direct-code small bug fixes, docs, narrow tests, and trivial maintenance.
+- Direct code is the default, including features that fit one PR budget. Use a spec for public contract changes (`pkg/lipapi`, `pkg/lipsdk`), routing/B2BUA semantics, billing, or genuinely unclear requirements.
+- Specs follow the budgets in `.kiro/steering/delivery.md`: a V1 slice plus a Deferred list.
 - Spec flow: `spec-init` -> `requirements` -> `design` -> `tasks` -> `impl`.
 - If an active spec is clearly in scope, do not code before approved `requirements.md` and `design.md` in `spec.json`.
 - Active work lives in `.kiro/specs/{feature}/`. Completed and superseded specs move to `.kiro/specs/archive/` (`phase: completed` or `superseded`, `completed: true`, `ready_for_implementation: false`). Do not leave finished specs in the active tree.

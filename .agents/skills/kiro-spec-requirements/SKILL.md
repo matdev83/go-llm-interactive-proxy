@@ -1,6 +1,6 @@
 ---
 name: kiro-spec-requirements
-description: Generate comprehensive requirements for a specification
+description: Generate V1-slice requirements and a deferred list for a specification
 metadata:
   shared-rules: "ears-format.md, requirements-review-gate.md"
 ---
@@ -10,7 +10,7 @@ metadata:
 
 <background_information>
 - **Success Criteria**:
-  - Create complete requirements document aligned with steering context
+  - Requirements describe one V1 slice within the delivery budgets, with deferred scope listed
   - Follow the project's EARS patterns and constraints for all acceptance criteria
   - Focus on core functionality without implementation details
   - Make inclusion/exclusion boundaries explicit when scope could otherwise be misread
@@ -24,7 +24,7 @@ metadata:
    - Read `.kiro/specs/$1/spec.json` for language and metadata
    - Read `.kiro/specs/$1/brief.md` if it exists (discovery context: problem, approach, scope decisions, boundary candidates)
    - Read `.kiro/specs/$1/requirements.md` for project description
-   - Core steering context: `product.md`, `tech.md`, `structure.md`
+   - Core steering context: `product.md`, `delivery.md`, `tech.md`, `structure.md`
    - Additional steering files only when directly relevant to feature scope, user personas, business/domain rules, compliance/security constraints, operational constraints, or existing product boundaries
    - Relevant local agent skills or playbooks only when they clearly match the feature's host environment or use case and contain domain terminology or workflow rules that shape user-observable requirements
 
@@ -40,7 +40,7 @@ The following research areas are independent. Decide the optimal decomposition b
 **In main context** (essential for requirements generation):
 - Spec files: spec.json, brief.md, requirements.md (project description)
 - EARS format rules, requirements review gate, requirements template
-- Core steering: product.md, tech.md (directly inform scope and constraints)
+- Core steering: product.md, delivery.md, tech.md (directly inform scope, slice, and constraints)
 
 **Delegate to sub-agent** (keeps exploration out of main context):
 - **Codebase hints** (brownfield projects): Spawn a sub-agent to explore existing implementations that inform requirement scope. Ask it to summarize: (1) what already exists, (2) relevant interfaces/APIs, (3) patterns that new requirements should align with. Return a summary under 150 lines.

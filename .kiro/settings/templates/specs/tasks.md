@@ -22,7 +22,7 @@ Use whichever pattern fits the work breakdown:
 
 > **Parallel marker**: Append ` (P)` only to tasks that can be executed in parallel. Omit the marker when running in `--sequential` mode.
 >
-> **Optional test coverage**: When a sub-task is deferrable test work tied to acceptance criteria, mark the checkbox as `- [ ]*` and explain the referenced requirements in the detail bullets.
+> **Budget**: At most 12 leaf tasks (`.kiro/steering/delivery.md`). Each task includes the tests that prove it; there are no standalone test, certification, or documentation-contract tasks.
 >
 > **Boundary annotations**: For this Go LIP repo, use `_Boundary:_` for core/runtime, frontend plugin, backend plugin, feature plugin, SDK/public contract, config/wiring, docs, or tests. Use `_Validation:_` to name the focused command that proves the task.
 > If the task uses a hexagonal split, name the owner precisely (`domain policy`, `app orchestration`, `driving adapter`, `driven adapter`, `composition root`, `query seam`) instead of adding generic layer work.

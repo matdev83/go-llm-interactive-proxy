@@ -26,7 +26,7 @@ You operate in two modes:
 If steering/spec context is already available from conversation, skip redundant file reads.
 Otherwise, load all necessary context:
 - `.kiro/specs/{feature}/spec.json`, `requirements.md`, `design.md`, `tasks.md`
-- Core steering context: `product.md`, `tech.md`, `structure.md`
+- Core steering context: `product.md`, `delivery.md`, `tech.md`, `structure.md`
 - Additional steering files only when directly relevant to the selected task's boundary, runtime prerequisites, integrations, domain rules, security/performance constraints, or team conventions that affect implementation or validation
 - Relevant local agent skills or playbooks only when they clearly match the task's host environment or use case; read the specific artifact(s) you need, not entire directories
 
@@ -85,7 +85,7 @@ If multi-agent capability is available, for each task (one at a time):
   - Paths to spec files: requirements.md, design.md, tasks.md
   - Exact requirement and design section numbers this task must satisfy (using source numbering, NOT invented `REQ-*` aliases)
   - Task-relevant steering context and parent-discovered validation commands (tests/build/smoke as relevant)
-  - Whether the task is behavioral (Feature Flag Protocol) or non-behavioral
+  - Whether the task is behavioral (RED → GREEN Protocol) or non-behavioral
   - **Previous learnings**: Include any `## Implementation Notes` entries from tasks.md that are relevant to this task's boundary or dependencies (e.g., "better-sqlite3 requires separate rebuild for Electron"). This prevents the same mistakes from recurring.
 - The implementer sub-agent will read the spec files and build its own Task Brief (acceptance criteria, completion definition, design constraints, verification method) before implementation
 - Spawn a fresh sub-agent with this prompt
@@ -185,14 +185,14 @@ Before writing any code, read the relevant sections of requirements.md and desig
 **Manual mode**:
 - Suggest running `/kiro-validate-impl $1` but do not auto-execute
 
-## Feature Flag Protocol
+## RED → GREEN Protocol
 
-For tasks that add or change behavior, enforce RED → GREEN with a feature flag:
+For tasks that add or change behavior:
 
-1. **Add flag** (OFF by default): Introduce a toggle appropriate to the codebase (env var, config constant, boolean, conditional)
-2. **RED -- flag OFF**: Write tests for the new behavior. Run tests → must FAIL. If tests pass with flag OFF, the tests are not testing the right thing. Rewrite.
-3. **GREEN -- flag ON + implement**: Enable the flag, write implementation. Run tests → must PASS.
-4. **Remove flag**: Make the code unconditional. Run tests → must still PASS.
+1. **RED**: Write tests for the new behavior. Run them → they must FAIL for the expected reason. If they pass, they are not testing the right thing. Rewrite.
+2. **GREEN**: Implement until they pass, then run the task's focused validation.
+
+Tests follow Test Proportionality in `.kiro/steering/testing.md`. Failures that reproduce on `origin/main` are reported, not fixed, inside the task (`.kiro/steering/delivery.md`).
 
 **Skip this protocol for**: refactoring, configuration, documentation, or tasks with no behavioral change.
 

@@ -34,8 +34,9 @@ Evaluate each item. If ANY item fails, the verdict is REJECTED.
 ### Mechanical Checks (run commands, use results)
 
 **1. Regression Safety**
-- Run the project's test suite (e.g., `npm test`, `pytest`). Use the exit code.
-- If tests fail → REJECTED. No judgment needed.
+- Run the controller's validation commands for the task's packages (for this repo, `make dev-test-changed` or a scoped `make dev-test`). Use the exit code.
+- If tests fail because of this task → REJECTED. No judgment needed.
+- If a failure also reproduces on `origin/main`, it is not this task's regression: note it in FINDINGS and do not reject for it.
 
 **2. Completeness — No TBD/TODO/FIXME**
 - Run: `grep -rn "TBD\|TODO\|FIXME\|HACK\|XXX" <changed-files>`
@@ -80,6 +81,7 @@ Evaluate each item. If ANY item fails, the verdict is REJECTED.
 - Tests prove the required behavior, not just scaffolding or happy-path shells.
 - Test assertions are meaningful (not `expect(true).toBe(true)` or similar).
 - Tests would fail if the implementation were removed or broken.
+- Tests are proportional (`.kiro/steering/testing.md`, Test Proportionality): no new feature-specific architecture scanners, ratchets, or documentation-content tests, and no test machinery that needs its own tests.
 
 **11. Error Handling**
 - Error paths are handled, not just the happy path.

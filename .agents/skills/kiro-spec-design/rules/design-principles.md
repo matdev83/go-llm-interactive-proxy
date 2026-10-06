@@ -2,6 +2,12 @@
 
 ## Core Design Principles
 
+### Proportionality (applies before every other principle)
+- The design serves the V1 slice in `requirements.md` and nothing else; deferred items stay out of components, data models, and file plans.
+- Reuse an existing seam (extension stage, plane, store, request facts, config subtree) before adding one. A new stage, plane, persisted table, SDK contract, or remote integration needs a one-line justification tied to a V1 requirement.
+- Prefer the simplest safe degradation: process-local state over persistence, fail-open over coordination, primary path over secondary-path parity.
+- Budget: `design.md` at most 300 lines (`.kiro/steering/delivery.md`). A longer draft means the slice is too large; split it.
+
 ### 0. Boundary First
 - **Boundary is mandatory; owner is optional**
 - A design is not ready when it explains components but leaves responsibility seams ambiguous
@@ -9,11 +15,11 @@
 - Explicitly record what is out of boundary
 - Do not leak downstream-specific behavior or assumptions into upstream boundaries
 
-### 1. Type Safety is Mandatory
-- **NEVER** use `any` type in TypeScript interfaces
-- Define explicit types for all parameters and returns
-- Use discriminated unions for error handling
-- Specify generic constraints clearly
+### 1. Go Contracts
+- Define small interfaces where they are consumed; constructors return concrete types
+- Use explicit types in public contracts; `any` appears only where the canonical model already uses it
+- Return wrapped errors; name sentinel errors only when callers branch on them
+- Every I/O boundary takes `context.Context`
 
 ### 2. Design vs Implementation
 - **Focus on WHAT, not HOW**
@@ -47,7 +53,7 @@
 - **Fail Fast**: Validate early and clearly
 - **Graceful Degradation**: Partial functionality over complete failure
 - **User Context**: Actionable error messages
-- **Observability**: Comprehensive logging and monitoring
+- **Observability**: The few signals an operator needs to see the decision; richer observability is deferred scope
 
 ### 7. Integration Patterns
 - **Loose Coupling**: Minimize dependencies
@@ -125,10 +131,9 @@
 - Implementation Notes must combine Integration / Validation / Risks into a single bulleted subsection to reduce repetition.
 - Prefer lists or inline descriptors for short data (dependencies, contract selections). Use tables only when comparing multiple items.
 
-### Shared Interfaces & Props
-- Define a base interface (e.g., `BaseUIPanelProps`) for recurring UI components and extend it per component to capture only the deltas.
-- Hooks, utilities, and integration adapters that introduce new contracts should still include full TypeScript signatures.
-- When reusing a base contract, reference it explicitly (e.g., “Extends `BaseUIPanelProps` with `onSubmitAnswer` callback”) instead of duplicating the code block.
+### Shared Interfaces
+- Components that introduce new contracts include Go signatures for the exported surface only.
+- When reusing an existing contract, reference it by package and name instead of duplicating the code block.
 
 ### Data Models
 - Domain Model covers aggregates, entities, value objects, domain events, and invariants. Add Mermaid diagrams only when relationships are non-trivial.
@@ -182,9 +187,9 @@ graph TB
 - No implementation details leaked
 - Clear component boundaries
 - Explicit error handling
-- Comprehensive test strategy
+- Test strategy proportional to the slice (`testing.md`, Test Proportionality)
 - Security considered
-- Performance targets defined
+- Performance targets defined where a requirement states one
 - Migration path clear (if applicable)
 
 ### Common Anti-patterns to Avoid
@@ -196,3 +201,5 @@ graph TB
 ❌ Tight coupling between components
 ❌ Missing data consistency strategy
 ❌ Incomplete dependency analysis
+❌ Machinery for deferred scope (persistence, remote calls, leases, new stages or planes) inside the V1 slice
+❌ Feature-specific architecture scanners, ratchets, or documentation tests

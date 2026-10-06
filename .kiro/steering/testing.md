@@ -16,11 +16,23 @@ Use layered evidence instead of a Cartesian product:
 1. **Unit/domain tests** prove local policy and pure transformations.
 2. **Adapter/family contracts** prove each frontend/backend/connector family against canonical semantics.
 3. **Core contracts** prove orchestration, routing, commitment, continuity, and lifecycle independently of specific providers.
-4. **Architecture/QA ratchets** prove dependency direction, generated-contract currency, bounded change surfaces, and repository hygiene.
+4. **Architecture/QA rules** prove dependency direction, generated-contract currency, and repository hygiene with generic, reusable checks (see Test Proportionality).
 5. **Bounded real-stack sentinels** prove a small number of representative end-to-end paths.
 6. **Environment/topology tests** prove database, process, or external-service behavior only when that topology matters.
 
 Do not grow frontend×backend matrices simply because another provider/profile was added. A new implementation that passes the relevant family contract should not multiply unrelated test cells.
+
+## Test Proportionality
+
+Tests serve the slice (see `delivery.md`). They prove the behaviour the change ships, at the cheapest layer that can observe it.
+
+- Each implementation task carries its own tests. Testing is never a requirement, a certification matrix, or a standalone task.
+- A feature PR stays within about 2x test lines per production line. When a proof needs more, the slice or the design is too large.
+- Architecture rules are generic and declarative: new code joins an existing rule (add the package, stage, or import to its list). A new `internal/archtest` or `internal/qa` check is warranted only for a rule that applies across features, and it lands in its own PR.
+- Feature behaviour is proven by feature tests: table tests for decisions, one integration test per seam the feature touches, and a fail-open test when the feature can fail.
+- Documentation, metric names, and Markdown content are reviewed by humans; tests assert code behaviour.
+- Performance is proven by a benchmark when a requirement states a target; allocation, goroutine, or call-count ratchets belong to shared hot paths owned by core, not to individual features.
+- Test helpers stay simple enough to be obviously correct; when a test needs its own tests, replace it with a simpler one.
 
 ## Test-Cost and Iteration-Speed Policy
 
@@ -108,7 +120,7 @@ When a broad gate fails during a scoped change:
 2. determine whether the touched ownership surface can causally affect it;
 3. reproduce on the relevant baseline/main SHA when attribution is uncertain;
 4. fix branch-owned regressions before claiming completion;
-5. record genuinely unrelated baseline failures without expanding the task into opportunistic cleanup.
+5. record failures that reproduce on the baseline in the PR body and continue; their fixes go in a separate PR from `main` (see `delivery.md`).
 
 Never claim success from a partial command when the requested completion gate is broader.
 

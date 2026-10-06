@@ -2,6 +2,10 @@
 
 ## Core Principles
 
+### 0. Slice Budget
+- At most 12 leaf tasks for the V1 slice (`.kiro/steering/delivery.md`). A larger plan means the slice is too large: stop and propose a split.
+- Each implementation task includes the tests that prove it. Testing, certification, ratchet, and documentation-contract work is never its own task.
+
 ### 1. Natural Language Descriptions
 Focus on capabilities and outcomes, not code structure.
 
@@ -26,10 +30,9 @@ Focus on capabilities and outcomes, not code structure.
 **Order implies dependency**: Task N implicitly depends on all tasks before it. This is the primary dependency mechanism.
 
 **Tasks must follow this phase order**:
-1. **Foundation**: Environment setup, test infrastructure, shared utilities, database schema, configuration
-2. **Core**: Primary feature implementation (parallel-capable tasks grouped here)
-3. **Integration**: Wiring components together, cross-boundary connections
-4. **Validation**: E2E tests, edge cases, regression checks
+1. **Foundation**: Configuration, schema, and shared types the slice needs (reuse existing test infrastructure)
+2. **Core**: Primary feature implementation with its tests (parallel-capable tasks grouped here)
+3. **Integration**: Wiring components together, including the first consumer, with one integration test per seam
 
 **Rationale**: Foundation work unblocks everything else. Placing setup tasks early prevents downstream blocking. Core tasks can often run in parallel because foundation is already complete.
 
@@ -39,7 +42,7 @@ Focus on capabilities and outcomes, not code structure.
 - Build on previous outputs (no orphaned code)
 - Connect to the overall system (no hanging features)
 - Progress incrementally (no big jumps in complexity)
-- Respect architecture boundaries defined in design.md (Architecture Pattern & Boundary Map)
+- Respect architecture boundaries defined in design.md (Boundary Commitments and File Structure Plan)
 - Honor interface contracts documented in design.md
 - Use major task summaries sparingly—omit detail bullets if the work is fully captured by child tasks.
 
@@ -99,9 +102,8 @@ Focus on capabilities and outcomes, not code structure.
 ### 8. Code-Only Focus
 
 **Include ONLY**:
-- Coding tasks (implementation)
-- Testing tasks (unit, integration, E2E)
-- Technical setup tasks (infrastructure, configuration)
+- Coding tasks (implementation, each with its tests)
+- Technical setup tasks (configuration, schema)
 
 **Exclude**:
 - Deployment tasks
@@ -116,7 +118,8 @@ Before writing `tasks.md`, review the draft task plan and repair local issues un
 ### Coverage Review
 
 - Every requirement ID from `requirements.md` must appear in at least one task.
-- Every design component, interface/contract, integration point, runtime prerequisite, and validation concern from `design.md` must be represented by at least one task.
+- Every design component, interface/contract, and integration point from `design.md` must be represented by at least one task.
+- **Budget**: At most 12 leaf tasks. Count them.
 - If coverage is missing because the task plan is incomplete, repair the draft tasks and review again.
 - If coverage cannot be added cleanly because requirements or design are ambiguous, contradictory, or underspecified, stop and return to the requirements/design phase instead of papering over the gap in `tasks.md`.
 
@@ -138,12 +141,6 @@ Before writing `tasks.md`, review the draft task plan and repair local issues un
 - If issues are task-plan-local, repair the draft and re-run the review gate.
 - Keep the loop bounded: no more than 2 review-and-repair passes before escalating a real spec gap.
 - Write `tasks.md` only after the review gate passes.
-
-### Optional Test Coverage Tasks
-
-- When the design already guarantees functional coverage and rapid MVP delivery is prioritized, mark purely test-oriented follow-up work (e.g., baseline rendering/unit tests) as **optional** using the `- [ ]*` checkbox form.
-- Only apply the optional marker when the sub-task directly references acceptance criteria from requirements.md in its detail bullets.
-- Never mark implementation work or integration-critical verification as optional—reserve `*` for auxiliary/deferrable test coverage that can be revisited post-MVP.
 
 ## Task Hierarchy Rules
 
@@ -169,7 +166,7 @@ Before writing `tasks.md`, review the draft task plan and repair local issues un
   - `_Boundary:_` annotations confirm non-overlapping component scopes
 - Foundation-phase tasks (see Task Ordering Principle) are rarely `(P)` — they establish shared prerequisites.
 - Core-phase tasks are the primary candidates for `(P)` since foundation is already complete.
-- Validate that identified parallel tasks operate within separate boundaries defined in the Architecture Pattern & Boundary Map.
+- Validate that identified parallel tasks operate within separate boundaries defined in the Boundary Commitments and File Structure Plan.
 - Confirm API/event contracts from design.md do not overlap in ways that cause conflicts.
 - `(P)` tasks with cross-boundary dependencies must declare `_Depends: X.X_` explicitly.
 - Append `(P)` immediately after the task number for each parallel-capable task:
@@ -181,7 +178,7 @@ Before writing `tasks.md`, review the draft task plan and repair local issues un
 
 ### Checkbox Format
 ```markdown
-- [ ] 1. Foundation: environment and test infrastructure setup
+- [ ] 1. Foundation: configuration and shared types
 - [ ] 1.1 Sub-task description
   - Detail item 1
   - Detail item 2
