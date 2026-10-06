@@ -275,7 +275,7 @@ func (f *Finalizer) Finalize(
 		// canonical and this feature has nothing to say about it.
 		return passResult(ReasonNoSelectors), nil
 	}
-	decision := f.decide(call, tool, catalog, meta).
+	decision := f.decide(call, tool, meta).
 		withOverDeclaredBound(len(call.ArgsJSON) > f.spec.MaxArgsBytes)
 	f.record(decision)
 	if decision.reason.rejects() {
@@ -346,7 +346,7 @@ func (d decision) withReason(reason Reason) decision {
 // Each branch below is one step, and the ordering is the design's: the mapping is
 // derived before anything is inspected, the selectors are resolved before the document
 // is read, and the document is read before any leaf is visited.
-func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, catalog []lipapi.ToolDef, meta toolcall.Meta) decision {
+func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, meta toolcall.Meta) decision {
 	// Step 1. The authoritative workspace view is the ONLY authority read here. It is
 	// the same view the outbound attempt transform reads for the same turn, and it is
 	// derived per call rather than cached, which is what keeps every retry, race
@@ -380,8 +380,7 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, cat
 		// requirement 4.7/4.9 pass-through as ReasonNoSelectors. Only a tool with a
 		// selected argument surface can have a path-bearing argument that requirement
 		// 4.4 governs.
-		canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(catalog, call.ToolName, tool)
-		pointers := f.resolver.Resolve(canonicalName, declaredSchema(canonicalTool, canonicalName)).ArgPointers
+		pointers := f.resolver.Resolve(call.ToolName, declaredSchema(tool, call.ToolName)).ArgPointers
 		if len(pointers) == 0 {
 			return decision{reason: ReasonNoSelectors, rootReason: rootReason}
 		}
@@ -427,22 +426,33 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, cat
 		}
 	}
 
-	// Step 2. Selector resolution reads the canonical tool identity and the CURRENT
-	// declared schema, and nothing else. Exact catalog entries always win; when no
-	// exact entry exists, a unique normalized catalog entry wins, because repair
-	// normalizes unique spelling variants before expansion runs. The resolver's own
-	// lookup stays byte-exact: canonicalization happens before it, not inside it,
-	// so profiles still claim exact tool names and never substring/prefix shapes.
-	// The schema is offered only when the tool definition really is this call's
-	// tool.
+	// Step 2. Selector resolution reads the tool name this call ACTUALLY carries and
+	// the CURRENT declared schema for it, and nothing else.
+	//
+	// The name is resolved BYTE-EXACTLY, with no pre-normalization, because this is
+	// the security boundary: a near-miss spelling must not inherit another tool's
+	// profile. Canonicalizing here would let a call named `read-file` reach
+	// `read_file`'s selectors and share its policy purely because the catalog
+	// happens to make that normalization unique - widening the set of calls this
+	// feature governs from "the exact tools an operator named" to "any name
+	// tool-call repair could hypothetically have rewritten", which requirements.md
+	// 3.6 forbids and which no operator configuration asked for.
+	//
+	// Repair does not need this pass to anticipate it. Repair runs FIRST
+	// (DefaultFinalizerOrder 40 against expansion's FinalizerOrder 41) and returns
+	// the normalized name on its rewrite result, which the assembler installs
+	// before the next finalizer is invoked. So by the time this step runs,
+	// call.ToolName already IS the repaired name whenever repair repaired
+	// anything, and it is the original name whenever repair declined. The TOCTOU
+	// this pass used to close by canonicalizing is closed by that ordering instead,
+	// which keeps the authority on the name that really reached expansion.
 	//
 	// Only the ARGUMENT selectors are read. The resolution's structured-result
 	// pointers and its bounded opaque-result mode are deliberately ignored: a
 	// completed tool call carries arguments, and a result payload is model-visible
 	// content this feature must not reach for (requirements.md 2.5, 4.9). Reading
 	// them here would be the only way this pass could ever touch prose.
-	canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(catalog, call.ToolName, tool)
-	resolved := f.resolver.Resolve(canonicalName, declaredSchema(canonicalTool, canonicalName))
+	resolved := f.resolver.Resolve(call.ToolName, declaredSchema(tool, call.ToolName))
 	pointers := resolved.ArgPointers
 
 	// Step 3. No selector means nothing was proven path-bearing, so nothing is
@@ -704,6 +714,18 @@ func (f *Finalizer) ToolCallBufferingApplies(toolName string, tool lipapi.ToolDe
 	if f == nil || f.resolver == nil {
 		return false
 	}
+	// This answer is read ONCE, at call start, BEFORE any finalizer has run and
+	// before the arguments are complete, purely to decide how much of the call to
+	// buffer at all. Repair has not run yet at that point, so it cannot have told
+	// us the name it is about to produce. Anticipating it is therefore correct
+	// here and only here: buffering too much for a call that ends up unprofiled
+	// costs memory, while buffering too little releases the fragments before
+	// repair or this pass ever sees the complete document.
+	//
+	// It grants no authority. This method says only "buffer this call"; the
+	// selectors that decide anything are resolved BYTE-EXACTLY inside decide, so
+	// a call whose name never matches a profile still resolves ReasonNoSelectors
+	// and passes through untouched however it was buffered.
 	canonicalName, canonicalTool := toolcall.CanonicalToolIdentity(catalog, toolName, tool)
 	return len(f.resolver.Resolve(canonicalName, declaredSchema(canonicalTool, canonicalName)).ArgPointers) > 0
 }

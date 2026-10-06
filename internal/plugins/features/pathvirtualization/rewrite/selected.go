@@ -190,11 +190,15 @@ func ApplySelectedValues(
 // ApplySelectedValuesLimited is [ApplySelectedValues] with a bound on the
 // published document.
 //
-// A positive maxOutputBytes aborts the splice with [ErrOutputOverLimit] as
-// soon as the output exceeds it, instead of building a document the caller
+// A positive maxOutputBytes aborts the splice with [ErrOutputOverLimit] as soon
+// as the output provably exceeds it, instead of building a document the caller
 // would then refuse; a non-positive value means no bound. The bound is on the
 // published bytes, not on the input: a caller that must refuse an over-limit
 // publication uses it to avoid paying for the document it refuses.
+//
+// The abort is driven by an exact lower bound on the finished size, so it fires
+// only for documents that really are over the bound. It never rejects a document
+// whose published size would have fit.
 func ApplySelectedValuesLimited(
 	raw []byte,
 	pointers pathvirtualization.SelectorSet,
@@ -263,6 +267,13 @@ func applySelectedValues(
 // them verbatim, so no replacement is written at an offset an earlier one moved and
 // no two replacements can overlap: they are distinct literals of one document.
 //
+// It works in two passes, and the split is what makes the output bound affordable.
+// The first pass DECIDES every leaf and measures the document; the second builds
+// it, in one allocation of the measured size. Deciding is unavoidable - a leaf's
+// replacement is only known once the decider has run - but building is not, so an
+// over-limit document is refused for the cost of its decisions alone instead of
+// for a progressively doubled output buffer it was always going to throw away.
+//
 // A refused leaf ends the pass with nothing published. That is the whole
 // fail-closed contract, and it is enforced here rather than in each caller so the
 // inbound and outbound directions cannot disagree about it.
@@ -276,49 +287,18 @@ func splice(
 	ordered := slices.Clone(spans)
 	slices.SortFunc(ordered, func(a, b stringSpan) int { return cmp.Compare(a.start, b.start) })
 
-	published := make([]byte, 0, len(document))
-	if maxOutputBytes > 0 && len(document) > maxOutputBytes {
-		// Cap the initial allocation at the bound: an over-limit publication
-		// aborts instead of growing past it, so reserving more would only
-		// fund the document being refused.
-		published = make([]byte, 0, maxOutputBytes)
-	}
+	// Pass one: decide every selected leaf once, in ascending byte order, and
+	// accumulate the size of the document those decisions would produce.
+	eligible := make([]bool, len(ordered))
+	values := make([]string, len(ordered))
+	total := 0
 	cursor := 0
 	changed := false
-	// changedLeaves and the growth they produced feed the projection below.
-	// Both stay zero until a replacement actually grows the output, so a pass
-	// that only shrinks or copies never projects anything.
-	changedLeaves := 0
 	for index, span := range ordered {
 		if span.start < cursor || span.end > len(document) || span.start >= span.end {
 			// Overlapping or out-of-range spans cannot come from one decoded
 			// document, and writing them would corrupt the payload.
 			return nil, false, false, errors.New("selected leaves overlap in the payload")
-		}
-		if maxOutputBytes > 0 && len(published) > maxOutputBytes {
-			// The publication already exceeds the caller's bound. Abort
-			// before deciding the next leaf, so refusing an over-limit
-			// document never pays for building it.
-			return nil, false, false, ErrOutputOverLimit
-		}
-		if maxOutputBytes > 0 && changedLeaves > 0 {
-			// Project the finished size from the growth observed so far,
-			// rather than visiting every remaining leaf to discover it.
-			// Growth here is transformed-minus-consumed bytes: len(published)
-			// covers exactly document[0:cursor] transformed, so the finished
-			// size is the published bytes plus the untouched remainder plus
-			// the average growth applied to the spans still ahead. An
-			// overestimate fails closed with the over-limit reason, which is
-			// the safe direction; the hard cap above backstops an
-			// underestimate.
-			growth := len(published) - cursor
-			if growth > 0 {
-				projected := len(published) + (len(document) - cursor) +
-					(growth/changedLeaves)*(len(ordered)-index-1)
-				if projected > maxOutputBytes {
-					return nil, false, false, ErrOutputOverLimit
-				}
-			}
 		}
 		decision := decide(span.value)
 		if decision.Refused {
@@ -326,31 +306,65 @@ func splice(
 			// when an earlier leaf in the same document was acceptable.
 			return nil, false, true, nil
 		}
-		// A leaf the decision does not accept keeps its own bytes.
-		replacement := document[span.start:span.end]
+		total += span.start - cursor
 		if decision.Eligible {
 			// Eligibility is the decision's answer, not this step's: a value counts
 			// only when the caller proved it is a location.
+			eligible[index] = true
+			values[index] = decision.Replacement
 			pass.Eligible++
 			pass.BytesBefore += len(span.value)
 			pass.BytesAfter += len(decision.Replacement)
-			literal, err := encodeSelectedValue(decision.Replacement)
+			if decision.Replacement != span.value {
+				pass.Replaced++
+				changed = true
+			}
+			// The decoded length is a floor, not the final length: the encoded
+			// literal adds at least the two quotes, and possibly escapes. Under-
+			// counting by a bounded per-leaf constant is safe, because the pass-two
+			// check below is the authoritative one.
+			total += len(decision.Replacement)
+		} else {
+			// A leaf the decider does not accept keeps its own bytes, so it cannot
+			// grow the document at all. This is the case an average-growth estimate
+			// got wrong: thousands of selected, inert leaves beside one alias that
+			// grows, where multiplying that one growth across the rest of the array
+			// predicts a document many times its real size and refuses a valid one.
+			total += span.end - span.start
+		}
+		cursor = span.end
+		if maxOutputBytes > 0 && total > maxOutputBytes {
+			// The document is already provably over the caller's bound, so the
+			// remaining leaves cannot bring it back under. Abort here rather than
+			// visiting them: refusing an over-limit document never pays for deciding
+			// the rest of it.
+			return nil, false, false, ErrOutputOverLimit
+		}
+	}
+	if !changed {
+		return nil, false, false, nil
+	}
+	total += len(document) - cursor
+	if maxOutputBytes > 0 && total > maxOutputBytes {
+		return nil, false, false, ErrOutputOverLimit
+	}
+
+	// Pass two: build. Nothing above can grow the document past what was measured,
+	// so this buffer is allocated once at its finished size.
+	published := make([]byte, 0, total)
+	cursor = 0
+	for index, span := range ordered {
+		replacement := document[span.start:span.end]
+		if eligible[index] {
+			literal, err := encodeSelectedValue(values[index])
 			if err != nil {
 				return nil, false, false, fmt.Errorf("encode selected value: %w", err)
 			}
 			replacement = literal
-			if decision.Replacement != span.value {
-				pass.Replaced++
-				changed = true
-				changedLeaves++
-			}
 		}
 		published = append(published, document[cursor:span.start]...)
 		published = append(published, replacement...)
 		cursor = span.end
-	}
-	if !changed {
-		return nil, false, false, nil
 	}
 	published = append(published, document[cursor:]...)
 	if maxOutputBytes > 0 && len(published) > maxOutputBytes {

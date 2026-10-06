@@ -1761,9 +1761,13 @@ func TestExpansionFinalizerUnusableRootKindsKeepTheAliasPolicySeparate(t *testin
 // the canonical delta limit, and this test measures that in allocated bytes
 // rather than wall-clock time, so it is host- and timing-independent.
 //
-// The bound is deliberately generous: the pre-fix code allocates the full
-// expanded document (well past 100 MB on this fixture), while the abort keeps
-// the run to the input scan plus one bounded output window.
+// The bound is deliberately generous, and it is a ratchet on the SHAPE of the
+// abort rather than on its exact byte count. The unfixed code allocates the full
+// expanded document, well past 80 MB on this fixture. Deciding a document before
+// building it measures 26 MB here: the decisions themselves, which cannot be
+// avoided, and no output buffer at all. 40 MiB sits above that and far below the
+// document being refused, so it fails if the build moves back into the abort path
+// without making the fixture itself the fragile thing.
 func TestExpansionFinalizerRefusesOverLimitWithoutBuildingTheDocument(t *testing.T) {
 	// Not parallel: TotalAlloc is process-wide, like AllocsPerRun.
 	root := "/" + strings.Repeat("workspace-directory-", 200) + "worktree"
@@ -1813,9 +1817,232 @@ func TestExpansionFinalizerRefusesOverLimitWithoutBuildingTheDocument(t *testing
 	if res.ArgsJSON != nil {
 		t.Fatal("an over-limit expansion must publish nothing")
 	}
-	const maxAllocBytes = 64 << 20
+	const maxAllocBytes = 40 << 20
 	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > maxAllocBytes {
 		t.Fatalf("refusing the over-limit expansion allocated %d bytes, want at most %d",
 			allocated, maxAllocBytes)
+	}
+}
+
+// TestExpansionFinalizerKeepsExactNameAuthorityOverNearMissSpellings guards
+// requirements.md 3.6 at the one place it can actually be lost.
+//
+// Built-in profiles are EXACT-NAME profiles and the resolver's lookup is
+// byte-equality, so a spelling that is merely a near miss of a profiled tool is
+// a DIFFERENT tool and must resolve to ReasonNoSelectors. That property is easy
+// to state and easy to lose one layer out: the near-miss case that
+// TestExpansionFinalizerResolvesSelectorsAgainstTheDeclaredSchema covers passes an
+// EMPTY catalog, so there is nothing there for any lookup to canonicalize
+// against, and the assertion holds whether or not one exists.
+//
+// A populated catalog is what makes it bite. Tool-call repair treats a unique
+// normalized spelling as the same tool, so `read-file` normalizes onto a catalog
+// entry named `read_file`. Resolving the call's identity that way before handing
+// the name to the resolver silently widened this feature's authority from "the
+// exact tools an operator named" to "any name repair could hypothetically have
+// rewritten" - with repair disabled, and with repair enabled but declining the
+// call, a near-miss tool would inherit another tool's selectors, and therefore
+// its expansion, refusal, and buffering policy.
+//
+// The first half is the non-vacuity control: the SAME fixture under the EXACT
+// name does expand, so a pass in the second half cannot come from a resolver that
+// simply never matches anything.
+func TestExpansionFinalizerKeepsExactNameAuthorityOverNearMissSpellings(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExpansionFixture(t)
+	const (
+		profiledTool = "read_file"
+		nearMissTool = "read-file"
+	)
+	// A catalog that makes the normalization UNIQUE, which is the only shape in
+	// which canonicalization can resolve it at all.
+	catalog := []lipapi.ToolDef{{
+		Name:       profiledTool,
+		Parameters: []byte(`{"type":"object"}`),
+	}}
+	fin := newFinalizer(t, expansionResolver(t, profiledTool, "/path"))
+	args := fmt.Sprintf(`{"path":%q}`, fixture.aliasPath)
+
+	// CONTROL: the exact catalog name resolves this profile and expands.
+	exact, err := fin.Finalize(context.Background(), expansionCall(profiledTool, args),
+		lipapi.ToolDef{Name: profiledTool}, catalog, expansionMeta(expansionProjectRoot))
+	if err != nil {
+		t.Fatalf("Finalize returned a Go error: %v", err)
+	}
+	if exact.Action != toolcall.ActionRewrite {
+		t.Fatalf("non-vacuity: the exact catalog name must expand, got action=%v reason=%q",
+			exact.Action, exact.ReasonCode)
+	}
+	if expansionReason(t, exact.ReasonCode) != expansion.ReasonExpanded {
+		t.Fatalf("non-vacuity: reason=%q want %q", exact.ReasonCode, expansion.ReasonExpanded)
+	}
+
+	// The near-miss spelling is a different tool. The assembler hands over the
+	// catalog entry for the EXACT name it looked up, which for a name the catalog
+	// does not carry is the zero definition.
+	nearMiss, err := fin.Finalize(context.Background(), expansionCall(nearMissTool, args),
+		lipapi.ToolDef{}, catalog, expansionMeta(expansionProjectRoot))
+	if err != nil {
+		t.Fatalf("Finalize returned a Go error: %v", err)
+	}
+	if got := expansionReason(t, nearMiss.ReasonCode); got != expansion.ReasonNoSelectors {
+		t.Fatalf("requirements.md 3.6 - %q is a different tool from %q and must stay unprofiled, got %q",
+			nearMissTool, profiledTool, got)
+	}
+	if nearMiss.Action != toolcall.ActionPass {
+		t.Fatalf("requirements.md 3.6 - an unprofiled tool must pass through untouched, got action=%v",
+			nearMiss.Action)
+	}
+	if nearMiss.ArgsJSON != nil {
+		t.Fatal("requirements.md 4.7 - an unprofiled tool must publish nothing")
+	}
+
+	// A declared schema does not reopen it either: schema inference is offered the
+	// call's own tool definition, and a name the catalog does not carry has none.
+	schemaInferred, err := fin.Finalize(context.Background(), expansionCall(nearMissTool, args),
+		lipapi.ToolDef{Name: nearMissTool, Parameters: []byte(`{"type":"object","properties":{"path":{"type":"string"}}}`)},
+		catalog, expansionMeta(expansionProjectRoot))
+	if err != nil {
+		t.Fatalf("Finalize returned a Go error: %v", err)
+	}
+	if schemaInferred.Action != toolcall.ActionPass {
+		t.Fatalf("requirements.md 3.6 - a near-miss name must not inherit a profile through schema "+
+			"inference either, got action=%v reason=%q", schemaInferred.Action, schemaInferred.ReasonCode)
+	}
+}
+
+// mixedGrowthProjectRoot is long on purpose: expansion replaces a short alias
+// with this whole root, so ONE alias grows the document by nearly four kilobytes.
+// That is what makes the average-growth projection wrong rather than merely
+// imprecise.
+var mixedGrowthProjectRoot = "/" + strings.Repeat("workspace-directory-", 200) + "worktree"
+
+// mixedGrowthOrdinaryLeaves is how many selected, non-virtual values follow the
+// single alias. They are all inside the selected array, so every one of them is
+// visited and decided, and every one of them is ineligible: they sit outside the
+// reserved namespace and contribute exactly zero growth.
+const mixedGrowthOrdinaryLeaves = 6000
+
+// TestExpansionFinalizerExpandsOneGrowingAliasBesideManyInertLeaves guards
+// requirements.md 4.1 against a resource guard that refuses valid work.
+//
+// The output bound is real and must stay: an expansion past
+// lipapi.MaxEventDeltaBytes cannot be published, and refusing it without building
+// it is what keeps that refusal cheap. What must not happen is refusing a
+// document whose FINISHED size is inside the bound.
+//
+// A selector can target an array holding one alias that grows substantially
+// beside thousands of ordinary strings that are selected and change nothing. Any
+// guard that projects the remaining growth by AVERAGING the growth already
+// observed multiplies that one alias's expansion across every leaf still to come,
+// predicts a document many times larger than the real one, and answers
+// `expanded_too_large` for a call that expands perfectly well. That is not
+// failing closed on a violated bound; it is failing closed on a guess, and it
+// converts a valid mapped path into a hard client rejection.
+//
+// The size assertions are NON-VACUITY guards in both directions: the input must be
+// inside the bound and the exact expanded size must be inside it too, so a
+// fixture that stopped demonstrating the case fails loudly instead of passing.
+func TestExpansionFinalizerExpandsOneGrowingAliasBesideManyInertLeaves(t *testing.T) {
+	t.Parallel()
+
+	mapping, reason := pathvirtualization.DeriveMapping(mixedGrowthProjectRoot)
+	if reason != pathvirtualization.SkipReasonNone {
+		t.Fatalf("derive: reason %v", reason)
+	}
+	if mapping.VirtualRoot == "" {
+		t.Fatal("the fixture root must derive an active alias (requirement 1.4)")
+	}
+
+	var doc strings.Builder
+	doc.Grow(mixedGrowthOrdinaryLeaves * 40)
+	doc.WriteString(`{"paths":[`)
+	// The single growing alias is the FIRST member, so the projection has the
+	// whole rest of the array still ahead of it when it forms its estimate.
+	doc.WriteString(`"` + mapping.VirtualRoot + `pkg/module.go"`)
+	for i := range mixedGrowthOrdinaryLeaves {
+		doc.WriteString(`,"/home/dev/ordinary/module_`)
+		doc.WriteString(strconv.Itoa(i))
+		doc.WriteString(`.go"`)
+	}
+	doc.WriteString(`]}`)
+	document := doc.String()
+
+	if !json.Valid([]byte(document)) {
+		t.Fatal("the fixture must be a readable argument document")
+	}
+	if len(document) >= lipapi.MaxEventDeltaBytes {
+		t.Fatalf("fixture input is %d bytes, which must stay under the canonical delta bound",
+			len(document))
+	}
+	// Exactly one leaf changes. Its finished size is taken from the mapping itself
+	// rather than from hand arithmetic on the root, because the derivation is what
+	// decides the spelling of both sides and a test that re-guesses it would drift
+	// from the code instead of pinning it.
+	aliasValue := mapping.VirtualRoot + "pkg/module.go"
+	expandedValue, expandResult := mapping.ExpandPath(aliasValue)
+	if expandResult != pathvirtualization.ExpandResultExpanded {
+		t.Fatalf("non-vacuity: the fixture alias must expand, got %v", expandResult)
+	}
+	aliasLiteral, err := json.Marshal(aliasValue)
+	if err != nil {
+		t.Fatalf("marshal the fixture alias: %v", err)
+	}
+	expandedLiteral, err := json.Marshal(expandedValue)
+	if err != nil {
+		t.Fatalf("marshal the fixture expansion: %v", err)
+	}
+	growth := len(expandedLiteral) - len(aliasLiteral)
+	if growth <= 0 {
+		t.Fatalf("non-vacuity: the fixture alias must grow the document, got %d bytes", growth)
+	}
+	expandedBytes := len(document) + growth
+	if expandedBytes >= lipapi.MaxEventDeltaBytes {
+		t.Fatalf("fixture expands to %d bytes, which must stay under the canonical delta bound "+
+			"(%d) or the case is not reachable", expandedBytes, lipapi.MaxEventDeltaBytes)
+	}
+	// The old projection is what this defeats: one leaf's growth spread across
+	// every remaining selected leaf. Assert the fixture really would have tripped
+	// it, so a regression that silently stopped exercising the case is visible.
+	if projected := growth * (mixedGrowthOrdinaryLeaves - 1); projected <= lipapi.MaxEventDeltaBytes {
+		t.Fatalf("non-vacuity: the averaged projection would only reach %d bytes, so this fixture "+
+			"no longer distinguishes an exact bound from a guess", projected)
+	}
+
+	fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/paths"))
+	res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, document),
+		lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(mixedGrowthProjectRoot))
+	if err != nil {
+		t.Fatalf("Finalize returned a Go error: %v", err)
+	}
+	if res.Action != toolcall.ActionRewrite {
+		t.Fatalf("requirements.md 4.1 - an expansion of %d bytes is inside the %d-byte canonical "+
+			"bound and must publish, got action=%v reason=%q",
+			expandedBytes, lipapi.MaxEventDeltaBytes, res.Action, res.ReasonCode)
+	}
+	if got := expansionReason(t, res.ReasonCode); got != expansion.ReasonExpanded {
+		t.Fatalf("requirements.md 4.1 - reason=%q want %q", res.ReasonCode, expansion.ReasonExpanded)
+	}
+	if res.ArgsJSON == nil {
+		t.Fatal("requirements.md 4.1 - a successful expansion must publish the document")
+	}
+	if len(res.ArgsJSON) != expandedBytes {
+		t.Fatalf("requirements.md 4.8 - published %d bytes, want the %d the exact expansion produces",
+			len(res.ArgsJSON), expandedBytes)
+	}
+	if !json.Valid(res.ArgsJSON) {
+		t.Fatal("requirements.md 8.5 - the published document is not valid JSON")
+	}
+	if !strings.Contains(string(res.ArgsJSON), mixedGrowthProjectRoot) {
+		t.Fatal("requirements.md 4.1 - the alias must have been replaced by the real root")
+	}
+	if strings.Contains(string(res.ArgsJSON), mapping.VirtualRoot) {
+		t.Fatal("requirements.md 4.1 - no reserved alias may survive in the published document")
+	}
+	// Every inert leaf kept its own bytes: requirements.md 4.8 is what makes the
+	// bound question worth asking at all.
+	if got, want := strings.Count(string(res.ArgsJSON), "/home/dev/ordinary/module_"), mixedGrowthOrdinaryLeaves; got != want {
+		t.Fatalf("requirements.md 4.8 - preserved %d inert leaves, want %d", got, want)
 	}
 }
