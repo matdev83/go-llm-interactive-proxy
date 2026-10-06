@@ -150,6 +150,11 @@ type BufferingRequirement interface {
 //	    }
 //	}
 //
+// If an earlier finalizer actually rewrites the tool name, the consumer may
+// re-evaluate this capability for remaining finalizers against that new name.
+// Newly applicable binding requirements must be armed before the next finalizer
+// runs; this does not grant authority to hypothetical name repairs at call start.
+//
 // The contract is feature-neutral, exactly as [BufferingRequirement] is: it names
 // a tool name, a tool definition, and a catalog, and nothing about any concrete
 // feature, payload domain, or target namespace.

@@ -372,6 +372,39 @@ func (a *toolCallAssembler) deriveCallRequirements(toolName string) *callRequire
 	return reqs
 }
 
+// activateRemainingRequirements records authority acquired by an actual name
+// rewrite. It runs before the next finalizer, not merely when the declarer is
+// reached: an interposed optional failure must see the newly pending decision.
+// Existing requirements are never reset or removed, and processed finalizers
+// are never revisited.
+func (a *toolCallAssembler) activateRemainingRequirements(buf *toolCallBuffer, afterIndex int, name string, argsBytes int) error {
+	tool := lookupToolDef(a.catalog, name)
+	for _, decl := range a.mandatory.declarations {
+		if decl.index <= afterIndex || buf.requirements.requirementFor(decl.index) != nil {
+			continue
+		}
+		if !decl.appliesToTool(name, tool, a.catalog) {
+			continue
+		}
+		if buf.requirements == nil {
+			buf.requirements = &callRequirements{limitBytes: a.maxArgsBytes}
+		}
+		buf.requirements.add(decl)
+		if err := buf.requirements.unusableDeclarationRefusal(buf.id); err != nil {
+			return refusal(err)
+		}
+		req := buf.requirements.requirementFor(decl.index)
+		switch req.enforcementFor(argsBytes) {
+		case enforcementReject:
+			return refusal(overflowRefusal(buf.id, decl.id, decl.spec.MaxArgsBytes))
+		case enforcementPassThrough:
+			req.pending = false
+		case enforcementInvoke:
+		}
+	}
+	return nil
+}
+
 // ingestRefused keeps a tool call that is already refused closed entirely away
 // from the client: every further fragment is held and dropped, and only the
 // finished event yields the typed refusal that was already decided when the call
@@ -537,6 +570,7 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 				// decision either, so any requirement it declared is still pending.
 				return a.unusableResult(buf, nil)
 			}
+			previousName := name
 			name = strings.TrimSpace(res.ToolName)
 			args = append([]byte(nil), res.ArgsJSON...)
 			rewrote = true
@@ -544,6 +578,11 @@ func (a *toolCallAssembler) finalizeCall(ctx context.Context, buf *toolCallBuffe
 				req.pending = false
 				if req.decl.requiresDecision() {
 					buf.retainMandatorySafe(name, args, true)
+				}
+			}
+			if name != previousName {
+				if err := a.activateRemainingRequirements(buf, index, name, len(args)); err != nil {
+					return nil, err
 				}
 			}
 		default:

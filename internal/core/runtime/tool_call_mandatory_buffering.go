@@ -3,6 +3,8 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -417,7 +419,8 @@ func (c *callRequirement) enforcementFor(argsBytes int) enforcement {
 }
 
 // callRequirements is the set of APPLICABLE mandatory requirements for one tool
-// call, derived once at call start and carried on the call's buffer.
+// call, initially derived at call start and extended for remaining finalizers
+// when an actual tool-name rewrite makes another declaration applicable.
 type callRequirements struct {
 	// items holds one entry per declarer whose published scope covers this call,
 	// in chain order.
@@ -438,7 +441,16 @@ type callRequirements struct {
 // nothing can refuse a call through it. A declarer that must DECIDE starts pending,
 // and only a usable result from it clears that.
 func (r *callRequirements) add(decl *mandatoryDeclaration) {
-	r.items = append(r.items, callRequirement{decl: decl, pending: decl.requiresDecision()})
+	item := callRequirement{decl: decl, pending: decl.requiresDecision()}
+	// Initial derivation appends in chain order. Dynamic activation can insert a
+	// previously inapplicable declarer before an existing one; retain chain order
+	// so firstPendingID still identifies the first undecided participant.
+	if len(r.items) > 0 && r.items[len(r.items)-1].decl.index > decl.index {
+		index := sort.Search(len(r.items), func(i int) bool { return r.items[i].decl.index > decl.index })
+		r.items = slices.Insert(r.items, index, item)
+	} else {
+		r.items = append(r.items, item)
+	}
 	if decl.valid && decl.spec.MaxArgsBytes > r.limitBytes {
 		r.limitBytes = decl.spec.MaxArgsBytes
 	}
