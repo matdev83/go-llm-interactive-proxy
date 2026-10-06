@@ -44,7 +44,8 @@ func (e *orderingRouteExec) Execute(_ context.Context, call *lipapi.Call) (lipap
 }
 
 func (e *orderingRouteExec) CancelALeg(context.Context, lipapi.ALegCancelRequest) error { return nil }
-func (e *orderingRouteExec) WallClock() func() time.Time                                { return nil }
+
+func (e *orderingRouteExec) WallClock() func() time.Time { return nil }
 
 func TestOpenAIResponses_OrderingMethodPathBodyAdmissionPreflightPrecedence(t *testing.T) {
 	t.Parallel()

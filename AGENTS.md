@@ -37,18 +37,15 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 
 ## Skill Loading
 
-- Architecture/package boundary/feature design/constructors/DI: `golang-architecture`.
-- Tests/conformance/regressions/benchmarks/testify: `golang-testing`.
-- Streaming/concurrency/cancellation/goroutines: `golang-concurrency`.
-- Code quality/formatting/naming/safety/lint/simplification: `golang-code-quality`.
-- Performance/profiling/diagnostics/observability/troubleshooting: `golang-performance-diagnostics`.
-- Error classification/wrapping/mapping/panic recovery: `golang-error-handling`.
-- Modern Go/generics/iterators/data structures/Swiss Tables: `golang-data-modernize`.
-- CLI/gRPC/database adapters/pools: `golang-services-adapters`.
-- Ecosystem libraries/samber toolkit/Go modules: `golang-ecosystem-libraries`.
-- CI workflows/matrices/godoc/ADRs: `golang-ci-docs`.
-- Strict maintainability & SOLID audit: `golang-code-audit`.
-- Security/injection/cryptography/secret redaction: `golang-security`.
+- Architecture/package boundary/feature design: `golang-hexagonal-architecture`, `golang-design-patterns`, `golang-project-layout`.
+- Constructors/lifecycle/interfaces: `golang-dependency-injection`, `golang-structs-interfaces`.
+- Tests/conformance/regressions: `golang-testing`; testify: `golang-stretchr-testify`; benchmarks: `golang-benchmark`.
+- Streaming/concurrency/cancellation: `golang-concurrency`, `golang-context`.
+- Style/naming/safety/lint: `golang-code-style`, `golang-naming`, `golang-safety`, `golang-lint`.
+- Simplification/refactor-only: `golang-simplify`; SOLID audit: `golang-solid-principle-review`; strict review: `golang-thermonuclear-code-review`.
+- Modern Go/data structures: `golang-modernize`, `golang-data-structures`.
+- Error/security/observability/database/CLI/gRPC/performance/dependencies/documentation/CI/troubleshooting: load the matching focused `golang-*` skill from `.agents/catalog.json`.
+- Library selection: `golang-popular-libraries`; samber APIs: load the matching `golang-samber-*` skill.
 - Architecture, call paths, implementations, dependency direction, or blast radius: `codegraph`.
 - PR submission, sequential merge delivery, CI babysitting, merged-main verification, or worktree cleanup: `lip-pr-delivery`.
 - Repo steering overrides generic skill defaults.
@@ -121,7 +118,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - Full default: `make test`.
 - Cross-frontend/backend or protocol matrix: `make parity-checks`.
 - Wide/release-grade change: `make qa`.
-- Concurrency/streaming change: run race where practical; `make test-race` skips on Windows.
+- Concurrency/streaming change: run race where practical; `make test-race` skips on Windows and on dev hosts (hostname guard for DESKTOP-I2CAJ6V/agent-dev in scripts/race-check.sh, applies even with --strict; nightly CI owns race evidence).
 - Fuzz parser/decoder changes where practical: `make test-fuzz` or targeted `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path`.
 
 ## Go Conventions

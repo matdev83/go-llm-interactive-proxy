@@ -87,6 +87,7 @@ func newNegotiatedChannelStream(ctx context.Context, neg backendplugin.Negotiati
 
 func (n *negotiatedChannelStream) Negotiation() backendplugin.Negotiation { return n.neg }
 func (n *negotiatedChannelStream) Context() context.Context               { return n.legacyChannelStream.Context() }
+
 func (n *negotiatedChannelStream) Recv() (backendplugin.ClientFrame, error) {
 	return n.legacyChannelStream.Recv()
 }
