@@ -45,6 +45,10 @@ var archForbiddenFeatureTokens = []string{
 	"interleavedthinking",
 	"interleaved",
 	"sessionpolicy",
+	// Task 12.1 owns this entry (tasks.md 383, 410); its recorded precondition
+	// still holds. Inert today (TestGenericAggregatesContainNoPerFeatureFields)
+	// and not dead text (TestSessionClassificationTokenRejectsGuardedAggregateFields).
+	"sessionclassification",
 }
 
 func archForbiddenPkg(importPath string) bool {

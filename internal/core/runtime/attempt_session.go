@@ -187,6 +187,13 @@ type attemptSession struct {
 	finalizeBilling        func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error)
 	finalizeBillingV2      func(context.Context, execbackend.BillingFinalizationInput) (execbackend.BillingFinalizationResult, error)
 	observationSink        metering.ObservationSink
+	// terminalFlushBudget overrides the bounded terminal economic checkpoint
+	// flush budget for this attempt. Zero means the production
+	// economicCheckpointFlushTimeout; production code never sets it. Tests that
+	// drive a real durable store may raise it so the assertion covers flush
+	// behavior rather than host storage speed, without weakening the bound that
+	// production requests depend on.
+	terminalFlushBudget time.Duration
 }
 
 func (a *attemptSession) claimBillingLegRecord() bool {

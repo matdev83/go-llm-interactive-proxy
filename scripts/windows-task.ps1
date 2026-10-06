@@ -20,6 +20,59 @@ if ($env:LIP_TEST_PACKAGES) {
     if ($env:LIP_TEST_PACKAGES -notmatch '^[1-9][0-9]*$') { throw "LIP_TEST_PACKAGES must be a positive integer" }
     $goTestFlags += "-p=$($env:LIP_TEST_PACKAGES)"
 }
+
+# qa-tests admits the exhaustive billing certification sweep, which measures at
+# ~90% of the default 10m budget on an otherwise idle host. CI already isolates
+# that sweep behind BILLING_SCHEMA_TIMEOUT via `make test-billing-schema`, so the
+# wide gate must carry the same budget or it fails on cost rather than on a
+# defect. This mirrors QA_TESTS_GO_TEST_FLAGS in the Makefile exactly: only the
+# -timeout value is replaced, and every other flag, package list, and test
+# selection stays as pinned by internal/qa/ci_iteration_speed_contract_test.go.
+# Without it the same suite would pass on POSIX and fail on Windows purely on
+# host speed, which is not a portability signal.
+function Get-QaTestsGoTestFlags {
+    param([string[]]$Flags, [string]$BillingSchemaTimeout)
+    $replaced = @()
+    foreach ($flag in $Flags) {
+        if ($flag -match '^-timeout=') { continue }
+        $replaced += $flag
+    }
+    $replaced += "-timeout=$BillingSchemaTimeout"
+    return $replaced
+}
+
+# The taskrunner process timeout must stay strictly larger than the inner Go
+# test timeout. If both are equal, Go's per-package deadline and the supervisor
+# kill race: a suite can be terminated before Go reports which test exceeded its
+# budget. The five-minute margin lets Go fail first and flush its output, while
+# still bounding a hung child.
+function Get-QaTestsTaskTimeout {
+    param([string]$BillingSchemaTimeout)
+    $durationPattern = '(\d+(?:\.\d+)?|\.\d+)(ns|us|ms|s|m|h)'
+    $matches = [regex]::Matches($BillingSchemaTimeout, $durationPattern)
+    $matchedLength = 0
+    $innerMinutes = 0
+    foreach ($match in $matches) {
+        $matchedLength += $match.Length
+        $amount = [double]$match.Groups[1].Value
+        switch ($match.Groups[2].Value) {
+            'ns' { $innerMinutes += $amount / 60000000000 }
+            'us' { $innerMinutes += $amount / 60000000 }
+            'ms' { $innerMinutes += $amount / 60000 }
+            's' { $innerMinutes += $amount / 60 }
+            'm' { $innerMinutes += $amount }
+            'h' { $innerMinutes += $amount * 60 }
+        }
+    }
+    if ($matches.Count -eq 0 -or $matchedLength -ne $BillingSchemaTimeout.Length) {
+        throw "BILLING_SCHEMA_TIMEOUT must be a positive Go duration, such as 30m (got '$BillingSchemaTimeout')"
+    }
+    if ($innerMinutes -le 0) {
+        throw "BILLING_SCHEMA_TIMEOUT must be a positive Go duration, such as 30m (got '$BillingSchemaTimeout')"
+    }
+    $outerMinutes = [math]::Ceiling($innerMinutes + 5)
+    return "$outerMinutes" + "m"
+}
 $localGoEnv = if ($env:LIP_DISABLE_VCS_STAMPING -eq "1" -and -not $env:GOFLAGS) { @("GOFLAGS=-buildvcs=false") } else { @() }
 
 function Run-RootGoTest {
@@ -256,12 +309,15 @@ switch -Regex ($Target) {
     "^test-unit$" { Run-RootGoTest "test-unit:root" (@($goTestFlags) + @("./...")); break }
     "^qa-tests$" {
         $envOverride = @("LIP_TEST_POSTGRES_DSN=", "LIP_TEST_POSTGRES_ADMIN_DSN=", "LIP_MANAGED_POSTGRES_DSN=", "LIP_MIGRATION_POSTGRES_DSN=")
+        $billingSchemaTimeout = if ($env:BILLING_SCHEMA_TIMEOUT) { $env:BILLING_SCHEMA_TIMEOUT } else { "30m" }
+        $qaTestFlags = Get-QaTestsGoTestFlags -Flags $goTestFlags -BillingSchemaTimeout $billingSchemaTimeout
+        $qaTestTimeout = Get-QaTestsTaskTimeout -BillingSchemaTimeout $billingSchemaTimeout
         if ($env:LIP_SKIP_QA_TESTS -match '^(?i:1|true|yes|on)$') {
             Write-Host "Skipping duplicate root tests pass (LIP_SKIP_QA_TESTS=1); running tagged precommit/integration delta packages only..." -ForegroundColor DarkGray
-            Run-RootGoTest "qa-tests:precommit-delta" (@($goTestFlags) + @("-tags=precommit,integration", "./internal/qa/...", "./internal/core/runtime/...", "./internal/stdhttp/...", "./internal/testkit/conformance/...", "./tools/backendplugin/...", "./internal/core/billing/...")) $envOverride
+            Run-RootGoTest "qa-tests:precommit-delta" (@($qaTestFlags) + @("-tags=precommit,integration", "./internal/qa/...", "./internal/core/runtime/...", "./internal/stdhttp/...", "./internal/testkit/conformance/...", "./tools/backendplugin/...", "./internal/core/billing/...")) $envOverride $qaTestTimeout
             break
         }
-        Run-RootGoTest "qa-tests:root" (@($goTestFlags) + @("-tags=precommit,integration", "./...")) $envOverride
+        Run-RootGoTest "qa-tests:root" (@($qaTestFlags) + @("-tags=precommit,integration", "./...")) $envOverride $qaTestTimeout
         break
     }
     "^test-fuzz$" { Run-Fuzz; break }

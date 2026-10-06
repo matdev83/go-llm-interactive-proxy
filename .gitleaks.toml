@@ -11,3 +11,18 @@ description = "Test fixtures and golden files (any package testdata/ segment)"
 paths = [
   '''(^|/)testdata/''',
 ]
+
+# Redaction/observability tests deliberately feed hostile identity-shaped
+# strings (session IDs, A-leg IDs) through the classifier to prove they can
+# never become a metric label. They are inert literals with no credential
+# shape, not secrets. Scoped by path + exact literal so a real credential in
+# these or any other files is still caught.
+[[allowlists]]
+description = "Bounded-observability redaction fixtures (hostile identity-shaped literals)"
+paths = [
+  '''internal/plugins/features/sessionclassification/classifier_observer_test\.go''',
+]
+regexes = [
+  '''sess-(observer-)?secret-2f19c0de''',
+  '''a-leg-secret-[0-9a-f]+''',
+]

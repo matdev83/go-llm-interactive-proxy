@@ -30,6 +30,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
@@ -235,6 +236,21 @@ func (r orderRouteHintProvider) Hint(_ context.Context, in routehint.Input) (rou
 	return routehint.Result{}, nil
 }
 
+// orderSessionClassifier records the session-classification stage in the same
+// canonical order trace and asserts the bound secure-session/workspace views it
+// receives are the post-BeginTurn/A-leg ones.
+type orderSessionClassifier struct {
+	stages *preparationOrderStages
+	result session.Classification
+}
+
+func (c orderSessionClassifier) ID() string { return "order-session-classifier" }
+
+func (c orderSessionClassifier) Classify(_ context.Context, in sessionclassification.Input) (session.Classification, error) {
+	c.stages.record("SessionClassification", in.Session, in.Workspace.ID)
+	return c.result, nil
+}
+
 func isCaller(name string) bool {
 	var pcs [32]uintptr
 	n := runtime.Callers(2, pcs[:])
@@ -301,6 +317,7 @@ func TestExecutor_PreparationOrderCharacterization(t *testing.T) {
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{orderWorkspaceResolver{}}),
 		FeaturePlanes: freezeBundle(testFeatureBundle{
 			SecretGuards:       []secretguard.Guard{orderSecretGuard{stages: stages}},
+			SessionClassifier:  orderSessionClassifier{stages: stages, result: codingAgentSessionClassification("order.identity", 1)},
 			ToolCatalogFilters: []toolcatalog.Filter{orderToolCatalogFilter{stages: stages}},
 			RequestTransforms:  []request.Transform{orderRequestTransform{stages: stages}},
 			PreRequestHandlers: []prerequest.Handler{orderPreRequestHandler{stages: stages}},
@@ -390,6 +407,7 @@ func TestExecutor_PreparationOrderCharacterization(t *testing.T) {
 		"FetchALeg",
 		"RouteAuthoritySnapshotBarrier",
 		"SecretGuard",
+		"SessionClassification",
 		"MeteringCapture",
 		"FrontendIngressReady",
 		"RequestAdmission",

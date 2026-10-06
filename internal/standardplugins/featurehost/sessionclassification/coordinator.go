@@ -35,6 +35,9 @@ type CoordinatorConfig struct {
 	IdleTTL time.Duration
 	// Now supplies cache timestamps and is called before taking the coordinator lock.
 	Now func() time.Time
+	// Observer receives one bounded store observation per operation. Nil keeps
+	// the coordinator observation-free.
+	Observer featurestate.Observer
 }
 
 // Coordinator wraps the feature-owned authoritative state store. Its cache
@@ -43,9 +46,10 @@ type CoordinatorConfig struct {
 type Coordinator struct {
 	mu sync.Mutex
 
-	store  featurestate.Store
-	config CoordinatorConfig
-	now    func() time.Time
+	store    featurestate.Store
+	config   CoordinatorConfig
+	now      func() time.Time
+	observer featurestate.Observer
 
 	cache    map[featurestate.Key]*list.Element
 	cacheLRU list.List
@@ -114,18 +118,38 @@ func NewCoordinator(store featurestate.Store, config CoordinatorConfig) (*Coordi
 	}
 
 	return &Coordinator{
-		store:   store,
-		config:  config,
-		now:     config.Now,
-		cache:   make(map[featurestate.Key]*list.Element, config.CacheCapacity),
-		flights: make(map[flightKey]*operationFlight, min(config.MaxInflight, 16)),
+		store:    store,
+		config:   config,
+		now:      config.Now,
+		observer: config.Observer,
+		cache:    make(map[featurestate.Key]*list.Element, config.CacheCapacity),
+		flights:  make(map[flightKey]*operationFlight, min(config.MaxInflight, 16)),
 	}, nil
 }
 
 // Load returns a cached positive or loads the current authoritative record.
 // Unknown results are never retained between calls.
 func (c *Coordinator) Load(ctx context.Context, key featurestate.Key) (featurestate.Record, bool, error) {
-	return c.load(ctx, key)
+	record, found, err := c.load(ctx, key)
+	c.observeStore(featurestate.StoreObservation{
+		Operation: featurestate.StoreOperationLoad,
+		Outcome:   loadOutcome(record, err),
+	})
+	return record, found, err
+}
+
+// loadOutcome maps a read to the closed bounded outcome vocabulary: a positive
+// projection is a hit, anything else without an error is a miss, and a bounded
+// durable failure is an error.
+func loadOutcome(record featurestate.Record, err error) featurestate.StoreOutcome {
+	switch {
+	case err != nil:
+		return featurestate.StoreOutcomeError
+	case record.Classification.IsCodingAgent():
+		return featurestate.StoreOutcomeHit
+	default:
+		return featurestate.StoreOutcomeMiss
+	}
 }
 
 func (c *Coordinator) load(ctx context.Context, key featurestate.Key) (featurestate.Record, bool, error) {
@@ -209,7 +233,26 @@ func (c *Coordinator) loadWithoutFlight(ctx context.Context, key featurestate.Ke
 // Promote atomically delegates a first-positive proposal and caches its stable
 // result for later turns.
 func (c *Coordinator) Promote(ctx context.Context, key featurestate.Key, proposal session.Classification, now time.Time) (featurestate.Record, bool, error) {
-	return c.promote(ctx, key, proposal, now)
+	record, promoted, err := c.promote(ctx, key, proposal, now)
+	c.observeStore(featurestate.StoreObservation{
+		Operation: featurestate.StoreOperationPromote,
+		Outcome:   promoteOutcome(record, promoted, err),
+	})
+	return record, promoted, err
+}
+
+// promoteOutcome maps a promotion attempt to the closed bounded outcome
+// vocabulary. First-positive-wins and an unchanged winner both report
+// unchanged, so a replayed proposal never looks like a second transition.
+func promoteOutcome(record featurestate.Record, promoted bool, err error) featurestate.StoreOutcome {
+	switch {
+	case err != nil:
+		return featurestate.StoreOutcomeError
+	case promoted && record.Classification.IsCodingAgent():
+		return featurestate.StoreOutcomeApplied
+	default:
+		return featurestate.StoreOutcomeUnchanged
+	}
 }
 
 func (c *Coordinator) promote(ctx context.Context, key featurestate.Key, proposal session.Classification, now time.Time) (featurestate.Record, bool, error) {
@@ -297,7 +340,25 @@ func (c *Coordinator) promoteWithoutFlight(ctx context.Context, key featurestate
 // ClaimRemote delegates attempt-budget and lease authority to Store. A cached
 // positive short-circuits a new claim after validating its inputs.
 func (c *Coordinator) ClaimRemote(ctx context.Context, key featurestate.Key, now time.Time, maxAttempts uint32, leaseTTL time.Duration, retryBackoff time.Duration) (featurestate.RemoteClaim, featurestate.Record, bool, error) {
-	return c.claimRemote(ctx, key, now, maxAttempts, leaseTTL, retryBackoff)
+	claim, record, ok, err := c.claimRemote(ctx, key, now, maxAttempts, leaseTTL, retryBackoff)
+	c.observeStore(featurestate.StoreObservation{
+		Operation: featurestate.StoreOperationRemoteClaim,
+		Outcome:   claimOutcome(ok, err),
+	})
+	return claim, record, ok, err
+}
+
+// claimOutcome maps a remote lease claim to the closed bounded outcome
+// vocabulary. A refused claim is bounded denial, not an error.
+func claimOutcome(ok bool, err error) featurestate.StoreOutcome {
+	switch {
+	case err != nil:
+		return featurestate.StoreOutcomeError
+	case ok:
+		return featurestate.StoreOutcomeApplied
+	default:
+		return featurestate.StoreOutcomeDenied
+	}
 }
 
 func (c *Coordinator) claimRemote(ctx context.Context, key featurestate.Key, now time.Time, maxAttempts uint32, leaseTTL time.Duration, retryBackoff time.Duration) (featurestate.RemoteClaim, featurestate.Record, bool, error) {
@@ -327,7 +388,30 @@ func (c *Coordinator) claimRemote(ctx context.Context, key featurestate.Key, now
 // CompleteRemote delegates lease completion and retains any accepted positive
 // record, including a current positive returned with ErrStaleRemoteClaim.
 func (c *Coordinator) CompleteRemote(ctx context.Context, claim featurestate.RemoteClaim, result featurestate.RemoteCompletion, now time.Time) (featurestate.Record, error) {
-	return c.completeRemote(ctx, claim, result, now)
+	record, err := c.completeRemote(ctx, claim, result, now)
+	outcome := featurestate.StoreOutcomeUnchanged
+	switch {
+	case err != nil && !errors.Is(err, featurestate.ErrStaleRemoteClaim):
+		outcome = featurestate.StoreOutcomeError
+	case record.Classification.IsCodingAgent():
+		outcome = featurestate.StoreOutcomeApplied
+	}
+	c.observeStore(featurestate.StoreObservation{
+		Operation: featurestate.StoreOperationRemoteComplete,
+		Outcome:   outcome,
+	})
+	return record, err
+}
+
+// observeStore records one bounded durable operation result when a bounded
+// observation sink is configured. The operation and outcome are already closed
+// enum values, and the observation itself is a struct that cannot carry request
+// content, so no identity or payload can reach the observation surface here.
+func (c *Coordinator) observeStore(observation featurestate.StoreObservation) {
+	if c == nil || c.observer == nil {
+		return
+	}
+	c.observer.ObserveStore(observation)
 }
 
 func (c *Coordinator) completeRemote(ctx context.Context, claim featurestate.RemoteClaim, result featurestate.RemoteCompletion, now time.Time) (featurestate.Record, error) {

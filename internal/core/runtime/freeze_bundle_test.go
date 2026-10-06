@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminaldecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -45,6 +46,7 @@ type testFeatureBundle struct {
 	TerminalDecisionProvider         terminaldecision.Provider
 	SecretGuards                     []secretguard.Guard
 	Lifecycles                       []lipplugin.Lifecycle
+	SessionClassifier                sessionclassification.Classifier
 }
 
 func freezeBundle(b testFeatureBundle) lipfeature.FrozenPlaneSet {
@@ -111,6 +113,9 @@ func freezeBundle(b testFeatureBundle) lipfeature.FrozenPlaneSet {
 	}
 	if len(b.SecretGuards) > 0 {
 		_ = lipfeature.Contribute(cs, lipfeature.PlaneSecretGuards, "test", b.SecretGuards)
+	}
+	if b.SessionClassifier != nil {
+		_ = lipfeature.Contribute(cs, lipfeature.PlaneSessionClassifier, "test", b.SessionClassifier)
 	}
 	return cs.Freeze()
 }

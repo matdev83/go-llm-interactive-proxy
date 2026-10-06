@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refverifier"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
@@ -313,4 +314,16 @@ func featureKeepwarm(n yaml.Node) (lipfeature.FeatureBundle, error) {
 		return lipfeature.FeatureBundle{}, err
 	}
 	return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+}
+
+// featureSessionClassification validates and decodes the opaque feature-owned
+// config subtree. The concrete classifier needs the process-owned coordinator,
+// so the exclusive classifier plane is published later as a generation-bound
+// value during standard featurehost composition.
+func featureSessionClassification(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	cfg, err := sessionclassification.DecodeConfig(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	return sessionclassification.FeatureBundle(cfg), nil
 }

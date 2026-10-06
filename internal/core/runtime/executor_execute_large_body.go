@@ -489,7 +489,7 @@ func (e *Executor) ExecuteLargeBody(
 	}
 
 	// Bind session view and record client turn shape if present
-	_ = prep.BindSession(br, aLeg)
+	boundSession := prep.BindSession(br, aLeg)
 	if len(turnFacts.Session.TurnShape.Items) > 0 {
 		if rerr := prep.RecordClientTurnWithShape(outCtx, br, turnFacts.Session.TurnShape, largebody.DefaultMaxSemanticFactBytes); rerr != nil {
 			if e.SecureSessionRecordingMandatory {
@@ -497,6 +497,23 @@ func (e *Executor) ExecuteLargeBody(
 			}
 		}
 	}
+
+	// Stage session_classification sits after the post-commit secure-session,
+	// A-leg and workspace binding and before the route/request consumers
+	// (design "Wire execution ordering"). The classifier receives the bound
+	// SessionView, the workspace PrepareSecureSession already resolved for this
+	// generation, and the bounded proof ClassificationEvidence - never a
+	// reconstructed canonical request, which the wire lane does not have
+	// (requirements 4.1, 5.2, 5.5). The stage returns nothing on purpose: an
+	// absent plane is a no-op and an unknown/error outcome continues this one
+	// committed wire execution without any post-commit canonical fallback
+	// (requirements 4.4, 5.4, 5.7).
+	e.runWireSessionClassificationStage(outCtx, wireSessionClassificationInput{
+		TraceID:   traceID,
+		Session:   boundSession,
+		Workspace: prep.Workspace(),
+		Evidence:  turnFacts.Session.ClassificationEvidence,
+	})
 
 	// 6. Read live route override only now, constrained to assessed domain (Requirement 7)
 	effectiveModel := turnFacts.Route.CandidateModel
@@ -832,6 +849,12 @@ func (e *Executor) resolveWireTurnFacts(
 		turnShape = ts
 	}
 
+	// The bounded classification evidence a certified frontend proof compiled for
+	// this turn rides the same ctx handoff as Session/Turn (see
+	// largebody.ContextWithWireProof). Absent evidence is legal and simply keeps
+	// the session unknown (Requirements 5.2, 5.4).
+	classificationEvidence, _ := largebody.WireClassificationEvidenceFromContext(ctx)
+
 	return largebody.WireTurnFacts{
 		Route: largebody.WireRouteFacts{
 			ProfileID:      accepted.Stamp.ProfileID(),
@@ -853,8 +876,9 @@ func (e *Executor) resolveWireTurnFacts(
 			CheckpointID:    "customer-request:" + reqID,
 		},
 		Session: largebody.WireSessionFacts{
-			Input:     sessInput,
-			TurnShape: turnShape,
+			Input:                  sessInput,
+			TurnShape:              turnShape,
+			ClassificationEvidence: classificationEvidence,
 		},
 		Source: largebody.WireSourceFacts{
 			SourceDigest: srcDigest,

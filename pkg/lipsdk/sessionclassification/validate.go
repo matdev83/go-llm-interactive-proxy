@@ -16,6 +16,28 @@ const MaxClassifierIDBytes = 256
 // or an identity that violates the bounded classifier contract.
 var ErrInvalidClassifier = errors.New("sessionclassification: invalid classifier")
 
+// Validate enforces the bounded evidence carrier contract under the caller's
+// byte budget: the already-accepted client identity must fit, and the category
+// bits must stay inside the derived set.
+//
+// It deliberately does not define a second client-identity acceptance policy:
+// the User-Agent must already satisfy the canonical identity policy (or the
+// same frontend acceptance helper on the large-body wire path), and this check
+// only refuses to forward an unbounded or undefined carrier
+// (requirements 5.2, 5.5, 7.1, 7.2).
+func (e Evidence) Validate(maxBytes int64) error {
+	if maxBytes <= 0 {
+		return fmt.Errorf("sessionclassification: evidence byte budget must be > 0, got %d", maxBytes)
+	}
+	if int64(len(e.ClientUserAgent)) > maxBytes {
+		return fmt.Errorf("sessionclassification: evidence client user agent exceeds %d bytes", maxBytes)
+	}
+	if e.ToolCategories&^DefinedToolCategoryBits != 0 {
+		return fmt.Errorf("sessionclassification: evidence tool categories contain undefined bits")
+	}
+	return nil
+}
+
 // ValidateClassifierID accepts a non-empty, bounded, control-free stable ID.
 func ValidateClassifierID(id string) error {
 	if id == "" || len(id) > MaxClassifierIDBytes || !utf8.ValidString(id) || strings.TrimSpace(id) != id {
