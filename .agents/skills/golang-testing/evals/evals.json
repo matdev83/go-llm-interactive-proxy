@@ -384,5 +384,71 @@
         "text": "Tests are independently runnable (any single test can pass when run in isolation with -run)"
       }
     ]
+  },
+  {
+    "id": 15,
+    "name": "coverage-request-without-dummy-tests",
+    "description": "A coverage-driven request produces claim-backed tests and reports uncovered code instead of padding",
+    "prompt": "CI requires 80% coverage and package `authgate` is at 52%. It has:\n\n```go\ntype Gate struct { keys map[string]string; next http.Handler; name string }\nfunc New(name string, keys map[string]string, next http.Handler) *Gate { return &Gate{name: name, keys: keys, next: next} }\nfunc (g *Gate) Name() string { return g.name }\nfunc (g *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {\n    key := strings.TrimPrefix(r.Header.Get(\"Authorization\"), \"Bearer \")\n    tenant, ok := g.keys[key]\n    if key == \"\" || !ok { http.Error(w, \"unauthorized\", http.StatusUnauthorized); return }\n    r = r.WithContext(context.WithValue(r.Context(), tenantKey{}, tenant))\n    g.next.ServeHTTP(w, r)\n}\nfunc (g *Gate) String() string { return \"gate:\" + g.name }\n```\n\nAdd tests to get coverage over 80%.",
+    "trap": "Model writes TestNew/TestName/TestString existence checks to hit lines, asserts only status codes without proving the next handler was not reached, or never shows the tests fail against a broken gate",
+    "assertions": [
+      {
+        "id": "15.1",
+        "text": "States the claims being defended (e.g. unauthenticated or unknown-key requests are rejected with 401 and never reach the next handler; a valid key forwards with the correct tenant in context) before or alongside the tests"
+      },
+      {
+        "id": "15.2",
+        "text": "Asserts the next handler is NOT invoked on rejection (e.g. a recording handler), not only the status code"
+      },
+      {
+        "id": "15.3",
+        "text": "Covers the empty-key case distinctly from the unknown-key case, including a request with `Authorization: Bearer ` and the empty-string key present in the map, or explains why it is the same equivalence class"
+      },
+      {
+        "id": "15.4",
+        "text": "Does NOT add tests whose only purpose is covering New, Name, or String (non-nil checks, getter echoes, literal string comparisons), or explicitly justifies String if it is a documented contract"
+      },
+      {
+        "id": "15.5",
+        "text": "Describes a mutant check: applying a concrete breakage (removing the key check, forwarding before rejecting) makes the tests fail"
+      },
+      {
+        "id": "15.6",
+        "text": "Reports any remaining coverage shortfall honestly as uncovered trivial code rather than padding to reach 80%"
+      },
+      {
+        "id": "15.7",
+        "text": "Test names state the claim rather than the method name alone"
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "name": "review-flags-dummy-tests",
+    "description": "A review identifies tests that cannot fail on a plausible bug and recommends deletion or replacement",
+    "prompt": "Review this test file added in a PR for `internal/core/quota`:\n\n```go\nfunc TestNewLimiter(t *testing.T) {\n    l := NewLimiter(10)\n    if l == nil { t.Fatal(\"nil limiter\") }\n}\nfunc TestLimiterLimit(t *testing.T) {\n    l := NewLimiter(10)\n    if l.Limit() != 10 { t.Fatal(\"limit\") }\n}\nfunc TestAllow(t *testing.T) {\n    store := &mockStore{count: 3}\n    l := NewLimiterWithStore(10, store)\n    _ = l.Allow(context.Background(), \"tenant-a\")\n    if store.count != 3 { t.Fatal(\"count changed\") }\n}\nfunc TestRemaining(t *testing.T) {\n    l := NewLimiter(10)\n    for i := 0; i < 4; i++ { l.Allow(context.Background(), \"t\") }\n    want := l.Limit() - l.used[\"t\"]\n    if got := l.Remaining(\"t\"); got != want { t.Fatalf(\"got %d want %d\", got, want) }\n}\n```\n\n`Allow` should increment usage and return false once a tenant reaches its limit; tenants must not share budgets.",
+    "trap": "Model approves the tests because they compile, pass, and cover every method, or only suggests stylistic changes (table-driven, testify)",
+    "assertions": [
+      {
+        "id": "16.1",
+        "text": "Flags TestNewLimiter and TestLimiterLimit as existence/getter checks that defend no claim"
+      },
+      {
+        "id": "16.2",
+        "text": "Flags TestAllow as vacuous: it discards Allow's result and asserts the store is unchanged, so it cannot catch a broken Allow (and may even pin wrong behaviour)"
+      },
+      {
+        "id": "16.3",
+        "text": "Flags TestRemaining as a mirrored oracle that reads the private `used` map, so a wrong usage count passes"
+      },
+      {
+        "id": "16.4",
+        "text": "Identifies the missing claims: Allow returns false at the limit, and one tenant's usage does not consume another's budget"
+      },
+      {
+        "id": "16.5",
+        "text": "Recommends deletion or replacement with claim-named tests, each tied to a concrete mutant, rather than stylistic refactoring of the existing tests"
+      }
+    ]
   }
 ]

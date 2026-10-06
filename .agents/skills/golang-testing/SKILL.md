@@ -1,47 +1,87 @@
 ---
 name: golang-testing
-description: "Write and review reliable Go unit, integration, benchmark, fuzz, HTTP, and concurrent tests. Use when choosing test scope, fixtures, cleanup, race coverage, deterministic time, mocks, or diagnosing flaky tests."
+description: "Write, review, or prune Go tests: unit, integration, HTTP, concurrent, fuzz, benchmark. Use when adding tests (including to raise coverage), judging whether existing tests prove anything, choosing fixtures/fakes/clocks, or diagnosing flaky tests."
 ---
 
 # Go testing
 
-Test observable behavior and contracts. Keep tests deterministic, isolated, and proportional to risk; coverage percentage is a signal, not a correctness target.
+A test earns its place by defending a **claim**: one sentence naming behaviour that someone outside the code depends on, and that a plausible bug would break. Coverage is a by-product of tested claims, never a reason to write a test.
 
-## Focused review
+Each claim has three parts:
 
-For a review, keep the work read-only unless fixes are requested. Establish the review base, supported versions, and relevant contract; inspect changed code plus the callers and tests needed to assess it. Stay within this skill’s lens.
+- **Claim**: what callers, users, or operators observe. "A request with an unknown proxy key gets 401 and never reaches a backend."
+- **Source**: where that behaviour is required, named concretely (file, symbol, issue, steering line).
+- **Mutant**: the concrete bug the test catches. "Delete the `!ok` check in `Gate.ServeHTTP`."
 
-- Identify the observable invariant and ask whether an incorrect implementation could still pass. Check assertions, fixtures, selectors, build tags, skipped cases, and test discovery for vacuous coverage.
-- Inspect shared state, process environment, globals, t.Parallel, nondeterministic map order, goroutine synchronization, fatal assertions, and test-owned teardown.
-- Check failure/cancellation/partial-result cases, protocol boundaries, and realistic fake semantics. Choose same-package tests, external tests, recorders, servers, or real services from the invariant.
-- For fuzz/property tests, verify the oracle expresses the contract rather than a convenient proxy; for benchmarks, verify the timed success path and representative state.
+No source or no mutant means no test.
 
-Report each actionable finding with severity, confidence, file/symbol, trigger, consequence, and smallest remedy. Separate introduced/worsened defects from pre-existing debt, and state executed checks versus inference. If none survives validation, say so and identify coverage gaps.
+Reviewing existing tests instead of writing new ones: follow [review](references/review.md).
 
-## Unit tests
+## Writing tests
 
-- Table-driven tests are useful when cases share setup and assertions; ordinary named tests are fine when scenarios differ.
-- Use `t.Helper()` in helpers and `t.Cleanup()` for resources owned by a test. Prefer `t.Context()` (Go 1.24+) when the code under test should stop with the test.
-- Make subtest names stable and descriptive. Use `t.Parallel()` only when the test and all shared fixtures are actually isolated; parallelism is not mandatory.
-- Assert public behavior, error classification, and important side effects—not private layout or incidental call order.
-- Run focused tests first (`go test -run '^TestName$/^case$' ./path`), then the package and relevant integration tests.
+1. **Find claims.** Read these, in order, and collect the behaviour each one requires of the code under change:
+   - the task, issue, or bug report you were given;
+   - `.kiro/specs/<feature>/requirements.md` acceptance criteria, when the work belongs to a spec;
+   - the godoc of each exported symbol you are testing;
+   - "High-Value Semantic Targets" in `.kiro/steering/testing.md` and "Architecture Guardrails" in `AGENTS.md`;
+   - what the callers of the code do with its return values and errors.
+2. **Write the claim table before any test code.** One row per claim: claim, source, mutant. A row whose source is "this line is uncovered" or "the function exists" is struck out.
+3. **Choose where to observe the claim:**
+   - pure logic or decisions: call the function directly, table test with one row per distinct outcome;
+   - HTTP handler or middleware: `httptest`, asserting status, body, and what reached the next handler or backend;
+   - frontend/backend/core protocol behaviour: add a case to the existing suite under `internal/testkit/contract/` before building a new harness;
+   - external service or slow dependency: fake only that boundary; use real `pkg/lipapi` types everywhere else.
+4. **Write the test.** Assert both what the caller receives (value, error class, status, events) and the side effect that must or must not happen (backend called or not, row persisted or not, retry attempted or not). Name it `Test<Unit>_<Claim>`: `TestGate_UnknownKeyNeverReachesBackend`, not `TestServeHTTP2`. Hard-code expected values worked out from the source, e.g. `want := 6`, never recomputed with the code's own formula.
+5. **See it red.** For each row:
+   - Under TDD, run the test before the implementation exists and confirm it fails.
+   - For code that already exists, edit the production code to the mutant, run `go test -run '^TestName$' ./path/to/pkg`, confirm FAIL, undo exactly that edit, re-run to PASS, and confirm `git diff` on the production file shows no leftover mutant.
+   - A test that stays green under its mutant asserts the wrong thing. Fix the assertion, not the mutant.
+6. **Check every test** against these questions. Any "no" means rewrite or delete it:
+   - Does its name state the claim?
+   - Is the source a concrete requirement, contract, invariant, or bug?
+   - Was it observed red under its mutant?
+   - Would it still pass after a refactor that keeps behaviour the same?
+7. **Hand off** the claim table with the red result, plus a list of code you left uncovered and why:
 
-## Integration and HTTP tests
+   | Test | Claim | Source | Mutant → result |
+   | --- | --- | --- | --- |
+   | `TestGate_UnknownKeyNeverReachesBackend` | unknown key → 401, next handler not called | `testing.md`: authorization boundaries | removed `!ok` check → FAIL |
 
-Use `httptest` for in-process HTTP. For external services, make dependencies explicit, gate tests with the repository’s chosen mechanism, and fail clearly when prerequisites are absent. Do not use arbitrary sleeps for readiness: poll a health endpoint with a deadline or use `DB.PingContext` for databases. Read fixtures with checked errors, and report teardown failures without masking the primary failure.
+**Coverage targets.** When a task asks for a coverage percentage, write the claim-backed tests, then report the remaining shortfall and the uncovered code by name. Uncovered code either serves a claim you missed (add the claim) or serves none (report it as dead or speculative). A coverage request never justifies a dummy test.
 
-Integration tests may be tagged or separately configured, but tags and sub-millisecond timing targets are repository choices, not universal rules. Use real services when protocol behavior is the subject; use fakes for deterministic domain tests.
+**Trivial code.** Test a getter, `String()`, or constructor only when its output is itself a contract: a wire value, a config key, a validation rule in the constructor. Then the claim is that contract, e.g. "`New` rejects an empty key map".
 
-## Concurrency and time
+## Dummy tests
 
-Test cancellation, shutdown, channel closure, queue limits, and first-error behavior. Fatal/FailNow assertions belong in the test goroutine; workers should return errors for assertion after synchronization. Run `go test -race` on supported platforms; it detects races in exercised paths but cannot prove absence. Prefer injected clocks or `testing/synctest` (Go 1.25+) for timer/deadline ordering; avoid `time.Sleep` as synchronization. A timeout bounds a test; it does not make a racy test reliable.
+These pass against broken code or break on harmless refactors. Never write them; delete them when found.
 
-## Mocks, fuzzing, benchmarks
+| Pattern | Looks like | Do instead |
+| --- | --- | --- |
+| Existence check | `if New(...) == nil { t.Fatal() }` | Delete. Claim tests already construct the value. |
+| Getter echo | `New("a").Name() == "a"` | Delete. |
+| Discarded result | `_ = l.Allow(ctx, "t")`, then assert something else | Assert the returned value. |
+| Smoke only | only `err == nil`, or "does not panic", on a function that produces output | Assert the output. |
+| Mock echo | fake returns X; test asserts X came back | Assert what the unit does with X: transforms it, maps the error, decides. |
+| Mirrored oracle | `want := l.Limit() - l.used["t"]` | Hard-code `want := 6`, derived from the source. |
+| Testing Go or a library | JSON tags round-trip, `const == literal`, `errors.Is` works | Delete. If the wire shape is the contract, assert the exact bytes a client receives. |
+| Change detector | reads private fields, asserts internal call order, exact log or metric text | Assert the public outcome. Assert call order only when order is the contract. |
+| Padding rows | ten table rows that all take the same path | One row per distinct outcome or boundary: empty, at limit, limit+1, malformed. |
+| Unrun gate | build tag or env var no `Makefile` target sets | Wire it into a documented target, or delete it. |
+| Tested scaffolding | tests for a test helper or fake | Simplify the helper until it is obviously correct. |
 
-Define small interfaces at the consumer and use a hand-written fake when it makes behavior clearer. Use a mock framework only when interaction assertions are the behavior under test. Fuzz parsers and invariants with bounded inputs and a minimal corpus. Benchmarks should isolate setup, use `b.Loop()` when the module supports it, call `ReportAllocs` when allocations matter, and compare distributions with `benchstat`.
+## Go-specific gotchas
 
-## Cleanup and diagnostics
+- `t.Fatal`/`FailNow` only from the test goroutine; workers send errors back for assertion after synchronization.
+- `t.Context()` (Go 1.24+) is cancelled just before `t.Cleanup` functions run; use it for code that must stop with the test.
+- `testing/synctest` (Go 1.25+) or an injected clock for timer/deadline ordering. `time.Sleep` is never synchronization; a timeout bounds a test, it does not fix a race.
+- `-race` detects races only on exercised paths and cannot prove absence. In this repo race evidence comes from remote CI only; see `AGENTS.md` Verification.
+- Packages that own goroutines need a test-owned shutdown path for each; `goleak.VerifyNone`/`VerifyTestMain` proves `Stop` actually releases them (filter unavoidable runtime goroutines).
+- Fuzz parsers and decoders that take untrusted input; the oracle is a contract property (round-trip, typed error instead of panic, output stays escaped), with a minimal seed corpus.
+- `httptest.NewRecorder` skips the transport: use `httptest.NewServer` when headers, streaming flush, connection close, or client behaviour is the claim.
+- `sql.Open` does not connect; prove readiness with `PingContext` under a deadline.
+- Benchmarks: `b.Loop()` where the module's Go version supports it, `b.ReportAllocs()` when allocations are the claim, compare runs with `benchstat`.
+- Flakes: reproduce with `-count=N` and fixed seeds; fix the synchronization, never weaken the assertion.
 
-Every opened resource and started goroutine needs a test-owned shutdown path. Use `t.Cleanup`, context cancellation, and bounded waits. `goleak` can catch leaks in a controlled package but requires filtering unavoidable runtime goroutines. Use `-count` and deterministic seeds to reproduce flakes; do not weaken assertions to make CI green.
+Repo test policy (layers, proportionality budget, gating, commands) lives in `.kiro/steering/testing.md` and overrides this skill.
 
-See [helpers](references/helpers.md), [HTTP tests](references/http-testing.md), [integration tests](references/integration-testing.md), and [mocking](references/mocking.md).
+References: [helpers](references/helpers.md), [HTTP tests](references/http-testing.md), [integration tests](references/integration-testing.md), [fakes and mocks](references/mocking.md).
