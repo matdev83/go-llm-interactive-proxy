@@ -499,6 +499,12 @@ func TestCIIterationSpeed_QATestsBillingBudgetIsCrossPlatform(t *testing.T) {
 	if !strings.Contains(winTask, "Get-QaTestsGoTestFlags") {
 		t.Fatal("scripts/windows-task.ps1 must rebuild the qa-tests flag list around the billing budget")
 	}
+	if !strings.Contains(winTask, "Get-QaTestsTaskTimeout") {
+		t.Fatal("scripts/windows-task.ps1 must derive the supervisor timeout from the billing budget")
+	}
+	if !strings.Contains(winTask, "$innerMinutes + 5") {
+		t.Fatal("scripts/windows-task.ps1 must keep a shutdown margin between the Go and supervisor timeouts")
+	}
 	// Scope the assertion to the qa-tests switch arm: other targets legitimately
 	// keep the default budget.
 	qaArm := winTask[strings.Index(winTask, `"^qa-tests$"`):]
@@ -511,6 +517,12 @@ func TestCIIterationSpeed_QATestsBillingBudgetIsCrossPlatform(t *testing.T) {
 	}
 	if !strings.Contains(qaArm, "@($qaTestFlags) +") {
 		t.Fatal("scripts/windows-task.ps1 qa-tests must invoke the budgeted flag list")
+	}
+	// Both qa-tests invocations must use the derived supervisor timeout as
+	// Run-RootGoTest's fourth argument. An inner-only budget would still let the
+	// 15-minute default supervisor kill a healthy 30-minute Go run.
+	if got := strings.Count(qaArm, "$envOverride $qaTestTimeout"); got != 2 {
+		t.Fatalf("scripts/windows-task.ps1 qa-tests supervisor timeouts = %d, want 2", got)
 	}
 }
 
