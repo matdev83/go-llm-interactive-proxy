@@ -60,7 +60,7 @@ func TestToolCategorySetUsesCanonicalToolNameCategories(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := (sessionclassification.ToolCategorySet(0)).AddToolName(tc.name)
+			got := sessionclassification.ToolCategorySet(0).AddToolName(tc.name)
 			if got != tc.want {
 				t.Fatalf("AddToolName(%q) = %016b, want %016b", tc.name, got, tc.want)
 			}

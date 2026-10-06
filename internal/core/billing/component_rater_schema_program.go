@@ -376,7 +376,9 @@ func (p *schemaProgram) adjacency(class edgeClass) [][]int {
 func (p *schemaProgram) reachable(class edgeClass, start int) map[int]struct{} {
 	edges := p.adjacency(class)
 	seen := make(map[int]struct{})
-	queue := append(make([]int, 0, len(edges)), edges[start]...)
+	// Complete-cover walks can reach one child in a much larger graph. Grow
+	// with visited nodes instead of reserving the whole graph for every parent.
+	queue := append([]int(nil), edges[start]...)
 	for at := 0; at < len(queue); at++ {
 		current := queue[at]
 		if _, duplicate := seen[current]; duplicate {

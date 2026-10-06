@@ -128,6 +128,7 @@ type charPinnedStreamObserverFactory struct {
 func (s charPinnedStreamObserverFactory) ID() string                      { return s.id }
 func (s charPinnedStreamObserverFactory) Order() int                      { return s.ord }
 func (charPinnedStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+
 func (charPinnedStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
 	return nil, nil
 }

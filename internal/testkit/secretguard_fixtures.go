@@ -35,7 +35,49 @@ const (
 	// SyntheticDuplicateValueAliasA and SyntheticDuplicateValueAliasB share the same value under different names.
 	SyntheticDuplicateValueAliasA = "sg-dup-shared-value-fixture-007" // #nosec G101 -- synthetic fixture only.
 	SyntheticDuplicateValueAliasB = SyntheticDuplicateValueAliasA
+
+	// Provider-shaped detector fixtures use documented token syntax with synthetic values.
+	SyntheticOpenAIDetectorKey    = "sk-" + "aB3dE5fG7hI9jK1mN3pQT3BlbkFJzX8cV6bN4mL2qR0sYtUv"                                                     // #nosec G101 -- synthetic fixture only.
+	SyntheticAnthropicDetectorKey = "sk-ant-api03-abc123xyz-456def789ghij-klmnopqrstuvwx-3456yza789bcde-1234fghijklmnopby56aaaogaopaaaabc123xyzAA" // #nosec G101 -- synthetic fixture only.
+	SyntheticGitHubPAT            = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5"                                                                     // #nosec G101 -- synthetic fixture only.
+	SyntheticSlackBotToken        = "xoxb-" + "781236542736-2364535789652-GkwFDQoHqzXDVsC6GzqYUypD"                                                // #nosec G101 -- synthetic fixture only.
+	SyntheticStripeTestKey        = "sk_test_51qA7bC9dE2fG4hJ6kL8mN0pR2sT4uV6wX8yZ0aB2cD4"                                                         // #nosec G101 -- synthetic fixture only.
+
+	// Composite and generic detector fixtures cover multipart and contextual rules.
+	SyntheticAWSAccessKeyID        = "AKIALALEMEL33243OLIA"                                                                                                                               // #nosec G101 -- synthetic fixture only.
+	SyntheticAWSSecretAccessKey    = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"                                                                                                           // #nosec G101 -- synthetic fixture only.
+	SyntheticGenericAPIKey         = "Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"                                                                                                                   // #nosec G101 -- synthetic fixture only.
+	SyntheticGenericPassword       = "g4F!mQ8#vZ2@rT6$xK9"                                                                                                                                // #nosec G101 -- synthetic fixture only.
+	SyntheticGenericDetectorAPIKey = "dafa7817-e246-48f3-91a7-e87653d587b8"                                                                                                               // #nosec G101 -- synthetic fixture only.
+	SyntheticCredentialURISecret   = "q9V7nB2K4xL8"                                                                                                                                       // #nosec G101 -- synthetic fixture only.
+	SyntheticPrivateKey            = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDAC4AWkdwKYSd8\nKs14IReLcYgADhoXk56ZzXI=\n-----END PRIVATE KEY-----" // #nosec G101 -- synthetic fixture only.
 )
+
+// SyntheticSecretGuardCorpusEntry describes a detector acceptance fixture.
+// Material is test input only and must never be included in a failure message.
+type SyntheticSecretGuardCorpusEntry struct {
+	Name     string
+	Value    string
+	Material string
+	RuleID   string
+}
+
+// SyntheticSecretGuardCorpus returns the positive detector cases used by the
+// secret-guard parity matrix. Every entry is synthetic and deterministic.
+func SyntheticSecretGuardCorpus() []SyntheticSecretGuardCorpusEntry {
+	return []SyntheticSecretGuardCorpusEntry{
+		{Name: "openai", Value: SyntheticOpenAIDetectorKey, Material: "OPENAI_API_KEY=" + SyntheticOpenAIDetectorKey, RuleID: "openai-api-key"},
+		{Name: "anthropic", Value: SyntheticAnthropicDetectorKey, Material: "ANTHROPIC_API_KEY=" + SyntheticAnthropicDetectorKey, RuleID: "anthropic-api-key"},
+		{Name: "github", Value: SyntheticGitHubPAT, Material: "GITHUB_TOKEN=" + SyntheticGitHubPAT, RuleID: "github-pat"},
+		{Name: "slack", Value: SyntheticSlackBotToken, Material: "SLACK_BOT_TOKEN=" + SyntheticSlackBotToken, RuleID: "slack-bot-token"},
+		{Name: "stripe", Value: SyntheticStripeTestKey, Material: "STRIPE_SECRET_KEY=" + SyntheticStripeTestKey, RuleID: "stripe-access-token"},
+		{Name: "aws-multipart", Value: SyntheticAWSAccessKeyID, Material: "aws_token = \"" + SyntheticAWSAccessKeyID + "\" aws_secret_access_key = \"" + SyntheticAWSSecretAccessKey + "\"", RuleID: "aws-access-token"},
+		{Name: "generic-api-key", Value: SyntheticGenericDetectorAPIKey, Material: "api_token = \"" + SyntheticGenericDetectorAPIKey + "\"", RuleID: "generic-api-key"},
+		{Name: "generic-password", Value: SyntheticGenericPassword, Material: "login(user, \"" + SyntheticGenericPassword + "\")", RuleID: "generic-password"},
+		{Name: "credential-uri", Value: SyntheticCredentialURISecret, Material: "DATABASE_URL=postgresql://app:" + SyntheticCredentialURISecret + "@db.internal/app", RuleID: "generic-credential-uri"},
+		{Name: "private-key", Value: SyntheticPrivateKey, Material: SyntheticPrivateKey, RuleID: "private-key"},
+	}
+}
 
 // SyntheticSecretGuardEnvNames are safe environment-variable *names* used in catalog tests.
 // Values are never asserted by printing; use the Synthetic* constants above.
@@ -63,6 +105,18 @@ func AllSyntheticSecretGuardValues() []string {
 		SyntheticOverlapShorter,
 		SyntheticUnicodeSecret,
 		SyntheticDuplicateValueAliasA,
+		SyntheticOpenAIDetectorKey,
+		SyntheticAnthropicDetectorKey,
+		SyntheticGitHubPAT,
+		SyntheticSlackBotToken,
+		SyntheticStripeTestKey,
+		SyntheticAWSAccessKeyID,
+		SyntheticAWSSecretAccessKey,
+		SyntheticGenericAPIKey,
+		SyntheticGenericDetectorAPIKey,
+		SyntheticGenericPassword,
+		SyntheticCredentialURISecret,
+		SyntheticPrivateKey,
 	}
 }
 
@@ -79,5 +133,16 @@ func AllSyntheticSecretGuardNeedles() []string {
 		"secretguard-overlap",
 		"sg-ünîcode",
 		"dup-shared-value-fixture-007",
+		"T3BlbkFJ",
+		"sk-ant-api03",
+		"ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5",
+		"xoxb-781236542736",
+		"sk_test_51qA7bC9dE2fG4hJ6kL8mN0pR2sT4uV6wX8yZ0aB2cD4",
+		"AKIALALEMEL33243OLIA",
+		"wJalrXUtnFEMI",
+		"dafa7817-e246-48f3-91a7-e87653d587b8",
+		"g4F!mQ8#vZ2@rT6$xK9",
+		"q9V7nB2K4xL8",
+		"BEGIN PRIVATE KEY",
 	}
 }

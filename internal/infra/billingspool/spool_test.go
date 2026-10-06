@@ -2,6 +2,7 @@ package billingspool
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
+	dbinfra "github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 )
 
 type recordingSink struct {
@@ -78,6 +80,27 @@ func spoolTestCall(t *testing.T, id string) billing.CallUsageRecord {
 		t.Fatal(err)
 	}
 	return r
+}
+
+func openWorkerTestSpool(t *testing.T, cfg Config, sink billing.TerminalUsageSink) (*Spool, *sql.DB) {
+	t.Helper()
+	sqlDB, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	bunDB, err := dbinfra.NewBunDB(sqlDB, dbinfra.DialectSQLite)
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	cfg.DB = bunDB
+	spool, err := Open(context.Background(), cfg, sink)
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	return spool, sqlDB
 }
 
 func TestSpoolAppendRequiresCommitAndSurvivesRestart(t *testing.T) {
@@ -208,13 +231,12 @@ func TestSpoolRetentionAndFreeDiskCapacity(t *testing.T) {
 
 func TestSpoolStaleDeliveryIsReclaimedAndExactlyOneWorker(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{}
-	spool, err := Open(context.Background(), Config{Path: path, ClaimTimeout: time.Nanosecond}, sink)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = spool.Close() }()
+	spool, sqlDB := openWorkerTestSpool(t, Config{ClaimTimeout: time.Nanosecond}, sink)
+	defer func() {
+		_ = spool.Close()
+		_ = sqlDB.Close()
+	}()
 	if err := spool.AppendCall(context.Background(), spoolTestCall(t, "bc_00000000000000000000000000000005")); err != nil {
 		t.Fatal(err)
 	}
@@ -360,13 +382,12 @@ func TestSpoolCentralDeliveryDoesNotBlockConcurrentLocalAppend(t *testing.T) {
 
 func TestSpoolWakeDrainsCommittedBacklog(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "spool.db")
 	sink := &recordingSink{}
-	spool, err := Open(context.Background(), Config{Path: path}, sink)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = spool.Close() }()
+	spool, sqlDB := openWorkerTestSpool(t, Config{}, sink)
+	defer func() {
+		_ = spool.Close()
+		_ = sqlDB.Close()
+	}()
 	if err := spool.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}

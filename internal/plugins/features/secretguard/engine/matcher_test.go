@@ -70,6 +70,9 @@ func TestMatcher_OverlapLongestWins(t *testing.T) {
 	if findings[0].OccurrenceCount != 1 {
 		t.Fatalf("OccurrenceCount=%d want 1", findings[0].OccurrenceCount)
 	}
+	if findings[0].DetectorID != sdk.DetectorIDExact {
+		t.Fatalf("DetectorID=%q want %q", findings[0].DetectorID, sdk.DetectorIDExact)
+	}
 	if findings[0].Location != "" {
 		t.Fatalf("Location must be empty at matcher level, got %q", findings[0].Location)
 	}

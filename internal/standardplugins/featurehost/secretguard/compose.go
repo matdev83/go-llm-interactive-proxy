@@ -22,6 +22,10 @@ type SingleUserOptions = engine.SingleUserOptions
 // MatcherOptions controls redaction presentation for the composed static matcher.
 type MatcherOptions = engine.MatcherOptions
 
+// GenerationServices is the immutable feature-private capability carried by
+// the frozen secret-guard execution plane.
+type GenerationServices = featsecretguard.GenerationServices
+
 // SecretGuardInputs carries single-user catalog / matcher composition overrides.
 type SecretGuardInputs struct {
 	SingleUser SingleUserOptions
@@ -49,6 +53,7 @@ type Input struct {
 type Output struct {
 	Plane     extensions.SecretGuardPlane
 	Inventory *diag.InventoryExtras
+	Services  *featsecretguard.GenerationServices
 }
 
 // Compose assembles runtime secret-guard components from explicit typed inputs.
@@ -85,6 +90,9 @@ func Compose(in Input) (*Output, error) {
 			return nil, err
 		}
 	}
+	if engineMode == engine.ModeMultiUser && runtimeCfg.LocalAutoDiscoveryEnabled {
+		return nil, fmt.Errorf("runtimebundle: secrets-guard config: auto_discovered_local_keys.enabled cannot be true in multi_user mode")
+	}
 
 	inputs := in.Inputs.SingleUser
 	if !inputs.MatcherConfigured && in.SingleUser.MatcherConfigured {
@@ -98,9 +106,26 @@ func Compose(in Input) (*Output, error) {
 	singleUser := composeSingleUser(runtimeCfg, inputs)
 
 	featureEnabled := runtimeCfg.Enabled
-	src, err := engine.ComposeSource(engineMode, featureEnabled, in.Environment, singleUser)
+	sourceEnv := in.Environment
+	if engineMode == engine.ModeSingleUser && featureEnabled && !runtimeCfg.LocalAutoDiscoveryEnabled {
+		// Keep the exact source path available while preventing the local
+		// environment port from being consulted when policy disables discovery.
+		sourceEnv = nil
+	}
+	src, err := engine.ComposeSource(engineMode, featureEnabled, sourceEnv, singleUser)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: secret guard source: %w", err)
+	}
+	detectorPolicy := featsecretguard.DetectorPolicy{}
+	if featureEnabled {
+		detectorPolicy = featsecretguard.DetectorPolicy{
+			LocalAutoDiscoveryEnabled: runtimeCfg.LocalAutoDiscoveryEnabled,
+			BetterLeaks:               runtimeCfg.BetterLeaks,
+		}
+	}
+	services, err := featsecretguard.BuildGenerationServices(detectorPolicy, src, singleUser.Matcher)
+	if err != nil {
+		return nil, fmt.Errorf("runtimebundle: betterleaks generation scanner: %w", err)
 	}
 
 	var guards []sdk.Guard
@@ -131,11 +156,22 @@ func Compose(in Input) (*Output, error) {
 
 	var inventory *diag.InventoryExtras
 	if featureEnabled || len(guards) > 0 {
+		posture := services.Posture()
+		facts := posture.BetterLeaksFacts
 		inventory = &diag.InventoryExtras{
-			SecretGuardCatalogEntryCount: src.EntryCount(),
-			SecretGuardSourceCategories:  append([]string(nil), src.SourceCategories()...),
-			SecretGuardAccessMode:        accessModeStr,
-			SecretGuardAction:            runtimeCfg.Action,
+			SecretGuardCatalogEntryCount:      src.EntryCount(),
+			SecretGuardSourceCategories:       append([]string(nil), src.SourceCategories()...),
+			SecretGuardAccessMode:             accessModeStr,
+			SecretGuardAction:                 runtimeCfg.Action,
+			SecretGuardLocalAutoDiscovery:     posture.LocalAutoDiscoveryEnabled,
+			SecretGuardBetterLeaksEnabled:     posture.BetterLeaksEnabled,
+			SecretGuardBetterLeaksVersion:     facts.Version,
+			SecretGuardBetterLeaksConfigHash:  facts.ConfigHash,
+			SecretGuardBetterLeaksRuleCount:   facts.ActiveRuleCount,
+			SecretGuardBetterLeaksConfidence:  facts.MinimumConfidence,
+			SecretGuardBetterLeaksDecodeDepth: facts.MaxDecodeDepth,
+			SecretGuardBetterLeaksWorkers:     facts.Workers,
+			SecretGuardDiscoveryDetectorCount: posture.DiscoveryDetectorCount,
 		}
 	}
 
@@ -149,6 +185,7 @@ func Compose(in Input) (*Output, error) {
 			ConfigVersion:      runtimeCfg.AuditConfigVersion,
 		},
 		Inventory: inventory,
+		Services:  services,
 	}, nil
 }
 

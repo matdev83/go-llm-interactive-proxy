@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
@@ -126,9 +127,10 @@ func TestPolicyProvider_allow_populatesIngressAttribution_peerIPFromRemoteAddr(t
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			stub := &stubCoreAuthenticator{dec: auth.Decision{
-				Outcome:   auth.OutcomeAllow,
-				Principal: execview.PrincipalView{ID: "u1"},
-				Device:    auth.DeviceIdentity{ID: "dev-1", KeyID: "key-1", Fingerprint: "fp-1"},
+				Outcome:        auth.OutcomeAllow,
+				Principal:      execview.PrincipalView{ID: "u1"},
+				Device:         auth.DeviceIdentity{ID: "dev-1", KeyID: "key-1", Fingerprint: "fp-1"},
+				SatisfiedLevel: auth.LevelAPIKey,
 			}}
 			p := NewPolicyProvider(stub, nil, PolicySnapshot{
 				AccessMode: auth.AccessMultiUser, HandlerKind: auth.HandlerLocalAPIKey, RequiredLevel: auth.LevelAPIKey,
@@ -144,6 +146,9 @@ func TestPolicyProvider_allow_populatesIngressAttribution_peerIPFromRemoteAddr(t
 			}
 			if res.Type != httpauth.TypePrincipal {
 				t.Fatalf("type: %v", res.Type)
+			}
+			if res.SatisfiedLevel != auth.LevelAPIKey {
+				t.Fatalf("SatisfiedLevel: got %q want %q", res.SatisfiedLevel, auth.LevelAPIKey)
 			}
 			if res.IngressAttribution.PeerIP != tc.wantPeer {
 				t.Fatalf("PeerIP: got %q want %q", res.IngressAttribution.PeerIP, tc.wantPeer)
@@ -204,6 +209,43 @@ func TestPolicyProvider_allow_noMatcherWithoutPresentedCredential(t *testing.T) 
 	}
 	if gotM, ok := httpauth.CredentialMatcherFromContext(req.Context()); ok || gotM != nil {
 		t.Fatalf("allow without presented credential must not attach matcher, got ok=%v matcher=%v", ok, gotM)
+	}
+}
+
+func TestAcceptedRequestCredential_usesAuthoritativeAcceptanceEvidence(t *testing.T) {
+	t.Parallel()
+	withScope := func(method, credential string) *scope.PrincipalScopeView {
+		return &scope.PrincipalScopeView{
+			PrincipalID:  scope.Known("user-1"),
+			AuthMethod:   scope.Known(method),
+			CredentialID: scope.Known(credential),
+		}
+	}
+	cases := []struct {
+		name    string
+		handler auth.HandlerKind
+		result  httpauth.AuthenticationResult
+		want    bool
+	}{
+		{name: "legacy local principal", handler: auth.HandlerLocalAPIKey, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: execview.PrincipalView{ID: "user-1"}}, want: true},
+		{name: "local noop principal", handler: auth.HandlerLocalNoop, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: execview.PrincipalView{ID: "user-1"}}, want: false},
+		{name: "local noop scope cannot authenticate", handler: auth.HandlerLocalNoop, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Scope: withScope("api_key", "key-1")}, want: false},
+		{name: "remote none principal", handler: auth.HandlerRemote, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: execview.PrincipalView{ID: "user-1"}}, want: false},
+		{name: "remote api key level", handler: auth.HandlerRemote, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, SatisfiedLevel: auth.LevelAPIKey}, want: true},
+		{name: "remote sso api key level", handler: auth.HandlerRemote, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, SatisfiedLevel: auth.LevelAPIKeySSO}, want: true},
+		{name: "authoritative key id", handler: auth.HandlerRemote, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, IngressAttribution: httpauth.IngressAttribution{KeyID: "key-1"}}, want: true},
+		{name: "scope credential", handler: auth.HandlerRemote, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Scope: withScope("oidc", "key-1")}, want: true},
+		{name: "scope auth method", handler: auth.HandlerRemote, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Scope: withScope("api_key", "")}, want: true},
+		{name: "unknown remote scope", handler: auth.HandlerRemote, result: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Scope: withScope("oidc", "")}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := &PolicyProvider{Policy: PolicySnapshot{HandlerKind: tc.handler}}
+			if got := acceptedRequestCredential(p, tc.result); got != tc.want {
+				t.Fatalf("acceptedRequestCredential()=%v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -907,6 +949,32 @@ func TestExactCredentialMatcher_scanAndRedactBytes(t *testing.T) {
 	want := append([]byte("x"), append(bytes.Repeat([]byte("*"), len(secret)), []byte("y")...)...)
 	if !bytes.Equal(out, want) {
 		t.Fatalf("redacted mismatch")
+	}
+}
+
+func TestExactCredentialMatcher_scanOccurrencesPreservesSafeAttribution(t *testing.T) {
+	t.Parallel()
+	secret := []byte(testkit.SyntheticUnicodeSecret)
+	m := newExactCredentialMatcher(string(secret), "accepted-key")
+	positional, ok := m.(secretguard.PositionalMatcher)
+	if !ok {
+		t.Fatal("authenticated request matcher must expose the neutral positional capability")
+	}
+	input := append([]byte("left "), secret...)
+	input = append(input, []byte(" middle ")...)
+	input = append(input, secret...)
+	got := positional.ScanOccurrences(input)
+	if len(got) != 2 {
+		t.Fatalf("positional occurrences = %d, want two", len(got))
+	}
+	wantStart := []int{len("left "), len("left ") + len(secret) + len(" middle ")}
+	for i, occurrence := range got {
+		if occurrence.Start != wantStart[i] || occurrence.End != wantStart[i]+len(secret) {
+			t.Fatalf("occurrence[%d] span = %d..%d, want %d..%d", i, occurrence.Start, occurrence.End, wantStart[i], wantStart[i]+len(secret))
+		}
+		if occurrence.Finding.SecretRefName != "accepted-key" || occurrence.Finding.SourceCategory != secretguard.SourceCategoryRequestCred {
+			t.Fatalf("occurrence[%d] attribution = %#v", i, occurrence.Finding)
+		}
 	}
 }
 

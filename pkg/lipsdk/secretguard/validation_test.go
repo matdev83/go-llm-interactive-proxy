@@ -39,6 +39,14 @@ func TestDecisionValidateAcceptsLegalShapes(t *testing.T) {
 			},
 		},
 		{
+			name: "log_detector_failure_without_findings",
+			decision: Decision{
+				Outcome:       OutcomeLog,
+				FailureKind:   FailureKindDetectorFailure,
+				FailureReason: "detector scan failed",
+			},
+		},
+		{
 			name: "redacted",
 			decision: Decision{
 				Outcome:       OutcomeRedacted,
@@ -60,6 +68,15 @@ func TestDecisionValidateAcceptsLegalShapes(t *testing.T) {
 				Findings:      []Finding{{SecretRefName: "OPENAI_API_KEY", Location: "messages[0].parts[0]", OccurrenceCount: 1}},
 				FailureKind:   "unsupported_json_token",
 				FailureReason: "unsupported JSON token encountered",
+			},
+		},
+		{
+			name: "block_unrewritable_detected_secret",
+			decision: Decision{
+				Outcome:       OutcomeBlock,
+				Findings:      []Finding{{DetectorID: DetectorIDBetterLeaks, RuleID: "rule", Location: "messages[0].parts[0]", OccurrenceCount: 1}},
+				FailureKind:   FailureKindUnrewritableDetectedSecret,
+				FailureReason: "detected secret cannot be safely rewritten",
 			},
 		},
 		{
@@ -185,6 +202,23 @@ func TestDecisionValidateRejectsMalformedShapes(t *testing.T) {
 				FailureReason: "scan_max_bytes exceeded",
 			},
 			want: "log",
+		},
+		{
+			name: "log_detector_failure_without_reason",
+			decision: Decision{
+				Outcome:     OutcomeLog,
+				FailureKind: FailureKindDetectorFailure,
+			},
+			want: "failure_reason",
+		},
+		{
+			name: "log_unknown_failure_kind",
+			decision: Decision{
+				Outcome:       OutcomeLog,
+				FailureKind:   "scanner_failure",
+				FailureReason: "detector scan failed",
+			},
+			want: "log_shape",
 		},
 		{
 			name: "redacted_without_mutation",
@@ -409,6 +443,116 @@ func TestDecisionValidateRejectsMalformedShapes(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), secret) {
 				t.Fatalf("validation error leaked synthetic secret: %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestFindingValidateAcceptsBoundedProvenanceAndLegacyShape(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		finding Finding
+	}{
+		{
+			name: "legacy exact finding",
+			finding: Finding{
+				SecretRefName:   "OPENAI_API_KEY",
+				SourceCategory:  SourceCategoryProxyEnv,
+				Location:        "messages[0].parts[0]",
+				OccurrenceCount: 1,
+			},
+		},
+		{
+			name: "bounded betterleaks provenance",
+			finding: Finding{
+				SecretRefName:   "",
+				SourceCategory:  SourceCategoryUnknown,
+				Location:        "messages[0].parts[0]",
+				OccurrenceCount: 1,
+				DetectorID:      DetectorIDBetterLeaks,
+				RuleID:          "github-pat",
+				Confidence:      ConfidenceHigh,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if err := tc.finding.Validate(); err != nil {
+				t.Fatalf("finding rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestFindingValidateRejectsUntrustedProvenanceMetadata(t *testing.T) {
+	t.Parallel()
+	malicious := "rule\nsecret"
+	cases := []struct {
+		name    string
+		finding Finding
+		want    string
+	}{
+		{
+			name: "unknown detector",
+			finding: Finding{
+				SecretRefName:   "known-ref",
+				OccurrenceCount: 1,
+				DetectorID:      "scanner-" + malicious,
+			},
+			want: "detector_id",
+		},
+		{
+			name: "detector control character",
+			finding: Finding{
+				SecretRefName:   "known-ref",
+				OccurrenceCount: 1,
+				DetectorID:      "exact\x00",
+			},
+			want: "detector_id",
+		},
+		{
+			name: "rule syntax",
+			finding: Finding{
+				SecretRefName:   "known-ref",
+				OccurrenceCount: 1,
+				DetectorID:      DetectorIDBetterLeaks,
+				RuleID:          malicious,
+			},
+			want: "rule_id",
+		},
+		{
+			name: "rule too long",
+			finding: Finding{
+				SecretRefName:   "known-ref",
+				OccurrenceCount: 1,
+				DetectorID:      DetectorIDBetterLeaks,
+				RuleID:          strings.Repeat("r", findingMaxRuleIDBytes+1),
+			},
+			want: "rule_id",
+		},
+		{
+			name: "confidence outside closed set",
+			finding: Finding{
+				SecretRefName:   "known-ref",
+				OccurrenceCount: 1,
+				DetectorID:      DetectorIDBetterLeaks,
+				RuleID:          "github-pat",
+				Confidence:      "critical",
+			},
+			want: "confidence",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.finding.Validate()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Validate() error = %v, want field %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), malicious) {
+				t.Fatalf("validation error leaked untrusted metadata: %q", err)
 			}
 		})
 	}

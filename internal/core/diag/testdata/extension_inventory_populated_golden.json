@@ -364,7 +364,10 @@
             "operator_env",
             "request_credential"
           ],
-          "access_mode": "strict_isolation"
+          "access_mode": "strict_isolation",
+          "local_auto_discovery_enabled": false,
+          "betterleaks_enabled": false,
+          "discovery_detector_count": 0
         }
       },
       {

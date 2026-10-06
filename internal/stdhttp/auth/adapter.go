@@ -78,7 +78,10 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 	if p == nil || p.Auth == nil {
 		return httpauth.AuthenticationResult{}, fmt.Errorf("stdhttp/auth: nil policy provider or authenticator")
 	}
-	frontendID := p.frontendID(r)
+	frontendID := DefaultFrontendIDFromRequest(r)
+	if p.FrontendID != nil {
+		frontendID = p.FrontendID(r)
+	}
 	meta := p.inboundMeta(r, frontendID)
 	now := time.Now().UTC()
 
@@ -108,40 +111,43 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 	}
 
 	ev := authDecisionEvent(now, traceID, p.Policy, meta, d, bridged.evidence)
+	renderDeny := func(status int) (httpauth.AuthenticationResult, error) {
+		ev = authDecisionEvent(now, traceID, p.Policy, meta, d, nil)
+		rend := p.callRenderer(ctx, frontendID, &meta, d, ev, status)
+		return resultFromRender(rend, auth.OutcomeDeny), nil
+	}
 	if p.Events != nil {
 		if e2 := p.Events.DispatchAuthDecision(ctx, ev); e2 != nil {
-			synth := d
-			synth.Outcome = auth.OutcomeDeny
-			synth.ReasonCode = "event_delivery_failed"
-			ev2 := authDecisionEvent(now, traceID, p.Policy, meta, synth, nil)
-			rend := p.callRenderer(ctx, frontendID, &meta, synth, ev2, http.StatusServiceUnavailable)
-			return resultFromRender(rend, auth.OutcomeDeny), nil
+			d.Outcome = auth.OutcomeDeny
+			d.ReasonCode = "event_delivery_failed"
+			return renderDeny(http.StatusServiceUnavailable)
 		}
 	}
 
 	switch d.Outcome {
 	case auth.OutcomeAllow:
 		attr := ingressAttributionFromAllow(r, frontendID, d)
-		if bridged.lifecycle != nil {
-			s := bridged.lifecycle.Scope
-			return httpauth.AuthenticationResult{
-				Type: httpauth.TypePrincipal, Principal: bridged.lifecycle.Principal, Scope: &s, IngressAttribution: attr,
-			}, nil
+		result := httpauth.AuthenticationResult{
+			Type:               httpauth.TypePrincipal,
+			SatisfiedLevel:     d.SatisfiedLevel,
+			IngressAttribution: attr,
 		}
-		return httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: d.Principal, IngressAttribution: attr}, nil
+		result.Principal = d.Principal
+		if bridged.lifecycle != nil {
+			result.Principal = bridged.lifecycle.Principal
+			result.Scope = &bridged.lifecycle.Scope
+		}
+		return result, nil
 	case auth.OutcomeChallenge, auth.OutcomeDeny:
 		st := defaultTerminalHTTPStatus(&d)
 		rend := p.callRenderer(ctx, frontendID, &meta, d, ev, st)
 		return resultFromRender(rend, d.Outcome), nil
 	default:
-		d2 := d
-		d2.Outcome = auth.OutcomeDeny
-		if d2.ReasonCode == "" {
-			d2.ReasonCode = "unusable_outcome"
+		d.Outcome = auth.OutcomeDeny
+		if d.ReasonCode == "" {
+			d.ReasonCode = "unusable_outcome"
 		}
-		ev2 := authDecisionEvent(now, traceID, p.Policy, meta, d2, nil)
-		rend := p.callRenderer(ctx, frontendID, &meta, d2, ev2, http.StatusUnauthorized)
-		return resultFromRender(rend, auth.OutcomeDeny), nil
+		return renderDeny(http.StatusUnauthorized)
 	}
 }
 
@@ -154,31 +160,22 @@ type scopeBridgeResult struct {
 func bridgeScope(d auth.Decision) scopeBridgeResult {
 	if d.Outcome == auth.OutcomeAllow {
 		res, bErr := coreauth.BuildScope(coreauth.ScopeBuildInput{Decision: d})
-		switch {
-		case bErr == nil:
-			s := res.Scope
-			return scopeBridgeResult{lifecycle: &res, evidence: &s}
-		case errors.Is(bErr, coreauth.ErrNoIdentity):
-			return scopeBridgeResult{}
-		default:
+		if bErr != nil {
+			if errors.Is(bErr, coreauth.ErrNoIdentity) {
+				return scopeBridgeResult{}
+			}
 			return scopeBridgeResult{err: bErr}
 		}
+		return scopeBridgeResult{lifecycle: &res, evidence: &res.Scope}
 	}
-	if d.Scope != nil {
-		s := d.Scope.Clone()
-		if err := coreauth.SanitizeScope(s); err != nil {
-			return scopeBridgeResult{}
-		}
-		return scopeBridgeResult{evidence: &s}
+	if d.Scope == nil {
+		return scopeBridgeResult{}
 	}
-	return scopeBridgeResult{}
-}
-
-func (p *PolicyProvider) frontendID(r *http.Request) string {
-	if p.FrontendID != nil {
-		return p.FrontendID(r)
+	s := d.Scope.Clone()
+	if err := coreauth.SanitizeScope(s); err != nil {
+		return scopeBridgeResult{}
 	}
-	return DefaultFrontendIDFromRequest(r)
+	return scopeBridgeResult{evidence: &s}
 }
 
 func ingressAttributionFromAllow(r *http.Request, frontendID string, d auth.Decision) httpauth.IngressAttribution {
@@ -194,34 +191,42 @@ func ingressAttributionFromAllow(r *http.Request, frontendID string, d auth.Deci
 }
 
 func (p *PolicyProvider) captureAuthSuccessMatcher(r *http.Request, res httpauth.AuthenticationResult) secretguard.Matcher {
-	if p == nil || r == nil || res.Type != httpauth.TypePrincipal {
+	if p == nil || r == nil || res.Type != httpauth.TypePrincipal || !acceptedRequestCredential(p, res) {
 		return nil
 	}
-	m := newExactCredentialMatcher(p.headers().APIKeyFrom(r.Header), res.IngressAttribution.KeyID)
-	if m == nil {
-		return nil // collapse typed-nil *exactCredentialMatcher to a true nil interface
+	return newExactCredentialMatcher(p.headers().APIKeyFrom(r.Header), res.IngressAttribution.KeyID)
+}
+
+func acceptedRequestCredential(p *PolicyProvider, res httpauth.AuthenticationResult) bool {
+	if p != nil && p.Policy.HandlerKind == auth.HandlerLocalNoop {
+		return false
 	}
-	return m
+	if res.SatisfiedLevel == auth.LevelAPIKey || res.SatisfiedLevel == auth.LevelAPIKeySSO ||
+		strings.TrimSpace(res.IngressAttribution.KeyID) != "" {
+		return true
+	}
+	if s := res.Scope; s != nil {
+		method := strings.ToLower(strings.TrimSpace(s.AuthMethod.String()))
+		return strings.TrimSpace(s.CredentialID.String()) != "" || method == "api_key" ||
+			method == "api_key_sso" || method == "local_api_key" ||
+			(p != nil && p.Policy.HandlerKind == auth.HandlerLocalAPIKey && res.Principal.ID != "")
+	}
+	return p != nil && p.Policy.HandlerKind == auth.HandlerLocalAPIKey && res.Principal.ID != ""
 }
 
 func (p *PolicyProvider) callRenderer(ctx context.Context, frontendID string, meta *auth.InboundCallMeta, d auth.Decision, ev auth.AuthDecisionEvent, defaultStatus int) httpauth.AuthErrorRenderResult {
-	return p.rendererForRequest(frontendID).RenderAuthError(ctx, httpauth.AuthErrorRenderInput{
+	renderer := p.Renderer
+	if frontendRenderer := p.RendererByFrontend[frontendID]; frontendRenderer != nil {
+		renderer = frontendRenderer
+	}
+	if renderer == nil {
+		renderer = DefaultAuthErrorRenderer{}
+	}
+	return renderer.RenderAuthError(ctx, httpauth.AuthErrorRenderInput{
 		FrontendID: ev.Frontend, RequestPath: meta.Path, Decision: d, DefaultStatus: defaultStatus,
 		AccessMode: p.Policy.AccessMode, HandlerKind: p.Policy.HandlerKind, RequiredLevel: p.Policy.RequiredLevel,
 		TraceID: ev.TraceID, RemoteAddr: meta.ClientAddr,
 	})
-}
-
-func (p *PolicyProvider) rendererForRequest(frontendID string) httpauth.AuthErrorRenderer {
-	if p.RendererByFrontend != nil {
-		if rdr := p.RendererByFrontend[frontendID]; rdr != nil {
-			return rdr
-		}
-	}
-	if p.Renderer != nil {
-		return p.Renderer
-	}
-	return DefaultAuthErrorRenderer{}
 }
 
 func resultFromRender(rend httpauth.AuthErrorRenderResult, outcome auth.DecisionOutcome) httpauth.AuthenticationResult {
@@ -279,10 +284,6 @@ func (p *PolicyProvider) inboundMeta(r *http.Request, frontendID string) auth.In
 		ClientAddr: r.RemoteAddr, AuthorizationBearer: hdrs.APIKeyFrom(r.Header),
 		SessionHint: hdrs.SessionHintValue(r.Header),
 	}
-}
-
-func authorizationBearerFromHeader(raw string) string {
-	return lipsdk.BearerCredential(raw)
 }
 
 func authDecisionEvent(now time.Time, traceID string, pol PolicySnapshot, meta auth.InboundCallMeta, d auth.Decision, evidenceScope *scope.PrincipalScopeView) auth.AuthDecisionEvent {

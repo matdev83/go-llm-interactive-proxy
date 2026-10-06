@@ -56,3 +56,9 @@ func detectKnownPublicPrefix(value string) string {
 	}
 	return ""
 }
+
+// DetectKnownPublicPrefix exposes the established registry prefix detection to
+// feature-private transient matchers without exposing catalog values.
+func DetectKnownPublicPrefix(value string) string {
+	return detectKnownPublicPrefix(value)
+}
