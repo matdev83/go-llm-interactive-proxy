@@ -109,7 +109,6 @@ func TestF2TransitiveInclusionOverlapRejected(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			resolved := f2Resolve(t, "f2-transitive-"+tc.name, tc.rules, schema)
@@ -151,7 +150,6 @@ func TestF2TransitiveInclusionDeeperChainAndDeclarationOrder(t *testing.T) {
 		{name: "forward_order", relationships: []metering.ComponentRelationship{f2SubsetEdge(a, b), f2SubsetEdge(b, c), f2SubsetEdge(c, d)}},
 		{name: "reversed_order", relationships: []metering.ComponentRelationship{f2SubsetEdge(c, d), f2SubsetEdge(b, c), f2SubsetEdge(a, b)}},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			resolved := f2Resolve(t, "f2-deep-"+tc.name, rules, f2Schema(tc.relationships...))

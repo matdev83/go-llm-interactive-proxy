@@ -1048,10 +1048,7 @@ func TestToolCallRepairComposesWithInvalidFinalizerRewriteSemantics(t *testing.T
 func ordinaryArgsJSON(minBytes int) string {
 	prefix := `{"path":"/home/dev/elsewhere/src/main.go","content":"`
 	suffix := `"}`
-	pad := minBytes - len(prefix) - len(suffix)
-	if pad < 0 {
-		pad = 0
-	}
+	pad := max(minBytes-len(prefix)-len(suffix), 0)
 	return prefix + strings.Repeat("x", pad) + suffix
 }
 

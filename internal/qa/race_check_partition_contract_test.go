@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -463,12 +464,7 @@ func equalRaceStrings(got, want []string) bool {
 
 // hasRaceFlag reports whether want is present as an exact argument token.
 func hasRaceFlag(tokens []string, want string) bool {
-	for _, token := range tokens {
-		if token == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(tokens, want)
 }
 
 // hasRaceFlagPrefix reports whether any token starts with prefix.

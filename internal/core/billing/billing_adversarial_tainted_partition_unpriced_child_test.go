@@ -110,7 +110,6 @@ func TestAdversarialTaintedPartitionUnpricedChildSettlement(t *testing.T) {
 		resolved := f3Resolved(t, "advt-a-untainted", rules, untaintedSchema)
 		obs := f3Observation(t, "advt-a-untainted", measures(t)...)
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -136,7 +135,6 @@ func TestAdversarialTaintedPartitionUnpricedChildSettlement(t *testing.T) {
 		resolved := f3Resolved(t, "advt-b-tainted", rules, taintedSchema)
 		obs := f3Observation(t, "advt-b-tainted", measures(t)...)
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -171,7 +169,6 @@ func TestAdversarialTaintedPartitionUnpricedChildSettlement(t *testing.T) {
 		resolved := f3Resolved(t, "advt-c-all-priced", rules, untaintedSchema)
 		obs := f3Observation(t, "advt-c-all-priced", measures(t)...)
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)

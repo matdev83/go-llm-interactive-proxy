@@ -116,7 +116,6 @@ func TestF3ConservationEqualPartitionRatesComplete(t *testing.T) {
 		{name: "operator_E", rate: f3RateOperator},
 		{name: "customer_policy", rate: f3RateCustomer},
 	} {
-		seam := seam
 		t.Run(seam.name, func(t *testing.T) {
 			t.Parallel()
 			val, err := seam.rate(t, resolved, obs)
@@ -154,7 +153,6 @@ func TestF3ConservationOverflowIsNotComplete(t *testing.T) {
 		{name: "operator_E", rate: f3RateOperator},
 		{name: "customer_policy", rate: f3RateCustomer},
 	} {
-		seam := seam
 		t.Run(seam.name, func(t *testing.T) {
 			t.Parallel()
 			val, err := seam.rate(t, resolved, obs)
@@ -512,7 +510,6 @@ func TestF3ZeroParentPartitionContradictionStaysPartial(t *testing.T) {
 		{name: "operator_E", rate: f3RateOperator},
 		{name: "customer_policy", rate: f3RateCustomer},
 	} {
-		seam := seam
 		t.Run(seam.name, func(t *testing.T) {
 			t.Parallel()
 			val, err := seam.rate(t, resolved, obs)

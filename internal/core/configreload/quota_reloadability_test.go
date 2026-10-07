@@ -17,8 +17,7 @@ func TestReloadabilityClassify_QuotaPolicyIsGenerationReloadable(t *testing.T) {
 	candidate.Accounting.Authority.Quota = testQuotaConfig("quota-v2")
 
 	changes, err := configreload.Classify(active, candidate)
-	var restartRequired *configreload.RestartRequiredError
-	if errors.As(err, &restartRequired) {
+	if restartRequired, ok := errors.AsType[*configreload.RestartRequiredError](err); ok {
 		t.Fatalf("quota policy replacement must be reloadable, got restart_required=%v", restartRequired)
 	}
 	if err != nil {

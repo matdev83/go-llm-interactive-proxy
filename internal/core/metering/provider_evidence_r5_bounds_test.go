@@ -114,7 +114,7 @@ func TestProviderEvidenceBufferR5PendingCapacitySignalsIncomplete(t *testing.T) 
 	b := NewProviderEvidenceBuffer()
 	b.BindEconomicEvidence(testObservationIdentity())
 
-	for i := 0; i < maxProviderEvidenceDrafts+44; i++ {
+	for i := range maxProviderEvidenceDrafts + 44 {
 		b.Add(r5MediaMoneyDraft("provider.r5.pending."+strconv.Itoa(i), uint64(i+1)))
 	}
 	observations := b.DrainEconomicObservations()
@@ -242,7 +242,7 @@ func TestProviderEvidenceBufferR5ExplicitRevisionRejectedAfterAnchorExhaustion(t
 	if len(head) != 1 {
 		t.Fatalf("initial implicit revision drained=%d, want 1", len(head))
 	}
-	for i := 0; i < maxProviderEvidenceAnchors+8; i++ {
+	for i := range maxProviderEvidenceAnchors + 8 {
 		b.Add(nativeMediaMoneyDraft("provider.r5.fill."+strconv.Itoa(i), 1))
 		_ = b.DrainEconomicObservations()
 	}
@@ -299,7 +299,6 @@ func TestProviderEvidenceBufferR5OversizedNestedFieldsRejected(t *testing.T) {
 		{"evidence acquisition", func(d *ProviderEvidenceDraft) { d.Evidence[0].Acquisition = oversized }},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := NewProviderEvidenceBuffer()
@@ -484,7 +483,7 @@ func TestProviderEvidenceBufferR5TrackedAnchorGrowthRespectsByteCap(t *testing.T
 	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	b.BindEconomicEvidence(testObservationIdentity())
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		b.Add(r5MediaMoneyDraft("provider.r5.grow."+strconv.Itoa(i), 1))
 		if got := b.DrainEconomicObservations(); len(got) != 1 {
 			t.Fatalf("seed %d observations=%d, want 1", i, len(got))
@@ -492,7 +491,7 @@ func TestProviderEvidenceBufferR5TrackedAnchorGrowthRespectsByteCap(t *testing.T
 	}
 	filler := strings.Repeat("a", 32000)
 	var sawLoss bool
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		draft := r5MediaMoneyDraft("provider.r5.grow."+strconv.Itoa(i), 2)
 		draft.CoverageReason = filler
 		b.Add(draft)
@@ -533,7 +532,7 @@ func TestProviderEvidenceBufferR5TrackedAnchorGrowthKeepsPriorAnchor(t *testing.
 	// Fill the anchor byte budget so the seeded source's large replacement must
 	// be refused.
 	filler := strings.Repeat("a", 60000)
-	for i := 0; i < 17; i++ {
+	for i := range 17 {
 		draft := r5MediaMoneyDraft("provider.r5.filler."+strconv.Itoa(i), 1)
 		draft.CoverageReason = filler
 		b.Add(draft)

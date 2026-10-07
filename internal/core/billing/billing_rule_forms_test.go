@@ -297,8 +297,8 @@ func rfRate(t *testing.T, resolved economics.TariffSnapshot, c rfCase, seam revi
 // rfTable runs every case of one rule form through both seams. Each case is its
 // own named subtest, so a regression names the form AND the quantity.
 func rfTable(t *testing.T, form string, cases []rfCase) {
+	t.Helper()
 	for _, testCase := range cases {
-		testCase := testCase
 		t.Run(form+"__"+testCase.name, func(t *testing.T) {
 			t.Parallel()
 			resolved := f3Resolved(t, "rf-"+form+"-"+testCase.name, testCase.rules, testCase.schemas)
@@ -359,6 +359,7 @@ func TestRuleFormExplicitFree(t *testing.T) {
 	t.Parallel()
 	key := rfKey("free")
 	free := func(t *testing.T, id string, price string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, key)
 		rule.UnitPrice = rfDec(t, price)
 		return rule
@@ -421,6 +422,7 @@ func TestRuleFormLinear(t *testing.T) {
 	t.Parallel()
 	key := rfKey("linear")
 	linear := func(t *testing.T, id, price, per string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, key)
 		rule.UnitPrice = rfDec(t, price)
 		if per != "" {
@@ -449,7 +451,6 @@ func TestRuleFormLinear(t *testing.T) {
 	}
 	cases := make([]rfCase, 0, len(rows))
 	for _, row := range rows {
-		row := row
 		// A zero quantity under a positive rate is a RATED zero: it is neither
 		// explicit free nor a missing rule.
 		status := economics.RatingLineRated
@@ -506,6 +507,7 @@ func TestRuleFormBlock(t *testing.T) {
 	t.Parallel()
 	key := rfKey("block")
 	block := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleBlock, key)
 		rule.UnitPrice = rfDec(t, "0.01")
 		rule.BlockSize = rfDec(t, "100")
@@ -528,7 +530,6 @@ func TestRuleFormBlock(t *testing.T) {
 	}
 	cases := make([]rfCase, 0, len(rows))
 	for _, row := range rows {
-		row := row
 		cases = append(cases, rfCase{
 			name:  row.name,
 			rules: []economics.RatingRule{block(t, "rf-block-"+row.name)},
@@ -594,7 +595,6 @@ func TestRuleFormBlock(t *testing.T) {
 		{"combined_block_and_minimum_quantity_1_one_block_clears_floor", "1", "1/0", 1_000_000_000},
 		{"combined_block_and_minimum_quantity_101_two_blocks", "101", "2/0", 2_000_000_000},
 	} {
-		row := row
 		rule := combined
 		rule.ID = "rf-block-min-" + row.name
 		cases = append(cases, rfCase{
@@ -632,6 +632,7 @@ func TestRuleFormMinimum(t *testing.T) {
 	t.Parallel()
 	key := rfKey("minimum")
 	floor := func(t *testing.T, id, price, minimum string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleMinimum, key)
 		rule.UnitPrice = rfDec(t, price)
 		rule.MinimumAmount = rfDec(t, minimum)
@@ -655,7 +656,6 @@ func TestRuleFormMinimum(t *testing.T) {
 		{"quantity_6_above_the_floor", "6", "6/0", 6_000_000_000, economics.RatingLineRated, true},
 		{"quantity_10_above_the_floor", "10", "10/0", 10_000_000_000, economics.RatingLineRated, true},
 	} {
-		row := row
 		cases = append(cases, rfCase{
 			name:  row.name,
 			rules: []economics.RatingRule{floor(t, "rf-min-"+row.name, "1", "5")},
@@ -731,6 +731,7 @@ func TestRuleFormAllUnitsTier(t *testing.T) {
 	t.Parallel()
 	key := rfKey("all_units")
 	ladder := func(t *testing.T, id string, tiers [][2]string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleAllUnits, key)
 		rule.TierMode = economics.TierAllUnits
 		rule.Tiers = rfTiers(t, tiers...)
@@ -756,7 +757,6 @@ func TestRuleFormAllUnitsTier(t *testing.T) {
 		{"quantity_1000_boundary_all_units_at_second_tier", "1000", "500/0", 500_000_000_000},
 		{"quantity_1001_all_units_at_final_tier", "1001", "1001/1", 100_100_000_000},
 	} {
-		row := row
 		cases = append(cases, rfCase{
 			name:  row.name,
 			rules: []economics.RatingRule{ladder(t, "rf-au-"+row.name, coarse())},
@@ -796,7 +796,6 @@ func TestRuleFormAllUnitsTier(t *testing.T) {
 		{economics.RoundingTowardZero, "quantity_3_tie_toward_zero", "15/10", "1.5", 1},
 		{economics.RoundingFloor, "quantity_3_tie_floor", "15/10", "1.5", 1},
 	} {
-		row := row
 		rule := ladder(t, "rf-au-"+row.name, nanoLadder)
 		rule.RoundingScope = economics.RoundingScopeLine
 		rule.RoundingPolicy = row.policy
@@ -838,6 +837,7 @@ func TestRuleFormGraduatedTier(t *testing.T) {
 	t.Parallel()
 	key := rfKey("graduated")
 	ladder := func(t *testing.T, id string, tiers [][2]string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleGraduated, key)
 		rule.TierMode = economics.TierGraduated
 		rule.Tiers = rfTiers(t, tiers...)
@@ -863,7 +863,6 @@ func TestRuleFormGraduatedTier(t *testing.T) {
 		{"quantity_1001_final_slice_starts", "1001", "5501/1", 550_100_000_000},
 		{"quantity_1500_final_slice", "1500", "600/0", 600_000_000_000},
 	} {
-		row := row
 		cases = append(cases, rfCase{
 			name:  row.name,
 			rules: []economics.RatingRule{ladder(t, "rf-grad-"+row.name, coarse)},
@@ -901,7 +900,6 @@ func TestRuleFormGraduatedTier(t *testing.T) {
 		{economics.RoundingHalfAwayFromZero, "quantity_2_two_slices_land_on_exact_nano", "2", "1/9", 1},
 		{economics.RoundingHalfEven, "quantity_2_two_slices_half_even", "2", "1/9", 1},
 	} {
-		row := row
 		rule := ladder(t, "rf-grad-"+row.name, nanoLadder)
 		rule.RoundingScope = economics.RoundingScopeLine
 		rule.RoundingPolicy = row.policy
@@ -946,6 +944,7 @@ func TestRuleFormWholeContextSelection(t *testing.T) {
 	priced := rfKey("wc_priced")
 	sibling := rfKey("wc_sibling")
 	ladder := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleAllUnits, priced)
 		rule.TierMode = economics.TierAllUnits
 		rule.SelectionScope = economics.SelectionWholeContext
@@ -953,6 +952,7 @@ func TestRuleFormWholeContextSelection(t *testing.T) {
 		return rule
 	}
 	siblingRule := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, sibling)
 		rule.UnitPrice = rfDec(t, "1000")
 		return rule
@@ -981,7 +981,6 @@ func TestRuleFormWholeContextSelection(t *testing.T) {
 		{"context_51_one_past_boundary", "41", "1/0", 1_000_000_000, "41000/0", "41001/0"},
 		{"context_100_well_past_boundary", "90", "1/0", 1_000_000_000, "90000/0", "90001/0"},
 	} {
-		row := row
 		cases = append(cases, rfCase{
 			name:  row.name,
 			rules: []economics.RatingRule{ladder(t, "rf-wc-"+row.name), siblingRule(t, "rf-wc-sib-"+row.name)},
@@ -1004,6 +1003,7 @@ func TestRuleFormWholeContextSelection(t *testing.T) {
 	// boundary, so a context-driven block ceiling would have billed 1100 units.
 	blockKey := rfKey("wc_block")
 	block := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleBlock, blockKey)
 		rule.UnitPrice = rfDec(t, "1")
 		rule.BlockSize = rfDec(t, "10")
@@ -1031,6 +1031,7 @@ func TestRuleFormWholeContextSelection(t *testing.T) {
 	// fraction of the context.
 	floorKey := rfKey("wc_floor")
 	floor := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleMinimum, floorKey)
 		rule.UnitPrice = rfDec(t, "1")
 		rule.MinimumAmount = rfDec(t, "5")
@@ -1089,6 +1090,7 @@ func TestRuleFormPeriodSelection(t *testing.T) {
 	priced := rfKey("pd_priced")
 	sibling := rfKey("pd_sibling")
 	ladder := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleAllUnits, priced)
 		rule.TierMode = economics.TierAllUnits
 		rule.SelectionScope = economics.SelectionPeriod
@@ -1096,6 +1098,7 @@ func TestRuleFormPeriodSelection(t *testing.T) {
 		return rule
 	}
 	siblingRule := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, sibling)
 		rule.UnitPrice = rfDec(t, "1000")
 		return rule
@@ -1113,7 +1116,6 @@ func TestRuleFormPeriodSelection(t *testing.T) {
 		{"period_context_50_exactly_on_boundary", "40", "10/0", 10_000_000_000, "40000/0", "40010/0"},
 		{"period_context_51_one_past_boundary", "41", "1/0", 1_000_000_000, "41000/0", "41001/0"},
 	} {
-		row := row
 		cases = append(cases, rfCase{
 			name:  row.name,
 			rules: []economics.RatingRule{ladder(t, "rf-pd-"+row.name), siblingRule(t, "rf-pd-sib-"+row.name)},
@@ -1155,6 +1157,7 @@ func TestRuleFormPeriodSelection(t *testing.T) {
 	// exact value ONLY and the period total is the rounding boundary, so the
 	// line's rounded amount must be ABSENT and the total is what rounds.
 	periodRounded := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, priced)
 		rule.RateNumerator = rfDec(t, "1")
 		rule.RateDenominator = rfDec(t, "2000000000")
@@ -1241,11 +1244,13 @@ func TestRuleFormConditionalQualifier(t *testing.T) {
 	t.Parallel()
 	key := rfKey("cond")
 	general := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, key)
 		rule.UnitPrice = rfDec(t, "1")
 		return rule
 	}
 	gold := func(t *testing.T, id string, price string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, key)
 		rule.UnitPrice = rfDec(t, price)
 		rule.Conditions = []economics.QualifierCondition{{Name: "plan", Value: "gold"}}
@@ -1267,7 +1272,6 @@ func TestRuleFormConditionalQualifier(t *testing.T) {
 		// note above: the same fallback, with no diagnostic at all.
 		{"absent_qualifier_falls_back_to_the_general_rule_without_a_diagnostic", nil, "10/0", 10_000_000_000},
 	} {
-		row := row
 		cases = append(cases, rfCase{
 			name:       row.name,
 			rules:      []economics.RatingRule{general(t, "rf-cond-gen-"+row.name), gold(t, "rf-cond-gold-"+row.name, "3")},
@@ -1313,7 +1317,6 @@ func TestRuleFormConditionalQualifier(t *testing.T) {
 			classes: []error{billing.ErrQualifierMissing}, status: economics.RatingLineRateUnsupported, amount: rfNone, total: rfNone, nano: -1, rounded: -1,
 		},
 	} {
-		row := row
 		cases = append(cases, rfCase{
 			name:       row.name,
 			rules:      []economics.RatingRule{gold(t, "rf-cond-only-"+row.name, "3")},
@@ -1417,6 +1420,7 @@ func TestRuleFormExactRational(t *testing.T) {
 	t.Parallel()
 	key := rfKey("exact")
 	third := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, key)
 		rule.RateNumerator = rfDec(t, "1")
 		rule.RateDenominator = rfDec(t, "3")
@@ -1435,7 +1439,6 @@ func TestRuleFormExactRational(t *testing.T) {
 		{"three_thirds_is_an_exact_whole", "3", "1/0", 1_000_000_000},
 		{"seven_thirds_is_exact", "7", "rat:7/3", 2_333_333_333},
 	} {
-		row := row
 		cases = append(cases, rfCase{
 			name:  row.name,
 			rules: []economics.RatingRule{third(t, "rf-exact-"+row.name)},
@@ -1458,6 +1461,7 @@ func TestRuleFormExactRational(t *testing.T) {
 	// A non-terminating RATE under a tiered form, so the exactness contract is
 	// pinned for tier selection as well and not only for a base rate.
 	tiered := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleAllUnits, key)
 		rule.TierMode = economics.TierAllUnits
 		numerator, denominator := rfDec(t, "1"), rfDec(t, "3")
@@ -1531,6 +1535,7 @@ func TestRuleFormRoundingPolicy(t *testing.T) {
 	t.Parallel()
 	key := rfKey("rounding")
 	halfNano := func(t *testing.T, id string, policy economics.RoundingPolicy) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, key)
 		rule.RateNumerator = rfDec(t, "1")
 		rule.RateDenominator = rfDec(t, "2000000000")
@@ -1557,7 +1562,6 @@ func TestRuleFormRoundingPolicy(t *testing.T) {
 		{economics.RoundingTowardZero, "quantity_3_tie_toward_zero_truncates", "15/10", 1},
 		{economics.RoundingFloor, "quantity_3_tie_floor_matches_toward_zero", "15/10", 1},
 	} {
-		row := row
 		quantity := "1"
 		if row.amount == "15/10" {
 			quantity = "3"
@@ -1600,6 +1604,7 @@ func TestRuleFormRoundingScopeLineVsCall(t *testing.T) {
 	names := make([]string, 0, len(keys))
 	measures := make([]metering.Measure, 0, len(keys))
 	rules := func(t *testing.T, idPrefix string, scope economics.RoundingScope, policy economics.RoundingPolicy) []economics.RatingRule {
+		t.Helper()
 		out := make([]economics.RatingRule, 0, len(keys))
 		for i, key := range keys {
 			rule := rfRule(t, idPrefix+"-"+string(rune('a'+i)), economics.RatingRuleLinear, key)
@@ -1647,7 +1652,6 @@ func TestRuleFormRoundingScopeLineVsCall(t *testing.T) {
 		{economics.RoundingTowardZero, "call_scope_toward_zero_truncates_the_total_to_one", 1},
 		{economics.RoundingFloor, "call_scope_floor_truncates_the_total_to_one", 1},
 	} {
-		row := row
 		cases = append(cases, rfCase{
 			name:  row.name,
 			rules: rules(t, "rf-call-"+row.name, economics.RoundingScopeCall, row.policy),
@@ -1704,11 +1708,13 @@ func TestRuleFormFixedFeeIsIndependent(t *testing.T) {
 	first := rfKey("fix_a")
 	second := rfKey("fix_b")
 	firstRule := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, first)
 		rule.UnitPrice = rfDec(t, "1")
 		return rule
 	}
 	secondRule := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, second)
 		rule.UnitPrice = rfDec(t, "2")
 		return rule
@@ -1716,6 +1722,7 @@ func TestRuleFormFixedFeeIsIndependent(t *testing.T) {
 	// absentRule prices a component that is never observed, so its rule can only
 	// matter for rule-derived relevance, never for an emitted line.
 	absentRule := func(t *testing.T, id, price string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, rfKey("fix_c"))
 		rule.UnitPrice = rfDec(t, price)
 		return rule
@@ -1724,6 +1731,7 @@ func TestRuleFormFixedFeeIsIndependent(t *testing.T) {
 		return []metering.Measure{b1Measure(t, first, "10"), b1Measure(t, second, "1")}
 	}
 	feeRules := func(t *testing.T, idPrefix string, includeSubmission bool) []economics.RatingRule {
+		t.Helper()
 		rules := []economics.RatingRule{
 			firstRule(t, idPrefix+"-a"), secondRule(t, idPrefix+"-b"),
 			b1FixedRule(t, idPrefix+"-call", economics.FixedFeeScopeCall, "5"),
@@ -1986,34 +1994,40 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 	absent := rfKey("rel_c")
 	schemas := rfSchema(rfCover{parent: parent, children: []metering.ComponentKey{observed, absent}})
 	base := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, observed)
 		rule.UnitPrice = rfDec(t, "1")
 		return rule
 	}
 	linear := func(t *testing.T, id, price string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleLinear, absent)
 		rule.UnitPrice = rfDec(t, price)
 		return rule
 	}
 	minimum := func(t *testing.T, id, price, floor string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleMinimum, absent)
 		rule.UnitPrice = rfDec(t, price)
 		rule.MinimumAmount = rfDec(t, floor)
 		return rule
 	}
 	block := func(t *testing.T, id, price string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleBlock, absent)
 		rule.UnitPrice = rfDec(t, price)
 		rule.BlockSize = rfDec(t, "100")
 		return rule
 	}
 	allUnits := func(t *testing.T, id string, tiers [][2]string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleAllUnits, absent)
 		rule.TierMode = economics.TierAllUnits
 		rule.Tiers = rfTiers(t, tiers...)
 		return rule
 	}
 	graduated := func(t *testing.T, id string, tiers [][2]string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleGraduated, absent)
 		rule.TierMode = economics.TierGraduated
 		rule.Tiers = rfTiers(t, tiers...)
@@ -2022,11 +2036,13 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 	zeroTiers := [][2]string{{"100", "0"}, {"", "0"}}
 	positiveTiers := [][2]string{{"100", "0"}, {"", "2"}}
 	conditional := func(t *testing.T, id, price string) economics.RatingRule {
+		t.Helper()
 		rule := linear(t, id, price)
 		rule.Conditions = []economics.QualifierCondition{{Name: "plan", Value: "gold"}}
 		return rule
 	}
 	conversion := func(t *testing.T, id string) economics.RatingRule {
+		t.Helper()
 		rule := rfRule(t, id, economics.RatingRuleConversion, absent)
 		rule.ConversionSchema = "rf:conversion:v1"
 		return rule
@@ -2049,12 +2065,14 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			name:        "linear_positive_rate_is_load_bearing",
 			loadBearing: true,
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{linear(t, id, "2")}
 			},
 		},
 		{
 			name: "linear_zero_rate_never_bills_so_is_not_load_bearing",
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{linear(t, id, "0")}
 			},
 		},
@@ -2062,6 +2080,7 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			name:        "minimum_positive_rate_is_load_bearing",
 			loadBearing: true,
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{minimum(t, id, "2", "0")}
 			},
 		},
@@ -2072,12 +2091,14 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			name:        "minimum_positive_floor_under_a_zero_rate_is_load_bearing",
 			loadBearing: true,
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{minimum(t, id, "0", "5")}
 			},
 		},
 		{
 			name: "minimum_zero_rate_zero_floor_never_bills",
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{minimum(t, id, "0", "0")}
 			},
 		},
@@ -2085,18 +2106,23 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			name:        "block_positive_rate_is_load_bearing",
 			loadBearing: true,
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{block(t, id, "0.01")}
 			},
 		},
 		{
 			// A block bills at least one block but a zero rate prices every
 			// block at nothing, so no quantity can ever make it pay.
-			name:  "block_zero_rate_never_bills",
-			rules: func(t *testing.T, id string) []economics.RatingRule { return []economics.RatingRule{block(t, id, "0")} },
+			name: "block_zero_rate_never_bills",
+			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
+				return []economics.RatingRule{block(t, id, "0")}
+			},
 		},
 		{
 			name: "all_units_ladder_without_a_positive_tier_never_bills",
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{allUnits(t, id, zeroTiers)}
 			},
 		},
@@ -2104,12 +2130,14 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			name:        "all_units_ladder_with_a_positive_tier_is_load_bearing",
 			loadBearing: true,
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{allUnits(t, id, positiveTiers)}
 			},
 		},
 		{
 			name: "graduated_ladder_without_a_positive_slice_never_bills",
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{graduated(t, id, zeroTiers)}
 			},
 		},
@@ -2117,6 +2145,7 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			name:        "graduated_ladder_with_a_positive_slice_is_load_bearing",
 			loadBearing: true,
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{graduated(t, id, positiveTiers)}
 			},
 		},
@@ -2124,6 +2153,7 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			name:        "whole_context_ladder_with_a_positive_tier_is_load_bearing",
 			loadBearing: true,
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				rule := allUnits(t, id, positiveTiers)
 				rule.SelectionScope = economics.SelectionWholeContext
 				return []economics.RatingRule{rule}
@@ -2132,6 +2162,7 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 		{
 			name: "whole_context_ladder_without_a_positive_tier_never_bills",
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				rule := allUnits(t, id, zeroTiers)
 				rule.SelectionScope = economics.SelectionWholeContext
 				return []economics.RatingRule{rule}
@@ -2147,6 +2178,7 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			name:        "period_ladder_with_a_positive_tier_is_load_bearing_even_in_a_call_scope",
 			loadBearing: true,
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				rule := allUnits(t, id, positiveTiers)
 				rule.SelectionScope = economics.SelectionPeriod
 				return []economics.RatingRule{rule}
@@ -2157,6 +2189,7 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			// exactly the absent-rule case for money.
 			name: "positive_rate_behind_an_unmatched_qualifier_never_bills",
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{conditional(t, id, "2")}
 			},
 		},
@@ -2164,6 +2197,7 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			name:        "positive_rate_behind_a_matched_qualifier_is_load_bearing",
 			loadBearing: true,
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{conditional(t, id, "2")}
 			},
 			qualifiers: []metering.Dimension{{Name: "plan", Value: "gold"}},
@@ -2177,8 +2211,11 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			// free one for commercial relevance and the missing member is
 			// excused. The measured behaviour is asserted below; the gap is
 			// named here.
-			name:  "conversion_rule_is_not_implemented_and_is_indistinguishable_from_free",
-			rules: func(t *testing.T, id string) []economics.RatingRule { return []economics.RatingRule{conversion(t, id)} },
+			name: "conversion_rule_is_not_implemented_and_is_indistinguishable_from_free",
+			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
+				return []economics.RatingRule{conversion(t, id)}
+			},
 		},
 		{
 			// A fixed fee has no component identity, so resolveRule can never
@@ -2188,6 +2225,7 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			// independence: it is real money and it is not a cover member.
 			name: "fixed_fee_rule_never_covers_a_component_member",
 			rules: func(t *testing.T, id string) []economics.RatingRule {
+				t.Helper()
 				return []economics.RatingRule{b1FixedRule(t, id, economics.FixedFeeScopeCall, "9")}
 			},
 			override: &rfExpect{
@@ -2228,7 +2266,6 @@ func TestRuleFormCommercialRelevanceIsEffective(t *testing.T) {
 			rules: func(*testing.T, string) []economics.RatingRule { return nil },
 		},
 	} {
-		row := row
 		expect := rfExpect{
 			wantNoErr:    true,
 			completeness: economics.CompletenessComplete,
@@ -2314,12 +2351,10 @@ func TestRuleFormZeroQuantityAndZeroRate(t *testing.T) {
 	}
 	cases := []rfCase{}
 	for _, shape := range shapes {
-		shape := shape
 		for _, quantity := range []struct {
 			value  string
 			amount string
 		}{{"0", shape.zeroAmount}, {"1000", shape.positiveAmount}} {
-			quantity := quantity
 			kind := economics.RatingRuleLinear
 			if shape.floor != "" {
 				kind = economics.RatingRuleMinimum

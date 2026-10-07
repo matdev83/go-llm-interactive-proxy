@@ -74,8 +74,7 @@ func NewUnsupportedFilterError(fields []string) error {
 // UnsupportedFilterFields returns the named fields carried by an unsupported
 // filter error, or nil when the error is not an unsupported filter error.
 func UnsupportedFilterFields(err error) []string {
-	var target *unsupportedFilterError
-	if errors.As(err, &target) {
+	if target, ok := errors.AsType[*unsupportedFilterError](err); ok {
 		return append([]string(nil), target.fields...)
 	}
 	return nil

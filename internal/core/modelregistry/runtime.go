@@ -128,8 +128,7 @@ func (r *Runtime) RunRefresh(ctx context.Context) {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return
 		}
-		var refreshErr refreshFailureError
-		if errors.As(err, &refreshErr) {
+		if refreshErr, ok := errors.AsType[refreshFailureError](err); ok {
 			r.setFailure(refreshErr.category)
 			return
 		}

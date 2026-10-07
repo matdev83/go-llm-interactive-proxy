@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-func intPtr(v int) *int { return &v }
-
 func TestCompileSelfDefenseDefaultsWhenOmitted(t *testing.T) {
 	t.Parallel()
 
@@ -74,9 +72,9 @@ func TestCompileSelfDefenseRejectsOutOfBounds(t *testing.T) {
 		adaptive SelfDefenseAdaptiveConfig
 		wantPath string
 	}{
-		{name: "auth failures zero", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: intPtr(0)}, wantPath: "access.self_defense.adaptive.auth_failures"},
-		{name: "auth failures below min", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: intPtr(1)}, wantPath: "access.self_defense.adaptive.auth_failures"},
-		{name: "auth failures above max", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: intPtr(101)}, wantPath: "access.self_defense.adaptive.auth_failures"},
+		{name: "auth failures zero", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: new(0)}, wantPath: "access.self_defense.adaptive.auth_failures"},
+		{name: "auth failures below min", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: new(1)}, wantPath: "access.self_defense.adaptive.auth_failures"},
+		{name: "auth failures above max", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: new(101)}, wantPath: "access.self_defense.adaptive.auth_failures"},
 		{name: "window below min", adaptive: SelfDefenseAdaptiveConfig{Window: "999ms"}, wantPath: "access.self_defense.adaptive.window"},
 		{name: "window above max", adaptive: SelfDefenseAdaptiveConfig{Window: "1h1s"}, wantPath: "access.self_defense.adaptive.window"},
 		{name: "window malformed", adaptive: SelfDefenseAdaptiveConfig{Window: "soon"}, wantPath: "access.self_defense.adaptive.window"},
@@ -94,8 +92,8 @@ func TestCompileSelfDefenseRejectsOutOfBounds(t *testing.T) {
 		{name: "state ttl above max", adaptive: SelfDefenseAdaptiveConfig{StateTTL: "169h"}, wantPath: "access.self_defense.adaptive.state_ttl"},
 		{name: "state ttl not positive", adaptive: SelfDefenseAdaptiveConfig{StateTTL: "0s"}, wantPath: "access.self_defense.adaptive.state_ttl"},
 		{name: "state ttl unparsable day unit", adaptive: SelfDefenseAdaptiveConfig{StateTTL: "7d"}, wantPath: "access.self_defense.adaptive.state_ttl"},
-		{name: "max entries below min", adaptive: SelfDefenseAdaptiveConfig{MaxEntries: intPtr(1023)}, wantPath: "access.self_defense.adaptive.max_entries"},
-		{name: "max entries above max", adaptive: SelfDefenseAdaptiveConfig{MaxEntries: intPtr(1000001)}, wantPath: "access.self_defense.adaptive.max_entries"},
+		{name: "max entries below min", adaptive: SelfDefenseAdaptiveConfig{MaxEntries: new(1023)}, wantPath: "access.self_defense.adaptive.max_entries"},
+		{name: "max entries above max", adaptive: SelfDefenseAdaptiveConfig{MaxEntries: new(1000001)}, wantPath: "access.self_defense.adaptive.max_entries"},
 		{name: "invalid exempt cidr", adaptive: SelfDefenseAdaptiveConfig{ExemptCIDRs: []string{"not-a-cidr"}}, wantPath: "access.self_defense.adaptive.exempt_cidrs[0]"},
 		{name: "empty exempt cidr", adaptive: SelfDefenseAdaptiveConfig{ExemptCIDRs: []string{""}}, wantPath: "access.self_defense.adaptive.exempt_cidrs[0]"},
 		{name: "out of range exempt prefix", adaptive: SelfDefenseAdaptiveConfig{ExemptCIDRs: []string{"10.0.0.0/33"}}, wantPath: "access.self_defense.adaptive.exempt_cidrs[0]"},
@@ -122,8 +120,8 @@ func TestCompileSelfDefenseAcceptsInclusiveBounds(t *testing.T) {
 		name     string
 		adaptive SelfDefenseAdaptiveConfig
 	}{
-		{name: "auth at min", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: intPtr(2)}},
-		{name: "auth at max", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: intPtr(100)}},
+		{name: "auth at min", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: new(2)}},
+		{name: "auth at max", adaptive: SelfDefenseAdaptiveConfig{AuthFailures: new(100)}},
 		{name: "window at min", adaptive: SelfDefenseAdaptiveConfig{Window: "1s"}},
 		{name: "window at max", adaptive: SelfDefenseAdaptiveConfig{Window: "1h"}},
 		{name: "initial at min", adaptive: SelfDefenseAdaptiveConfig{InitialQuarantine: "1s"}},
@@ -132,8 +130,8 @@ func TestCompileSelfDefenseAcceptsInclusiveBounds(t *testing.T) {
 		{name: "max at implied one second floor with equal initial", adaptive: SelfDefenseAdaptiveConfig{InitialQuarantine: "1s", MaxQuarantine: "1s"}},
 		{name: "state ttl at min", adaptive: SelfDefenseAdaptiveConfig{StateTTL: "1m"}},
 		{name: "state ttl at max", adaptive: SelfDefenseAdaptiveConfig{StateTTL: "168h"}},
-		{name: "max entries at min", adaptive: SelfDefenseAdaptiveConfig{MaxEntries: intPtr(1024)}},
-		{name: "max entries at max", adaptive: SelfDefenseAdaptiveConfig{MaxEntries: intPtr(1000000)}},
+		{name: "max entries at min", adaptive: SelfDefenseAdaptiveConfig{MaxEntries: new(1024)}},
+		{name: "max entries at max", adaptive: SelfDefenseAdaptiveConfig{MaxEntries: new(1000000)}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -300,7 +298,7 @@ func TestValidateRejectsInvalidSelfDefense(t *testing.T) {
 		Continuity: ContinuityConfig{InMemory: true},
 		Plugins:    PluginsConfig{Backends: []PluginConfig{{ID: "b1", Enabled: true}}},
 		Access: AccessConfig{SelfDefense: SelfDefenseConfig{
-			Adaptive: SelfDefenseAdaptiveConfig{AuthFailures: intPtr(1)},
+			Adaptive: SelfDefenseAdaptiveConfig{AuthFailures: new(1)},
 		}},
 	}
 	err := Validate(cfg)

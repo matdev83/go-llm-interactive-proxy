@@ -84,7 +84,6 @@ func TestReview583ZeroSharePartitionCover(t *testing.T) {
 			b1Measure(t, partC, "100"),
 			b1Measure(t, subsetD, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -110,7 +109,6 @@ func TestReview583ZeroSharePartitionCover(t *testing.T) {
 			b1Measure(t, partB, "0"),
 			b1Measure(t, partC, "100"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -149,7 +147,6 @@ func TestReview583ZeroSharePartitionCover(t *testing.T) {
 			b1Measure(t, partC, "100"),
 			b1Measure(t, subsetD, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -177,7 +174,6 @@ func TestReview583ZeroSharePartitionCover(t *testing.T) {
 			b1Measure(t, partC, "100"),
 			b1Measure(t, subsetD, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -202,7 +198,6 @@ func TestReview583ZeroSharePartitionCover(t *testing.T) {
 			b1Measure(t, partC, "100"),
 			b1Measure(t, subsetD, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -227,7 +222,6 @@ func TestReview583ZeroSharePartitionCover(t *testing.T) {
 			b1Measure(t, partC, "100"),
 			b1Measure(t, subsetD, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -255,7 +249,6 @@ func TestReview583ZeroSharePartitionCover(t *testing.T) {
 			b1Measure(t, partB, "0"),
 			b1Measure(t, partC, "100"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -366,7 +359,6 @@ func TestReview583AmbiguityLocality(t *testing.T) {
 		resolved := f3Resolved(t, "583loc-ambiguous", primaryRules, affectedCover(true))
 		obs := f3Observation(t, "583loc-ambiguous", primaryObs...)
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -389,7 +381,6 @@ func TestReview583AmbiguityLocality(t *testing.T) {
 		resolved := f3Resolved(t, "583loc-clean", primaryRules, affectedCover(false))
 		obs := f3Observation(t, "583loc-clean", primaryObs...)
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -422,7 +413,6 @@ func TestReview583AmbiguityLocality(t *testing.T) {
 			b1Measure(t, partB, "60"),
 			b1Measure(t, partC, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -458,7 +448,6 @@ func TestReview583AmbiguityLocality(t *testing.T) {
 			b1Measure(t, z1, "100"),
 			b1Measure(t, sharedS, "100"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -514,12 +503,10 @@ func TestReview583AmbiguityLocality(t *testing.T) {
 			{name: "z_then_w", schema: validGraph(zFragment, wFragment)},
 			{name: "w_then_z", schema: validGraph(wFragment, zFragment)},
 		} {
-			order := order
 			t.Run(order.name, func(t *testing.T) {
 				t.Parallel()
 				resolved := f3Resolved(t, "583loc-order-"+order.name, rules, order.schema)
 				for _, seam := range review5beSeams() {
-					seam := seam
 					t.Run(seam.name, func(t *testing.T) {
 						t.Parallel()
 						val, err := seam.rate(t, resolved, obs)

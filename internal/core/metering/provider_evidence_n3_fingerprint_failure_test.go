@@ -236,7 +236,7 @@ func TestN3RepeatedFingerprintFailuresAreBoundedToOneMarker(t *testing.T) {
 	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	b.BindEconomicEvidence(testObservationIdentity())
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		bad := n3MalformedDraft("provider.n3.repeat." + strconv.Itoa(i))
 		n3AssertFixtureRejected(t, bad)
 		b.Add(bad)
@@ -258,7 +258,7 @@ func TestN3FingerprintFailureSurvivesSaturatedPendingCapacity(t *testing.T) {
 	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	b.BindEconomicEvidence(testObservationIdentity())
-	for i := 0; i < maxProviderEvidenceDrafts; i++ {
+	for i := range maxProviderEvidenceDrafts {
 		b.Add(nativeMediaMoneyDraft("provider.n3.full."+strconv.Itoa(i), 1))
 	}
 	b.mu.Lock()

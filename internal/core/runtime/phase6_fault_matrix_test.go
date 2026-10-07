@@ -309,8 +309,7 @@ func TestPhase6_FaultMatrix_AcquisitionAndReadiness(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected Execute failure due to observer startup failure, got nil")
 		}
-		var pde *lipapi.PolicyDecisionError
-		if !errors.As(err, &pde) {
+		if _, ok := errors.AsType[*lipapi.PolicyDecisionError](err); !ok {
 			t.Fatalf("expected PolicyDecisionError, got: %T (%v)", err, err)
 		}
 	})

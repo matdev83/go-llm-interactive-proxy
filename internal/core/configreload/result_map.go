@@ -14,8 +14,7 @@ func MapLoadFailure(err error) (sdkreload.ResultCategory, string) {
 	if err == nil {
 		return sdkreload.ResultInternalFailed, "unknown"
 	}
-	var rr *RestartRequiredError
-	if errors.As(err, &rr) {
+	if _, ok := errors.AsType[*RestartRequiredError](err); ok {
 		return sdkreload.ResultRestartRequired, StageClassify
 	}
 	var le *config.LoadError

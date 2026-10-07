@@ -60,8 +60,7 @@ func decode(ctx context.Context, w http.ResponseWriter, r *http.Request, dest an
 	}
 	data, err := io.ReadAll(http.MaxBytesReader(w, body, policy.MaxBytes))
 	if err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			return ErrTooLarge
 		}
 		// A body whose final read surfaces a wrapped io.EOF (e.g. a connection

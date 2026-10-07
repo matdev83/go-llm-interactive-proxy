@@ -115,8 +115,7 @@ func (e *Executor) rederiveAfterRequestHooks(
 		},
 	)
 	if admitPanicErr != nil {
-		var pe *safety.PanicError
-		if errors.As(admitPanicErr, &pe) {
+		if pe, ok := errors.AsType[*safety.PanicError](admitPanicErr); ok {
 			if e != nil && e.Log != nil {
 				attrs := diag.IsolatedCrashAttrs(ctx, pe, diag.CrashAttrOpts{AttrOpts: diag.AttrOpts{CallID: rf.traceID}})
 				attrs = diag.AppendIsolatedCrashStack(attrs, pe)

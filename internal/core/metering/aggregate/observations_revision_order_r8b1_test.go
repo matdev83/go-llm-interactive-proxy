@@ -28,7 +28,6 @@ func TestApplyObservations_ExplicitSourceRevisionOrderBeatsProviderSequence(t *t
 		{name: "newer revision observed first", order: []int{0, 1}},
 		{name: "older revision observed first", order: []int{1, 0}},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

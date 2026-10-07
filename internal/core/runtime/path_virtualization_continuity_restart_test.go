@@ -1784,7 +1784,7 @@ func TestStreamToolCall_NoPriorRootDictionaryExists(t *testing.T) {
 	// ORACLE 2: the mapping VALUE carries no store. Field-by-field, by index and kind,
 	// so a future field of any reference kind fails here rather than passing as an
 	// unnamed addition.
-	mappingType := reflect.TypeOf(pathvirtualization.Mapping{})
+	mappingType := reflect.TypeFor[pathvirtualization.Mapping]()
 	wantFields := []struct {
 		name string
 		kind reflect.Kind

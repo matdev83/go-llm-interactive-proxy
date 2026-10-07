@@ -1462,7 +1462,7 @@ func TestEconomicValuationStreamKeyCoversEverySubjectIdentityField(t *testing.T)
 	typ := reflect.TypeFor[metering.SubjectRef]()
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := strings.Split(field.Tag.Get("json"), ",")[0]
+		tag, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if tag == "" || tag == "-" {
 			continue
 		}
@@ -1474,7 +1474,7 @@ func TestEconomicValuationStreamKeyCoversEverySubjectIdentityField(t *testing.T)
 		case reflect.Uint64:
 			value.SetUint(value.Uint() + 1)
 		case reflect.Struct:
-			if moment, ok := value.Interface().(time.Time); ok {
+			if moment, ok := reflect.TypeAssert[time.Time](value); ok {
 				value.Set(reflect.ValueOf(moment.Add(time.Second)))
 			}
 		}

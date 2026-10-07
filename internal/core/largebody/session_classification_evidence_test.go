@@ -325,8 +325,7 @@ func classificationCarrierViolations(typ reflect.Type, exceptions map[string]boo
 	carriers := 0
 	documented := make(map[string]bool, len(exceptions))
 
-	for i := range typ.NumField() {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		path := fmt.Sprintf("%s.%s", typ.Name(), field.Name)
 
 		if field.Type == evidenceType {
@@ -461,8 +460,7 @@ func nestedCarrierViolations(typ reflect.Type, path string, visited map[reflect.
 	defer delete(visited, typ)
 
 	var violations []string
-	for i := range typ.NumField() {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		fieldPath := path + "." + field.Name
 		if contentBearingField(field) {
 			violations = append(violations, fieldPath+" has a content-bearing name holding data")
@@ -572,8 +570,7 @@ func classificationCarrierShapeViolations(evidence reflect.Type) []string {
 		violations = append(violations, fmt.Sprintf(
 			"classification carrier %s has %d fields, want exactly %d", evidence, evidence.NumField(), len(boundedClassificationShapes)))
 	}
-	for i := range evidence.NumField() {
-		inner := evidence.Field(i)
+	for inner := range evidence.Fields() {
 		if want, ok := boundedClassificationShapes[inner.Name]; !ok {
 			violations = append(violations, fmt.Sprintf(
 				"classification carrier must not gain field %q (requirements 5.5, 7.2)", inner.Name))

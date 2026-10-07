@@ -287,30 +287,30 @@ func supportCompleteness(complete bool) string {
 	return "non_complete"
 }
 
-func (t *supportTally) report(tst *testing.T, wall time.Duration) {
-	tst.Helper()
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	total := t.cases
-	tst.Logf("SUPPORT-AGREEMENT[%s] cases=%d agree=%d disagree=%d (%.2f%% agreement) wall=%s",
-		t.label, total, t.agree, total-t.agree, supportPercent(t.agree, total), wall.Round(time.Millisecond))
-	tst.Logf("SUPPORT-AGREEMENT[%s] cases_with_at_least_one_positive_region=%d", t.label, t.payableCases)
-	tst.Logf("SUPPORT-AGREEMENT[%s] production_resolver_acted=%d of_which_typed_overlap_conflict=%d production_complete=%d shadow_pairs=%d",
-		t.label, t.productionActed, t.productionConflict, t.productionComplete, t.pairs)
-	tst.Logf("SUPPORT-AGREEMENT[%s] shadow definite_overlap_cases=%d unknown_intersection_cases=%d proven_disjoint_cases=%d",
-		t.label, t.shadowDefinite, t.shadowUnknown, t.shadowProven)
-	tst.Logf("SUPPORT-AGREEMENT[%s] class_c_production_looser_on_definite_overlap=%d",
-		t.label, t.classC)
-	tst.Logf("SUPPORT-AGREEMENT[%s] class_a_unknown_intersection_production_complete=%d class_a_unknown_intersection_production_non_complete=%d",
-		t.label, t.classAUnknownComplete, t.classAUnknownNonComplete)
-	tst.Logf("SUPPORT-AGREEMENT[%s] class_b_commercial_only=%d of_which_shadow_proves_disjoint=%d of_which_shadow_had_no_pair_at_all=%d",
-		t.label, t.classB, t.classBProvenDisjoint, t.classBNoPairs)
-	for _, reason := range supportSortedKeys(t.reasonCounts) {
-		tst.Logf("SUPPORT-AGREEMENT[%s] class_b_reason=%s count=%d", t.label, reason, t.reasonCounts[reason])
+func (tally *supportTally) report(t *testing.T, wall time.Duration) {
+	t.Helper()
+	tally.mu.Lock()
+	defer tally.mu.Unlock()
+	total := tally.cases
+	t.Logf("SUPPORT-AGREEMENT[%s] cases=%d agree=%d disagree=%d (%.2f%% agreement) wall=%s",
+		tally.label, total, tally.agree, total-tally.agree, supportPercent(tally.agree, total), wall.Round(time.Millisecond))
+	t.Logf("SUPPORT-AGREEMENT[%s] cases_with_at_least_one_positive_region=%d", tally.label, tally.payableCases)
+	t.Logf("SUPPORT-AGREEMENT[%s] production_resolver_acted=%d of_which_typed_overlap_conflict=%d production_complete=%d shadow_pairs=%d",
+		tally.label, tally.productionActed, tally.productionConflict, tally.productionComplete, tally.pairs)
+	t.Logf("SUPPORT-AGREEMENT[%s] shadow definite_overlap_cases=%d unknown_intersection_cases=%d proven_disjoint_cases=%d",
+		tally.label, tally.shadowDefinite, tally.shadowUnknown, tally.shadowProven)
+	t.Logf("SUPPORT-AGREEMENT[%s] class_c_production_looser_on_definite_overlap=%d",
+		tally.label, tally.classC)
+	t.Logf("SUPPORT-AGREEMENT[%s] class_a_unknown_intersection_production_complete=%d class_a_unknown_intersection_production_non_complete=%d",
+		tally.label, tally.classAUnknownComplete, tally.classAUnknownNonComplete)
+	t.Logf("SUPPORT-AGREEMENT[%s] class_b_commercial_only=%d of_which_shadow_proves_disjoint=%d of_which_shadow_had_no_pair_at_all=%d",
+		tally.label, tally.classB, tally.classBProvenDisjoint, tally.classBNoPairs)
+	for _, reason := range supportSortedKeys(tally.reasonCounts) {
+		t.Logf("SUPPORT-AGREEMENT[%s] class_b_reason=%s count=%d", tally.label, reason, tally.reasonCounts[reason])
 	}
 	for _, kind := range []string{"c", "a_unknown_complete", "a_unknown_noncomplete", "b_unknown", "b_proven_disjoint"} {
-		for _, example := range t.examples[kind] {
-			tst.Logf("SUPPORT-AGREEMENT[%s] EXAMPLE %s: %s", t.label, kind, example)
+		for _, example := range tally.examples[kind] {
+			t.Logf("SUPPORT-AGREEMENT[%s] EXAMPLE %s: %s", tally.label, kind, example)
 		}
 	}
 }
@@ -749,7 +749,6 @@ func supportCanonicalPopulations(t *testing.T, relationships []metering.Componen
 		})},
 	}
 	for omitted := range nodes {
-		omitted := omitted
 		populated = append(populated, supportPopulation{
 			name:     "one_node_absent_" + nodes[omitted].Component,
 			measures: measuresFor(func(index int) bool { return index != omitted }),
@@ -812,7 +811,6 @@ func TestSupportAuditPayablePopulationMatchesEmittedLines(t *testing.T) {
 		mu.Unlock()
 	}
 	for _, vector := range accVectors() {
-		vector := vector
 		t.Run(accNumber(vector.number)+"_"+vector.name, func(t *testing.T) {
 			t.Parallel()
 			testCase := vector.build(t)
@@ -977,6 +975,7 @@ func TestSupportAgreementFixedFeeStaysOutsideTheGraph(t *testing.T) {
 // fully accounted for, plus a subset child whose positive payable descendant the
 // cover does not place.
 func supportFindingGraph(t *testing.T) (economics.TariffSnapshot, []metering.Observation) {
+	t.Helper()
 	parent := r7Key("vendor:sup_find_parent")
 	left := r7Key("vendor:sup_find_left")
 	right := r7Key("vendor:sup_find_right")

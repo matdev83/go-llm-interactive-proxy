@@ -990,18 +990,9 @@ func (a *attemptSession) durableHeadAggregateLocked() durableHeadAggregate {
 // The head itself is already counted in the aggregate, so its room is the
 // head's current usage plus whatever remains of the aggregate budget.
 func (aggregate durableHeadAggregate) headLimits(head checkpointDurableHead) checkpointHeadLimits {
-	fieldRoom := maxEconomicCheckpointTotalFields - aggregate.fields
-	if fieldRoom < 0 {
-		fieldRoom = 0
-	}
-	supersedeRoom := maxEconomicCheckpointTotalSupersedes - aggregate.supersedes
-	if supersedeRoom < 0 {
-		supersedeRoom = 0
-	}
-	byteRoom := maxEconomicCheckpointTotalHeadMetadataBytes - aggregate.bytes
-	if byteRoom < 0 {
-		byteRoom = 0
-	}
+	fieldRoom := max(maxEconomicCheckpointTotalFields-aggregate.fields, 0)
+	supersedeRoom := max(maxEconomicCheckpointTotalSupersedes-aggregate.supersedes, 0)
+	byteRoom := max(maxEconomicCheckpointTotalHeadMetadataBytes-aggregate.bytes, 0)
 	return checkpointHeadLimits{
 		fields:     min(maxEconomicCheckpointHeadFields, len(head.fields)+fieldRoom),
 		supersedes: min(maxEconomicCheckpointHeadSupersedes, len(head.supersedes)+supersedeRoom),
