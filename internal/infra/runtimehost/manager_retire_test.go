@@ -42,12 +42,18 @@ func (l *ledgerOwned) Close() error {
 	return nil
 }
 
+// retireWait bounds every wait for an asynchronous retirement step to finish.
+// The happy path returns as soon as the step completes; the bound only matters
+// when a test would already fail, so it is generous enough for a loaded CI
+// runner (a 2 s bound flaked on main under shard load).
+const retireWait = 30 * time.Second
+
 // awaitClosed waits for generation close without sleeps: RetireGeneration
 // serializes behind any in-flight auto-retirement via context-aware admission,
 // then observes GenClosed / ErrAlreadyClosed.
 func awaitClosed(t *testing.T, m *runtimehost.Manager, g *runtimehost.Generation) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), retireWait)
 	defer cancel()
 	_, err := m.RetireGeneration(ctx, g)
 	if err != nil && !errors.Is(err, runtimehost.ErrAlreadyClosed) {
@@ -70,7 +76,7 @@ func TestManagerRetire_PublishReplacementAutoRetiresOld(t *testing.T) {
 
 	select {
 	case <-closeDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("publish replacement did not auto-retire old generation")
 	}
 	awaitClosed(t, m, g1)
@@ -99,7 +105,7 @@ func TestManagerRetire_PublishReturnsBeforePinnedOldDrains_ReleaseCompletes(t *t
 	}()
 	select {
 	case <-publishDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("publish must not wait for pinned drain/cleanup")
 	}
 	// Lease is still held: close must not have happened yet regardless of
@@ -113,7 +119,7 @@ func TestManagerRetire_PublishReturnsBeforePinnedOldDrains_ReleaseCompletes(t *t
 	lease.Release()
 	select {
 	case <-closeDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("releasing pin must complete auto-retirement")
 	}
 	awaitClosed(t, m, g1)
@@ -143,7 +149,7 @@ func TestManagerRetire_CloseFailThenSucceedsObeysPolicyAttempts(t *testing.T) {
 
 	select {
 	case <-closeDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("retry-to-success timeout")
 	}
 	awaitClosed(t, m, g1)
@@ -272,7 +278,7 @@ func TestManagerRetire_TwoGenerationsRetireIndependently(t *testing.T) {
 	// auto-retirement is still blocked on the held lease.
 	select {
 	case <-close2Done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("g2 retirement must not block behind g1's pinned drain")
 	}
 	awaitClosed(t, m, g2)
@@ -283,7 +289,7 @@ func TestManagerRetire_TwoGenerationsRetireIndependently(t *testing.T) {
 	lease.Release()
 	select {
 	case <-close1Done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("g1 auto-retirement must complete after pin release")
 	}
 	awaitClosed(t, m, g1)
@@ -319,7 +325,7 @@ func TestManagerRetire_ShutdownHonorsDeadlineWhileAutoRetireBlockedOnPin(t *test
 	// Quiesce barrier: auto-retire reached Quiescing and invoked Quiesce while pin held.
 	select {
 	case <-quiesced:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("auto-retire did not reach quiesce while pinned")
 	}
 
@@ -336,7 +342,7 @@ func TestManagerRetire_ShutdownHonorsDeadlineWhileAutoRetireBlockedOnPin(t *test
 	lease.Release()
 	select {
 	case <-closeDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("pin release must complete retirement")
 	}
 	awaitClosed(t, m, g1)
@@ -372,7 +378,7 @@ func TestManagerRetire_ConcurrentSameGenerationSerializedAndContextAware(t *test
 	mustPublish(t, m, m.Prepare("g2"))
 	select {
 	case <-quiesced:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("auto-retire did not reach quiesce while pinned")
 	}
 
@@ -389,7 +395,7 @@ func TestManagerRetire_ConcurrentSameGenerationSerializedAndContextAware(t *test
 	lease.Release()
 	select {
 	case <-closeDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(retireWait):
 		t.Fatal("pin release must complete retirement")
 	}
 	awaitClosed(t, m, g1)
