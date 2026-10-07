@@ -3,6 +3,7 @@
 # are opt-in via LIP_PRECOMMIT_FULL=1 or `make precommit-full`.
 
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/dev-cpu-defaults.sh"
 
 echo "=== Pre-Commit Quality Gate ==="
 echo ""
@@ -30,6 +31,13 @@ if ! grep -qE '\.go$' <<< "$staged_files"; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Fail fast on the one environmental precondition that makes the suites below
+# report misleading failures. On a tmpfs TMPDIR the config-source integrity tests
+# fail with 'source-integrity-failed' / 'source_non_atomic_update' across several
+# unrelated packages, which reads as a regression in the staged change. Checking
+# here costs milliseconds and names the real cause once.
+bash "$SCRIPT_DIR/require-ext4-tmpdir.sh"
 
 if grep -Eq '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
 	echo "Checking all independent Go module metadata..."

@@ -6,6 +6,40 @@ tests, builds, linting, cache lifecycle, and the automated cost watchdog.
 
 ## Use during development
 
+### Config-source tests require an ext4 TMPDIR
+
+The config-source integrity tests assert atomic rename and inode-reuse behaviour.
+tmpfs does not provide those semantics, so a tmpfs `TMPDIR` makes them fail with
+`source-integrity-failed` or `source_non_atomic_update` across several unrelated
+packages. Those failures are environmental: they appear whether or not the staged
+change touches config sources, and they read convincingly like a regression.
+
+This host mounts `/tmp` as tmpfs, which is the default when `TMPDIR` is unset, so
+the traps are the default path and any path that resolves to tmpfs. Point `TMPDIR`
+at ext4 storage instead:
+
+```sh
+# Find ext4 storage available on this host.
+findmnt --noheadings --output FSTYPE --target /home
+export TMPDIR=/path/on/ext4
+```
+
+`scripts/require-ext4-tmpdir.sh` is the single source of truth for the check. The
+pre-commit quality gate runs it before the expensive suites, so a wrong `TMPDIR`
+is reported once with the remedy instead of surfacing later as scattered test
+failures. `scripts/configsource-certify.sh` delegates to the same script rather
+than repeating the logic.
+
+### Commit and push run the full gate
+
+`scripts/hooks/pre-commit` and `scripts/hooks/pre-push` both invoke the quality
+gate, which includes the complete root-module test suite. Budget minutes, not
+seconds, and run them as a background command with no tool timeout: a harness
+timeout that kills the gate mid-run leaves the commit unapplied and the index
+still staged, which reads as a hook failure when it is only a truncation.
+
+When a gate fails, fix the cause. `--no-verify` also skips secret scanning.
+
 ### Development-host race guard
 
 Race verification runs in remote GitHub CI, not on interactive development
@@ -117,7 +151,7 @@ remote certification includes these fixtures without changing workflow scope.
 
 `PKGS` is required for test/build/lint. There is no silent fallback to the full
 repository. Patterns are relative to `MODULE`, which defaults to the root module.
-`DEV_JOBS` defaults to 4; tune it for the actual machine and keep it stable during
+`DEV_JOBS` defaults to 1 on local Linux `agent-dev`, and 4 elsewhere; tune it for the actual machine and keep it stable during
 comparisons. `DEV_REPEAT=2` runs the identical operation twice and prints elapsed
 time. Tests report passed/cached/failed/skipped package counts. Child-process or
 telemetry errors fail the command. `dev-lint` requires golangci-lint and does not
@@ -136,8 +170,21 @@ lint. Unscoped `make lint` and CI still lint complete modules. `make qa` runs
 that comprehensive lint once, after the preliminary policy checks.
 
 `LIP_TEST_PACKAGES` optionally sets Go package-process concurrency (`-p`),
-independently of `LIP_TEST_PARALLEL` (`-parallel`, within each test binary). Leave
-it unset for Go's native default; use measurements before lowering either limit.
+independently of `LIP_TEST_PARALLEL` (`-parallel`, within each test binary). On local Linux
+`agent-dev`, suite Make targets and Bash quality/hook entry points default to one package
+process, `GOMAXPROCS=2`, and two parallel tests per binary. Scoped `dev-test`
+commands use `DEV_JOBS` for both package jobs and test parallelism (default 1). The installed
+`go-dev-guard.sh` also defaults direct Go commands to `-p=1` and `GOMAXPROCS=2`,
+preserving persisted `GOENV` flags and explicit budgets. Local Go and Bash gate
+processes use an absolute niceness floor of 10; an inherited value of 10 or
+higher is retained. To update an existing guard, inspect and back up the installed file, then run
+`install -m 755 scripts/go-dev-guard.sh "$HOME/.local/bin/go"`. CI markers and Windows retain their existing resource defaults; race
+blocking on development hosts remains active even with CI markers. Elsewhere,
+leave package concurrency unset for Go's native default. These are per-command
+budgets; simultaneous sessions can still consume multiple cores. Make and Bash
+gates pass explicit package flags, which take precedence over `GOFLAGS`; use
+`LIP_TEST_PACKAGES`, `LIP_TEST_PARALLEL`, and `DEV_JOBS` for their budget overrides,
+or replace Make's complete `GO_TEST_FLAGS` string.
 For example, `make test-unit LIP_TEST_PACKAGES=8 LIP_TEST_PARALLEL=8` selects an
 explicit budget on both platforms. See [the measured follow-up](development-gates-performance.md).
 

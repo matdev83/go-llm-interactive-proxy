@@ -24,6 +24,16 @@ reject_race() {
 	exit 2
 }
 
+go_flags=${GOFLAGS:-}
+if [[ -z "$go_flags" && "${GOENV:-}" != off ]]; then
+	go_env=${GOENV:-${XDG_CONFIG_HOME:-$HOME/.config}/go/env}
+	if [[ -f "$go_env" ]]; then
+		while IFS= read -r entry || [[ -n "$entry" ]]; do
+			case "$entry" in GOFLAGS=*) go_flags=${entry#GOFLAGS=} ;; esac
+		done < "$go_env"
+	fi
+fi
+
 if [[ "$blocked_host" == true ]]; then
 	args=("$@")
 	index=0
@@ -35,22 +45,13 @@ if [[ "$blocked_host" == true ]]; then
 	command_name=${args[index]:-}
 	case "$command_name" in
 	build|test|run|install|list|vet|generate|tool)
-		go_flags=${GOFLAGS:-}
-		if [[ -z "$go_flags" && "${GOENV:-}" != off ]]; then
-			go_env=${GOENV:-${XDG_CONFIG_HOME:-$HOME/.config}/go/env}
-			if [[ -f "$go_env" ]]; then
-				while IFS= read -r entry || [[ -n "$entry" ]]; do
-					case "$entry" in GOFLAGS=*) go_flags=${entry#GOFLAGS=} ;; esac
-				done < "$go_env"
-			fi
-		fi
 		# GOFLAGS uses whitespace-separated, optionally quoted flags. Inspect
 		# tokens without evaluating shell expansions or executing their contents.
-		go_flags=${go_flags//\"/}
-		go_flags=${go_flags//\'/}
-		go_flags=${go_flags//$'\n'/ }
-		go_flags=${go_flags//$'\r'/ }
-		read -r -a env_flags <<< "$go_flags"
+		inspected_flags=${go_flags//\"/}
+		inspected_flags=${inspected_flags//\'/}
+		inspected_flags=${inspected_flags//$'\n'/ }
+		inspected_flags=${inspected_flags//$'\r'/ }
+		read -r -a env_flags <<< "$inspected_flags"
 		for flag in "${env_flags[@]}"; do
 			race_flag "$flag" && reject_race
 		done
@@ -72,5 +73,28 @@ if [[ "$blocked_host" == true ]]; then
 		done
 		;;
 	esac
+fi
+# Keep this installed script standalone. Resource defaults apply only locally
+# on the Linux VM; race policy above also applies when CI markers are present.
+if [[ ${OS:-} != Windows_NT && $(uname -s) == Linux && -z ${CI:-} && -z ${GITHUB_ACTIONS:-} ]]; then
+	local_vm=false
+	for host in "${hosts[@]}"; do
+		[[ ${host%%.*} == agent-dev ]] && local_vm=true
+	done
+	if [[ $local_vm == true ]]; then
+		: "${GOMAXPROCS:=2}"
+		export GOMAXPROCS
+		# Preserve persisted and quoted flags verbatim; explicit -p wins.
+		package_flags=${go_flags//\"/}
+		package_flags=${package_flags//\'/}
+		if [[ ! $package_flags =~ (^|[[:space:]])-p(=|[[:space:]]|$) ]]; then
+			GOFLAGS="${go_flags:+$go_flags }-p=1"
+			export GOFLAGS
+		fi
+		current_nice=$(ps -o ni= -p "$$")
+		if (( current_nice < 10 )); then
+			renice --priority 10 --pid "$$" >/dev/null
+		fi
+	fi
 fi
 exec "${GO_DEV_GUARD_REAL_GO:-/usr/local/bin/go}" "$@"

@@ -256,6 +256,8 @@ jobs:
           set -euo pipefail
           bash scripts/test-configsource-fault-check.sh
           bash scripts/test-go-dev-guard.sh
+          bash scripts/test-require-ext4-tmpdir.sh
+          bash scripts/test-check-merge-receiver-branch.sh
           image="$RUNNER_TEMP/configsource-ext4.img"
           mountpoint="$RUNNER_TEMP/configsource-ext4-mount"
           cleanup() {

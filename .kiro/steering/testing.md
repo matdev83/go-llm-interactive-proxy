@@ -112,6 +112,23 @@ Concrete feature/provider inventories should not be copied into this list.
 - Avoid sleeps as synchronization. Use channels, fake clocks, explicit barriers, or state observation.
 - Tests must not depend on execution order or mutable process-global leftovers.
 
+## Non-Vacuity for a Relaxed Assertion
+
+A change that widens what an assertion accepts — two equivalent error causes, a looser predicate, a dropped expectation — must prove the assertion still rejects what it exists to reject. Widening is safe only when the newly accepted values are genuinely the same outcome AND the rejection path is still live. Fault-inject each rejection case; do not reason about it.
+
+Two properties of Go's `testing` break the obvious probe, and both fail silently:
+
+- `t.Fatalf` and `t.FailNow` end the calling goroutine via `runtime.Goexit`, not a panic. A probe wrapped in `recover()` observes nothing and passes vacuously.
+- A failing subtest fails its parent regardless of what `t.Run` returns, so "this case should fail" cannot be asserted inside the same test binary.
+
+Run each rejection case as its own process and assert on its output:
+
+```sh
+go test -count=1 -run '^TestProbeRejectsNil$' ./path/to/pkg 2>&1 | grep -q 'got success'
+```
+
+Keep probes out of the committed suite, or behind a build tag, so a probe that is meant to fail cannot redden a normal test run. When a relaxation is the fix, the PR body should show the injected cases and the message each produced.
+
 ## Failure Triage
 
 When a broad gate fails during a scoped change:
