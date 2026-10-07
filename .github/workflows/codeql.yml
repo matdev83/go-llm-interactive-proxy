@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
     - cron: "23 4 * * 1"
 
@@ -39,9 +40,16 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          WANT_CODEQL: ${{ contains(github.event.pull_request.labels.*.name, 'codeql') }}
         run: |
           set -euo pipefail
           bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
+          # PRs skip the ~8 minute analysis unless labelled `codeql`; main pushes
+          # and the weekly schedule still analyse every change. The last value
+          # written to GITHUB_OUTPUT wins.
+          if [[ "$EVENT_NAME" == "pull_request" && "$WANT_CODEQL" != "true" ]]; then
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
 
   analyze:
     name: Analyze (Go)

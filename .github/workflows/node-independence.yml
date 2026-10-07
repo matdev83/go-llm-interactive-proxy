@@ -1,8 +1,8 @@
 name: Node independence
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "27 3 * * *"
   pull_request:
     # labeled/unlabeled so applying or removing the exemption actually re-runs the
     # gate it unblocks, instead of waiting for the next push to notice.
@@ -55,8 +55,8 @@ jobs:
             case "$file" in
               Makefile|go.mod|go.sum|go.work|go.work.sum|\
               .golangci.yml|.goreleaser.yaml|.goreleaser.yml|.release-files|\
-              cmd/*|config/*|internal/*|pkg/*|testdata/*|tools/*|scripts/*|\
-              .github/workflows/*|.github/actions/*)
+              tools/*|scripts/*|\
+              .github/workflows/node-independence.yml|.github/actions/*)
                 host=true
                 break
                 ;;

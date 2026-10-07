@@ -15,8 +15,6 @@ func TestWorkflow_pushRestrictedToMainForPRDedup(t *testing.T) {
 	root := repoRoot(t)
 	workflows := []string{
 		".github/workflows/backend-plugin-cross-platform.yml",
-		".github/workflows/backend-plugin-release-gates.yml",
-		".github/workflows/codex-connector-race.yml",
 	}
 	for _, rel := range workflows {
 		t.Run(rel, func(t *testing.T) {
@@ -76,5 +74,42 @@ func stringSliceYAML(v any) ([]string, bool) {
 		return t, true
 	default:
 		return nil, false
+	}
+}
+
+// Race and release-gate lanes are nightly/weekly/manual only: a PR or push
+// trigger would put per-PR minutes back on evidence that AGENTS.md assigns to
+// scheduled remote CI.
+func TestWorkflow_scheduledOnlyLanesHaveNoPRTrigger(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	for _, rel := range []string{
+		".github/workflows/backend-plugin-release-gates.yml",
+		".github/workflows/codex-connector-race.yml",
+		".github/workflows/connector-pool-race.yml",
+	} {
+		t.Run(rel, func(t *testing.T) {
+			t.Parallel()
+			raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+			if err != nil {
+				t.Fatalf("read %s: %v", rel, err)
+			}
+			var doc struct {
+				On map[string]any `yaml:"on"`
+			}
+			if err := yaml.Unmarshal(raw, &doc); err != nil {
+				t.Fatalf("parse %s: %v", rel, err)
+			}
+			for _, trigger := range []string{"schedule", "workflow_dispatch"} {
+				if _, ok := doc.On[trigger]; !ok {
+					t.Fatalf("%s must keep %s trigger", rel, trigger)
+				}
+			}
+			for _, trigger := range []string{"pull_request", "push"} {
+				if _, ok := doc.On[trigger]; ok {
+					t.Fatalf("%s must not run on %s; race and release gates are scheduled", rel, trigger)
+				}
+			}
+		})
 	}
 }
