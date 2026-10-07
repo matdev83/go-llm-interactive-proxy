@@ -10,11 +10,29 @@ lip_local_agent_dev() {
 	return 1
 }
 
+# /tmp is tmpfs on agent-dev: RAM-backed (charged to the 6 GiB limit, and killed
+# runs leave go-build work dirs behind) and not ext4, which the config-source
+# tests require. Keep temporary files on ext4 and prune orphaned work dirs.
+# Keep in sync with go-dev-guard.sh (installed standalone).
+lip_dev_tmpdir() {
+	if [[ -z ${TMPDIR:-} || $(stat -f -c %T "$TMPDIR" 2>/dev/null) != ext2/ext3 ]]; then
+		TMPDIR=${LIP_DEV_TMPDIR:-$HOME/.cache/lip-tmp}
+		mkdir -p "$TMPDIR"
+		export TMPDIR
+	fi
+	local stamp=$TMPDIR/.go-build-pruned
+	if [[ ! -e $stamp || -n $(find "$stamp" -mmin +60 2>/dev/null) ]]; then
+		touch "$stamp"
+		find "$TMPDIR" -mindepth 1 -maxdepth 1 -type d -name 'go-build*' -mmin +360 -exec rm -rf {} + 2>/dev/null || true
+	fi
+}
+
 if [[ ${1:-} == --local ]]; then
 	lip_local_agent_dev && printf 'yes\n'
 	exit 0
 fi
 if lip_local_agent_dev; then
+	lip_dev_tmpdir
 	: "${GOMAXPROCS:=2}" "${LIP_TEST_PACKAGES:=1}" "${LIP_TEST_PARALLEL:=2}"
 	export GOMAXPROCS LIP_TEST_PACKAGES LIP_TEST_PARALLEL
 	# Absolute floor: inherited lower priority is retained, never compounded.
