@@ -5,19 +5,9 @@ if [[ "$(go env GOOS)" != "linux" ]]; then
 	echo "configsource certification requires Linux" >&2
 	exit 1
 fi
-if [[ -z "${TMPDIR:-}" || "$TMPDIR" != /* || ! -d "$TMPDIR" || ! -w "$TMPDIR" ]]; then
-	echo "configsource certification requires an explicit writable TMPDIR on ext4" >&2
-	exit 1
-fi
-if ! command -v findmnt >/dev/null 2>&1; then
-	echo "configsource certification requires findmnt to verify TMPDIR storage" >&2
-	exit 1
-fi
-tmpdir_fs="$(findmnt --noheadings --output FSTYPE --target "$TMPDIR" 2>/dev/null || true)"
-if [[ "$tmpdir_fs" != "ext4" ]]; then
-	echo "configsource certification requires TMPDIR on ext4 (found: ${tmpdir_fs:-unknown})" >&2
-	exit 1
-fi
+# Shared precondition, so the actionable message lives in exactly one place.
+# quality-gate.sh runs it up front, before the expensive suite.
+bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/require-ext4-tmpdir.sh"
 
 report="$(mktemp "$TMPDIR/configsource-certify.XXXXXX.json")"
 trap 'rm -f "$report"' EXIT
