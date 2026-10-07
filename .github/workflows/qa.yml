@@ -16,7 +16,8 @@ concurrency:
   # Share the branch/PR group with equivalent runs so a new push cancels
   # the superseded QA run instead of consuming another hosted runner.
   group: qa-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  # Runs on main publish the QA Go cache; only cancel superseded PR / queue runs.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
 
 jobs:
   changes:
