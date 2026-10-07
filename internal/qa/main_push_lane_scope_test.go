@@ -56,7 +56,14 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 					step = candidate
 				}
 			}
-			if step.Env["BASE_SHA"] != "${{ github.event.pull_request.base.sha || github.event.before }}" || step.Run == "" {
+			// Workflows that produce required checks also run in the merge queue.
+			switch step.Env["BASE_SHA"] {
+			case "${{ github.event.pull_request.base.sha || github.event.before }}",
+				"${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}":
+			default:
+				t.Fatal("lane must wire both PR and push predecessors to its actual classifier")
+			}
+			if step.Run == "" {
 				t.Fatal("lane must wire both PR and push predecessors to its actual classifier")
 			}
 			// Scenarios within one lane run serially against successive real commits.
