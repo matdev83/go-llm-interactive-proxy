@@ -710,14 +710,59 @@ func TestReassert_ExactResolutionRemainsTheNormalPath(t *testing.T) {
 	require.Equal(t, 1, copies)
 	require.True(t, immediatelyAfter)
 
-	// (2) A path-free message elsewhere drifts while the anchored message keeps its
-	// identity. Exact resolution still owns the placement.
-	cleaned := tsReplaceAnchor(t, fx.projected, tsJSONAnchorMessage(), tsJSONAnchorMessage())
-	_, ev2, err := conversationprojection.Reassert(cleaned, fx.snap, fx.evidence, fx.filtered)
+	// (2) Exact resolution is not pre-empted when BOTH an exact match and a carried
+	// candidate exist. Two distinguishable legacy PartJSON messages occupy adjacent
+	// slots. The anchored slot's payload is rewritten, so its identity drifts and
+	// lineage has a candidate for it; the sibling message is rewritten to the
+	// anchored message's PRE-rewrite payload, so the stored identity still resolves
+	// exactly - at that sibling slot. Exact identity-based reassertion is the normal
+	// path, so it must own the placement and keep recording the STORED anchor;
+	// lineage may only fill in when exact resolution finds nothing.
+	secondCallID := "ts-call-2"
+	secondAnchor := tsJSONAnchorMessage()
+	secondAnchor.Parts[0].ToolCallID = secondCallID
+	collisionIngress := lipapi.Call{Messages: []lipapi.Message{
+		tsFirstUserMessage(),
+		tsJSONAnchorMessage(),
+		secondAnchor,
+		tsLocalMessage(),
+		tsTailMessage(),
+	}}
+	anchorIdentity := mustIdentityForMsg(t, tsJSONAnchorMessage())
+	collisionSnap := tsSnapshot(t, anchorIdentity, mustIdentityForMsg(t, tsLocalMessage()), tsOverlayID)
+	collisionProjected, collisionEvidence, collisionFiltered := tsEarly(t, collisionIngress, collisionSnap)
+	stored := conversationprojection.MessageAnchor{Identity: anchorIdentity, Occurrence: 1}
+
+	cleaned := lipapi.CloneCall(collisionProjected)
+	for i := range cleaned.Messages {
+		if len(cleaned.Messages[i].Parts) != 1 || cleaned.Messages[i].Parts[0].Kind != lipapi.PartJSON {
+			continue
+		}
+		switch cleaned.Messages[i].Parts[0].ToolCallID {
+		case tsCallID:
+			cleaned.Messages[i].Parts[0].Content = tsVirtualArgumentDocument()
+		case secondCallID:
+			cleaned.Messages[i].Parts[0].Content = tsArgumentDocument()
+		}
+	}
+	require.NotEqual(t, stored.Identity, tsAnchorIdentityOf(t, cleaned, lipapi.PartJSON, tsCallID),
+		"fixture: the anchored slot's payload rewrite must drift its identity so lineage has a candidate")
+	require.Equal(t, stored.Identity, tsAnchorIdentityOf(t, cleaned, lipapi.PartJSON, secondCallID),
+		"fixture: the sibling rewrite must reproduce the stored identity so exact resolution still finds a match")
+
+	reasserted, ev2, err := conversationprojection.Reassert(cleaned, collisionSnap, collisionEvidence.Provenance, collisionFiltered)
 	require.NoError(t, err)
+	require.Len(t, ev2.Provenance, 1)
 	require.NotNil(t, ev2.Provenance[0].ResolvedAnchor)
-	require.True(t, fx.stored == *ev2.Provenance[0].ResolvedAnchor,
+	require.True(t, stored == *ev2.Provenance[0].ResolvedAnchor,
 		"exact identity-based reassertion is the normal path and must not be pre-empted by lineage")
+	copies, immediatelyAfter = tsPlacement(reasserted, lipapi.PartJSON, secondCallID)
+	require.Equal(t, 1, copies)
+	require.True(t, immediatelyAfter,
+		"when exact resolution finds the stored identity at a sibling slot, that slot owns the placement")
+	_, afterAnchoredSlot := tsPlacement(reasserted, lipapi.PartJSON, tsCallID)
+	require.False(t, afterAnchoredSlot,
+		"the overlay must not be relocated onto the drifted anchored slot by lineage")
 }
 
 // TestReassert_StablePrefixOverlaysAreUnaffected pins design.md "4A"'s last constraint:
@@ -756,9 +801,16 @@ func TestReassert_StablePrefixOverlaysAreUnaffected(t *testing.T) {
 		"the after-message overlay is the only one that needed carry-forward, and it must land immediately after the anchor")
 	var stableFound bool
 	for _, p := range ev.Provenance {
-		if p.ResolvedKind == conversationprojection.PlacementStablePrefix {
+		switch p.ResolvedKind {
+		case conversationprojection.PlacementStablePrefix:
 			stableFound = true
 			require.Nil(t, p.ResolvedAnchor)
+		case conversationprojection.PlacementAfterMessage:
+			require.NotNil(t, p.ResolvedAnchor)
+			_, found, err := resolveAnchorAgainst(reasserted, lipapi.PartJSON, tsCallID, *p.ResolvedAnchor)
+			require.NoError(t, err)
+			require.True(t, found,
+				"the carried after-message provenance must name the rewritten anchor in the reasserted call, so downstream adaptation can verify it")
 		}
 	}
 	require.True(t, stableFound, "the stable-prefix placement must remain stable-prefix")
@@ -801,20 +853,29 @@ func TestReassert_CarriesEveryOverlayAtTheSameDriftedAnchor(t *testing.T) {
 }
 
 // TestReassert_CarryForwardNeverResurrectsANeverBackendMessage pins design.md "4A"
-// constraint 6 in its strongest form: a reintroduced never_backend message is filtered
-// first, and the resulting cardinality change is then NOT rescued by carry-forward.
+// constraint 6: existing never_backend filtering remains mandatory and must not be
+// bypassed by lineage carry-forward. The reintroduced never_backend message is filtered
+// out before the lineage proof runs, so the already-resolved placement is still carried
+// and the filtered message never reappears in the reasserted call.
 func TestReassert_CarryForwardNeverResurrectsANeverBackendMessage(t *testing.T) {
 	t.Parallel()
 
 	fx := tsLegacyFixtureFor(t, tsJSONAnchorMessage(), tsOverlayID)
 	cleaned := tsReplaceAnchor(t, fx.projected, tsJSONAnchorMessage(), tsJSONRewrittenAnchorMessage())
-	reintroduced := tsInsertMessage(t, cleaned)
+	reintroduced := lipapi.CloneCall(cleaned)
+	reintroduced.Messages = append(reintroduced.Messages, tsLocalMessage())
 
-	got, ev, err := conversationprojection.Reassert(reintroduced, fx.snap, fx.evidence, fx.filtered)
-	require.Error(t, err, "a reintroduced never_backend message changes the trajectory and must not be papered over")
-	require.ErrorIs(t, err, conversationprojection.ErrAnchorMissing)
-	require.Nil(t, ev)
-	require.Equal(t, lipapi.Call{}, got)
+	reasserted, ev, err := conversationprojection.Reassert(reintroduced, fx.snap, fx.evidence, fx.filtered)
+	require.NoError(t, err, "the reintroduced never_backend message is filtered before lineage, so the resolved placement is still carried")
+	require.NotNil(t, ev)
+	for _, msg := range reasserted.Messages {
+		require.NotEqual(t, tsLocalText, tsMessageText(msg),
+			"design.md \"4A\" constraint 6 - never_backend filtering must not be bypassed by carry-forward")
+	}
+	copies, immediatelyAfter := tsPlacement(reasserted, lipapi.PartJSON, tsCallID)
+	require.Equal(t, 1, copies)
+	require.True(t, immediatelyAfter,
+		"the carried placement must still land immediately after the anchored message")
 }
 
 // ---------------------------------------------------------------------------
