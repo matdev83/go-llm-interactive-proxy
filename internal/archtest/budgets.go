@@ -114,6 +114,16 @@ var LineBudgets = []LineBudget{
 	{Dir: "pkg/lipruntime", Max: 6000},
 }
 
+// budgetBoundaryError reports excess over a ceiling; empty means within budget.
+// Deletions always pass (measured may sit arbitrarily far below the ceiling);
+// only excess fails. Shared by every budget-pin assertion.
+func budgetBoundaryError(label string, measured, ceiling int) string {
+	if measured > ceiling {
+		return fmt.Sprintf("%s: measured %d exceeds ceiling %d", label, measured, ceiling)
+	}
+	return ""
+}
+
 // CountNonTestGoLines recursively counts physical lines in non-test .go files.
 func CountNonTestGoLines(dir string) (int, error) {
 	var total int

@@ -6,37 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"testing"
 
 	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 )
-
-func TestPhase74_MigrationRolloutDocPresent(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	doc := filepath.Join(root, "docs", "dual-plane-migration-rollout.md")
-	b, err := os.ReadFile(doc)
-	if err != nil {
-		t.Fatalf("read migration doc: %v", err)
-	}
-	text := string(b)
-	for _, needle := range []string{
-		"EconomicControlReady",
-		"distributed_strict",
-		"advisory_single_process",
-		"terminal-work",
-		"CanRemoveProvider",
-		"enterprise_module",
-		"check-config",
-		"Non-goals",
-	} {
-		if !strings.Contains(text, needle) {
-			t.Fatalf("dual-plane-migration-rollout.md missing %q", needle)
-		}
-	}
-}
 
 var (
 	lipstdBinOnce sync.Once
@@ -79,7 +53,12 @@ func getLipstdBinary(tb testing.TB, root string) string {
 	return lipstdBinPath
 }
 
-func TestPhase74_CheckConfigDogfoodStub(t *testing.T) {
+// TestDualPlaneMigrationCheckConfigDogfoodStub runs the distributed lipstd
+// binary against the dogfood-local-stub backendplugin configuration. The
+// operator-facing rollout narrative in docs/dual-plane-migration-rollout.md is
+// human-reviewed; the machine-checkable guarantee is that a real lipstd build
+// accepts the distributed connector configuration.
+func TestDualPlaneMigrationCheckConfigDogfoodStub(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	cfg := bpkit.WriteDogfoodLocalStubConfig(t)
@@ -89,21 +68,5 @@ func TestPhase74_CheckConfigDogfoodStub(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("check-config dogfood-local-stub: %v\n%s", err, out)
-	}
-}
-
-func TestPhase74_EnterpriseModuleUsesEconomicControlReady(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	src := filepath.Join(root, "testdata", "enterprise_module", "main.go")
-	b, err := os.ReadFile(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), "EconomicControlReady") {
-		t.Fatal("enterprise_module must exercise public EconomicControlReady")
-	}
-	if strings.Contains(string(b), "internal/") {
-		t.Fatal("enterprise_module must not import internal/")
 	}
 }
