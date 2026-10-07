@@ -282,6 +282,14 @@ jobs:
       - name: Certify pinned source lifetime on ext4
         if: needs.changes.result == 'success' && env.RUN_CERT == 'true' && matrix.os == 'ubuntu-latest'
         shell: bash
+        env:
+          # The fault checks run with -race on GitHub, which builds a second,
+          # race-instrumented copy of the whole dependency tree (~1.5 GB). In the
+          # shared cache it was the newest data, so the ci-unit snapshot bound
+          # discarded the non-race test objects and every later run recompiled
+          # cmd/lipstd from scratch (Fast unit tests 60s -> 130-180s). A throwaway
+          # cache keeps those objects out of the published snapshot.
+          GOCACHE: ${{ runner.temp }}/go-build-cert
         run: |
           set -euo pipefail
           bash scripts/test-configsource-fault-check.sh
