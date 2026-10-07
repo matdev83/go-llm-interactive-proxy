@@ -171,7 +171,7 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 		t.Fatal("QA must not duplicate the CI cmd/lipstd test")
 	}
 	ci := readRepositoryFile(t, ".github", "workflows", "ci.yml")
-	for _, needle := range []string{"go test -timeout=8m ${{ matrix.packages }}", "go build -trimpath ./cmd/lipstd"} {
+	for _, needle := range []string{"go test -timeout=8m ${{ matrix.packages }}", "go build ./cmd/lipstd"} {
 		if !strings.Contains(ci, needle) {
 			t.Fatalf("CI no longer owns portable cmd/lipstd evidence %q", needle)
 		}
