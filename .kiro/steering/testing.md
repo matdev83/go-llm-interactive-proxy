@@ -141,17 +141,9 @@ When a broad gate fails during a scoped change:
 
 Never claim success from a partial command when the requested completion gate is broader.
 
-## Canonical Command Intents
+## What Steering Holds Here
 
-The `Makefile` is authoritative for exact target composition. Common intents are:
-
-- `make quality-checks` — static/architecture/hygiene checks;
-- `make test-unit` — default unit/composed tests;
-- `make test-quick` — alias for the single one-pass `go test ./...` inner-loop fast path;
-- `make test` — normal comprehensive local verification;
-- `make parity-checks` — protocol/contract parity and bounded cross-surface checks;
-- `make test-db-parity` — repository-wide persistence parity;
-- `make qa` — wide/release-grade verification;
-- `make test-cost` — Windows-authoritative test/QA cost comparison.
-
-Do not duplicate current CI job names, workflow predicates, container versions, connector inventories, or the full Make dependency graph in steering.
+Steering holds durable test policy: proportionality, layers of evidence, proportionality of cost, failure triage.
+Volatile inventory — current target composition, CI job names, workflow predicates, container versions, connector
+lists — lives in the `Makefile` and workflow files, which stay authoritative and are read on demand. Command-to-intent
+mapping is listed once in the root `AGENTS.md`.
