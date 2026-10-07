@@ -3,6 +3,7 @@
 # Fast quality checks before tests. Order: fastest to slowest, fail-fast.
 
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/dev-cpu-defaults.sh"
 
 # Test parallelism defaults to the machine's logical core count; override with
 # LIP_TEST_PARALLEL=<n> (mirrors GO_TEST_FLAGS in the Makefile).

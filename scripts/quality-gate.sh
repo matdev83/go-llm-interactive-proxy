@@ -3,6 +3,7 @@
 # are opt-in via LIP_PRECOMMIT_FULL=1 or `make precommit-full`.
 
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/dev-cpu-defaults.sh"
 
 echo "=== Pre-Commit Quality Gate ==="
 echo ""

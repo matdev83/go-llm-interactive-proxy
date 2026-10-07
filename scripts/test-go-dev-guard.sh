@@ -12,6 +12,9 @@ STUB
 cat > "$fixture/bin/real-go" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$GUARD_TEST_CALLS"
+resource_nice=
+if [[ $(uname -s) == Linux ]]; then resource_nice=$(ps -o ni= -p "$$" | tr -d ' '); fi
+printf '%s\n' "${GOMAXPROCS:-}" "${GOFLAGS:-}" "$resource_nice" > "$GUARD_TEST_RESOURCES"
 printf 'fake toolchain output\n'
 exit "${GUARD_TEST_EXIT:-0}"
 STUB
@@ -19,9 +22,10 @@ chmod +x "$fixture/bin/hostname" "$fixture/bin/real-go"
 export PATH="$fixture/bin:$PATH"
 export GO_DEV_GUARD_REAL_GO="$fixture/bin/real-go"
 export GUARD_TEST_CALLS="$fixture/calls"
+export GUARD_TEST_RESOURCES="$fixture/resources"
 export GUARD_TEST_HOST=agent-dev HOSTNAME=agent-dev
 export XDG_CONFIG_HOME="$fixture/config"
-unset GOFLAGS GOENV COMPUTERNAME CI GITHUB_ACTIONS LIP_ALLOW_RACE_ON_DEV
+unset GOFLAGS GOENV GOMAXPROCS COMPUTERNAME CI GITHUB_ACTIONS LIP_ALLOW_RACE_ON_DEV
 
 blocked() {
 	rm -f "$GUARD_TEST_CALLS"
@@ -73,4 +77,37 @@ allowed test './path with spaces/...'
 status=0
 GUARD_TEST_EXIT=17 bash "$script_dir/go-dev-guard.sh" test ./... > /dev/null || status=$?
 [[ "$status" == 17 ]]
+# Observe the delegated fake process, independently of installed Go wrappers.
+if [[ $(uname -s) == Linux ]]; then
+	inherited_nice=$(ps -o ni= -p "$$" | tr -d ' ')
+	expected_nice=$(( inherited_nice > 10 ? inherited_nice : 10 ))
+	retained_nice=$(( inherited_nice > 15 ? inherited_nice : 15 ))
+	allowed test ./...
+	printf '2\n-p=1\n%s\n' "$expected_nice" > "$fixture/expected-resources"
+	cmp "$fixture/expected-resources" "$GUARD_TEST_RESOURCES"
+	GOFLAGS='-p=3 -tags="two words"' GOMAXPROCS=4 allowed test ./...
+	printf '4\n-p=3 -tags="two words"\n%s\n' "$expected_nice" > "$fixture/expected-resources"
+	cmp "$fixture/expected-resources" "$GUARD_TEST_RESOURCES"
+	printf 'GOFLAGS=-tags="two words"\n' > "$fixture/config/go/env"
+	allowed test ./...
+	printf '2\n-tags="two words" -p=1\n%s\n' "$expected_nice" > "$fixture/expected-resources"
+	cmp "$fixture/expected-resources" "$GUARD_TEST_RESOURCES"
+	rm "$fixture/config/go/env"
+	CI=true allowed test ./...
+	[[ $(sed -n '1p' "$GUARD_TEST_RESOURCES") == '' && $(sed -n '2p' "$GUARD_TEST_RESOURCES") == '' ]]
+	OS=Windows_NT allowed test ./...
+	[[ $(sed -n '1p' "$GUARD_TEST_RESOURCES") == '' && $(sed -n '2p' "$GUARD_TEST_RESOURCES") == '' ]]
+	bash -c 'renice --priority "$2" --pid "$$" >/dev/null; exec bash "$1" test ./...' _ "$script_dir/go-dev-guard.sh" "$retained_nice" >/dev/null
+	[[ $(sed -n '3p' "$GUARD_TEST_RESOURCES") == "$retained_nice" ]]
+	POSIXLY_CORRECT=1 allowed test ./...
+	[[ $(sed -n '3p' "$GUARD_TEST_RESOURCES") == "$expected_nice" ]]
+	# Bash gate defaults reach all children, including non-Go linters.
+	unset LIP_TEST_PACKAGES LIP_TEST_PARALLEL
+	bash -c 'source "$1/dev-cpu-defaults.sh"; printf "%s\n" "$GOMAXPROCS" "$LIP_TEST_PACKAGES" "$LIP_TEST_PARALLEL" "$(ps -o ni= -p "$$" | tr -d " ")"' _ "$script_dir" > "$fixture/gate-resources"
+	printf '2\n1\n2\n%s\n' "$expected_nice" > "$fixture/expected-resources"
+	cmp "$fixture/expected-resources" "$fixture/gate-resources"
+	GOMAXPROCS=4 LIP_TEST_PACKAGES=3 LIP_TEST_PARALLEL=5 bash -c 'source "$1/dev-cpu-defaults.sh"; printf "%s\n" "$GOMAXPROCS" "$LIP_TEST_PACKAGES" "$LIP_TEST_PARALLEL"' _ "$script_dir" > "$fixture/gate-resources"
+	printf '4\n3\n5\n' > "$fixture/expected-resources"
+	cmp "$fixture/expected-resources" "$fixture/gate-resources"
+fi
 echo 'PASS: Go development race guard blocks before toolchain execution; normal/CI delegation preserved.'
