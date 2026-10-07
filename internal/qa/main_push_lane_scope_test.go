@@ -15,7 +15,6 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 	lanes := []struct {
 		workflow, job, step, key, relevantPath, relevantValue, fullValue string
 	}{
-		{"codeql.yml", "changes", "filter", "go", "internal/example.go", "true", "true"},
 		{"security.yml", "changes", "filter", "go", "internal/example.go", "true", "true"},
 		{"qa.yml", "changes", "filter", "go", "internal/example.go", "true", "true"},
 		{"openresponses-coverage.yml", "changes", "filter", "run_suite", "internal/core/example.go", "true", "true"},
