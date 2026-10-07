@@ -127,16 +127,14 @@ func attributeReplayValidationError(err error, contributorID string) error {
 	if err == nil {
 		return nil
 	}
-	var pve *planeValidationError
-	if errors.As(err, &pve) {
+	if pve, ok := errors.AsType[*planeValidationError](err); ok {
 		return &AttributedError{
 			PluginID: contributorID,
 			PlaneID:  pve.planeID,
 			Err:      fmt.Errorf("%w: %w", ErrInvalidContribution, pve.err),
 		}
 	}
-	var attrErr *AttributedError
-	if errors.As(err, &attrErr) {
+	if _, ok := errors.AsType[*AttributedError](err); ok {
 		return err
 	}
 	return &AttributedError{

@@ -213,10 +213,7 @@ func scannableTagSegment(raw []byte, after int) string {
 		start++
 	}
 	window := len(tagPrefix) + workspaceTagChars
-	limit := start + window
-	if limit > len(raw) {
-		limit = len(raw)
-	}
+	limit := min(start+window, len(raw))
 	end := limit
 	for i := start; i < limit; i++ {
 		if isSeparator(raw[i]) {

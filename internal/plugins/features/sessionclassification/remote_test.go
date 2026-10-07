@@ -968,8 +968,7 @@ func remoteContractViolations(typ reflect.Type, path string, visited map[reflect
 	defer delete(visited, typ)
 
 	var violations []string
-	for i := range typ.NumField() {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		fieldPath := path + "." + field.Name
 		lowered := strings.ToLower(field.Name)
 		if slices.ContainsFunc(remoteContentBearingNameFragments, func(fragment string) bool {

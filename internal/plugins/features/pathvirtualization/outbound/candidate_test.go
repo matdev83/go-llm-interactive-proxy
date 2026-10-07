@@ -204,9 +204,7 @@ func TestAttemptTransformConcurrentCandidatesAgreeOnTheAlias(t *testing.T) {
 		published = make([]string, candidates)
 	)
 	for i := range candidates {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			call := attemptItemCall(attemptPathArguments)
 			if _, err := transform.HandleAttempt(context.Background(), call, attemptWorkspace(), request.Services{}); err != nil {
 				return
@@ -216,7 +214,7 @@ func TestAttemptTransformConcurrentCandidatesAgreeOnTheAlias(t *testing.T) {
 				return
 			}
 			published[i] = string(encoded)
-		}()
+		})
 	}
 	wg.Wait()
 

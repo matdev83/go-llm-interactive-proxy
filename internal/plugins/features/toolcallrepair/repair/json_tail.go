@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"slices"
 	"unicode/utf8"
 )
 
@@ -228,8 +229,8 @@ func completeTailChild(stack []tailFrame) bool {
 
 func tailClosers(stack []tailFrame) []byte {
 	out := make([]byte, 0, len(stack))
-	for i := len(stack) - 1; i >= 0; i-- {
-		if stack[i].kind == '{' {
+	for _, frame := range slices.Backward(stack) {
+		if frame.kind == '{' {
 			out = append(out, '}')
 		} else {
 			out = append(out, ']')

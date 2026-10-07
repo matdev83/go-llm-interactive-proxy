@@ -126,8 +126,7 @@ func TestParseRejectsMalformedOrUnboundedResponses(t *testing.T) {
 			if err == nil {
 				t.Fatal("Parse() unexpectedly accepted malformed response")
 			}
-			var parseErr *ParseError
-			if !errors.As(err, &parseErr) {
+			if _, ok := errors.AsType[*ParseError](err); !ok {
 				t.Fatalf("error = %T %v, want ParseError", err, err)
 			}
 			if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), raw) {

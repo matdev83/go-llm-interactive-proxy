@@ -324,7 +324,6 @@ func TestNativeUsageIntegerCountLexemesShareCanonicalGrammar(t *testing.T) {
 	}
 	for _, detail := range details {
 		for _, tc := range nonCanonical {
-			tc := tc
 			t.Run(detail.name+"/"+tc.name, func(t *testing.T) {
 				raw := `{"` + detail.detail + `":{"` + detail.key + `":` + tc.value + `}}`
 				measures := NativeUsageMeasures(raw)
@@ -349,7 +348,6 @@ func TestNativeUsageIntegerCountLexemesShareCanonicalGrammar(t *testing.T) {
 			})
 		}
 		for _, tc := range canonical {
-			tc := tc
 			t.Run(detail.name+"/canonical_"+tc.name, func(t *testing.T) {
 				raw := `{"` + detail.detail + `":{"` + detail.key + `":` + tc.value + `}}`
 				measures := NativeUsageMeasures(raw)

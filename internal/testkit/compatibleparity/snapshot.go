@@ -3,6 +3,7 @@ package compatibleparity
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,8 +87,7 @@ func snapshotFrom(events []lipapi.Event, err error, httpRequests int) OutcomeSna
 		} else {
 			out.FailurePhase = FailurePhaseRecv
 		}
-		var streamErr *lipapi.StreamError
-		if errors.As(err, &streamErr) {
+		if streamErr, ok := errors.AsType[*lipapi.StreamError](err); ok {
 			out.StreamErrCode = streamErr.Code
 			out.StreamErrMsg = streamErr.Message
 		}
@@ -174,9 +174,9 @@ func ToolArgsFromEvents(events []lipapi.Event) string {
 }
 
 func FinishReasonFromEvents(events []lipapi.Event) string {
-	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Kind == lipapi.EventResponseFinished {
-			return events[i].FinishReason
+	for _, event := range slices.Backward(events) {
+		if event.Kind == lipapi.EventResponseFinished {
+			return event.FinishReason
 		}
 	}
 	return ""

@@ -305,7 +305,6 @@ func TestOpenAIUsageEvidence_FrozenSchemaBothPricedFailsClosed(t *testing.T) {
 	server := wireAudioServer(t)
 	defer server.Close()
 	for _, path := range []string{"chat", "responses"} {
-		path := path
 		t.Run(path, func(t *testing.T) {
 			callID := mustWireCallID(t)
 			observation := openWireObservations(t, server, path, wireIdentityForCall(callID, path+"-both"))[0]
@@ -395,7 +394,6 @@ func TestOpenAIUsageEvidence_ChildOnlyDetailShapeFailClosed(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			server := wireUsageServer(t, tc.chatJSON, wireResponsesSuccess)
@@ -572,7 +570,6 @@ func TestOpenAIUsageEvidence_MalformedNestedImageTokensCannotComplete(t *testing
 		{name: "overflow", imageJSON: `1e999`, forbidden: "1e999"},
 	}
 	for _, shape := range shapes {
-		shape := shape
 		t.Run(shape.name, func(t *testing.T) {
 			t.Parallel()
 			server := wireUsageServer(t, wireChatVisionUsage(shape.imageJSON, ""), wireResponsesSuccess)
@@ -616,7 +613,6 @@ func TestOpenAIUsageEvidence_MalformedNestedImageWithFlatAliasCannotComplete(t *
 		{name: "image_token_alias", flatAlias: `"input_image_tokens":5,`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			server := wireUsageServer(t, wireChatVisionUsage(`"oops"`, tc.flatAlias), wireResponsesSuccess)

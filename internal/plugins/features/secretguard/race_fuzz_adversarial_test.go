@@ -59,15 +59,13 @@ func TestBetterLeaksScanner_SharedGenerationConcurrentScansHaveStableSafeOrderin
 	results := make(chan result, requestCount)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < requestCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range requestCount {
+		wg.Go(func() {
 			<-start
 			got, scanErr := detector.scanFragments(t.Context(), fragments)
 			facts, factsOK := betterLeaksCanaryFactsFor(got.Findings)
 			results <- result{signature: safeBetterLeaksFindingSignature(got.Findings), facts: facts, factsOK: factsOK, err: scanErr}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -99,7 +97,7 @@ func TestBetterLeaksScanner_RequestScansDoNotGrowGoroutines(t *testing.T) {
 	runtime.GC()
 	runtime.Gosched()
 	baseline := runtime.NumGoroutine()
-	for i := 0; i < 96; i++ {
+	for range 96 {
 		if _, err := detector.scanFragments(t.Context(), fragments); err != nil {
 			t.Fatal("repeated scanner request failed")
 		}

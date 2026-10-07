@@ -308,7 +308,7 @@ func TestGuard_BetterLeaksScanFailureActionMatrix(t *testing.T) {
 
 func TestGuard_BetterLeaksFindingCapActionMatrix(t *testing.T) {
 	call := lipapi.Call{}
-	for i := 0; i < DefaultBetterLeaksMaxFindings+1; i++ {
+	for range DefaultBetterLeaksMaxFindings + 1 {
 		call.Messages = append(call.Messages, lipapi.Message{
 			Role:  lipapi.RoleUser,
 			Parts: []lipapi.Part{lipapi.TextPart("GITHUB_TOKEN=" + adapterGitHubToken)},

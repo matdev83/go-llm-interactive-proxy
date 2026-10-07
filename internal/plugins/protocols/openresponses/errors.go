@@ -79,8 +79,7 @@ func MapErrorToWire(err error) (int, WireErrorEnvelope, ErrorClassification) {
 		return http.StatusOK, WireErrorEnvelope{}, ""
 	}
 
-	var limErr *LimitExceededError
-	if errors.As(err, &limErr) {
+	if limErr, ok := errors.AsType[*LimitExceededError](err); ok {
 		status := http.StatusBadRequest
 		class := ClassificationInvalidRequest
 		wireType := string(ClassificationInvalidRequest)
@@ -99,8 +98,7 @@ func MapErrorToWire(err error) (int, WireErrorEnvelope, ErrorClassification) {
 		}, class
 	}
 
-	var seqErr *SequenceError
-	if errors.As(err, &seqErr) {
+	if seqErr, ok := errors.AsType[*SequenceError](err); ok {
 		return http.StatusBadRequest, WireErrorEnvelope{
 			Error: WireErrorDetails{
 				Type:    string(ClassificationInvalidRequest),

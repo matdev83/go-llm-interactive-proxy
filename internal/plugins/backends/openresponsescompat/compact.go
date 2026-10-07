@@ -91,8 +91,7 @@ func classifyCompactOpenError(err error) error {
 	if lipapi.IsRecoverablePreOutput(err) {
 		return err
 	}
-	var hf *httpFailureError
-	if errors.As(err, &hf) {
+	if hf, ok := errors.AsType[*httpFailureError](err); ok {
 		if hf.Kind == httpFailureAuthInvalid || hf.Kind == httpFailureTerminal {
 			return err
 		}

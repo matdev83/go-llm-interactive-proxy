@@ -65,9 +65,9 @@ func TestNewConfiguredProviderPreferredCarriesOnlyProtocolLimits(t *testing.T) {
 	if typ.NumField() != 2 {
 		t.Fatalf("preferredProvider fields=%d, want exactly the two protocol numeric limits", typ.NumField())
 	}
-	for i := range typ.NumField() {
-		if typ.Field(i).Type.Kind() != reflect.Int {
-			t.Fatalf("preferredProvider field %q kind=%s, want an int protocol limit", typ.Field(i).Name, typ.Field(i).Type.Kind())
+	for field := range typ.Fields() {
+		if field.Type.Kind() != reflect.Int {
+			t.Fatalf("preferredProvider field %q kind=%s, want an int protocol limit", field.Name, field.Type.Kind())
 		}
 	}
 	if _, ok := p.(provider); ok {

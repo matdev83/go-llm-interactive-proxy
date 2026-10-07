@@ -2,6 +2,7 @@ package secretguard
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -83,7 +84,6 @@ func TestNewBetterLeaksScanner_IsolationPrunesUnselectedOptionalComponents(t *te
 	t.Parallel()
 
 	for _, root := range []string{"cloudflare-api-key.2", "generic-password"} {
-		root := root
 		t.Run(root, func(t *testing.T) {
 			detector, err := newBetterLeaksScanner(BetterLeaksPolicy{
 				Enabled:           true,
@@ -397,12 +397,7 @@ func TestNewBetterLeaksScanner_DefaultPolicyRatchet(t *testing.T) {
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func equalStrings(a, b []string) bool {

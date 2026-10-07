@@ -32,7 +32,7 @@ func TestEvaluateLocalWeakEvidenceDoesNotAccumulateAcrossSameHint(t *testing.T) 
 	}
 
 	cfg := sessionclassification.Config{Mode: sessionclassification.ModeHybrid}
-	for repeat := 0; repeat < 128; repeat++ {
+	for repeat := range 128 {
 		for _, input := range weakTurns {
 			got := sessionclassification.EvaluateLocal(cfg, input)
 			if got != (sessionclassification.LocalDecision{}) {
@@ -83,7 +83,7 @@ func TestToolNameExplosionKeepsFixedCategoriesAndUnknownAliasesWeak(t *testing.T
 		}
 		unknown = unknown.AddToolName(alias)
 	}
-	for i := 0; i < 10_000; i++ {
+	for i := range 10_000 {
 		unknown = unknown.AddToolName(fmt.Sprintf("vendor-tool-%d", i))
 	}
 	if unknown != sdkclassification.ToolCategoryUnknownSeen {

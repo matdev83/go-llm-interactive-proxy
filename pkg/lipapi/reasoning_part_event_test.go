@@ -64,8 +64,7 @@ func TestValidateEventEnvelope_reasoningPartNilRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected nil Reasoning rejected")
 	}
-	var ve *lipapi.ValidationError
-	if !errors.As(err, &ve) {
+	if _, ok := errors.AsType[*lipapi.ValidationError](err); !ok {
 		t.Fatalf("expected ValidationError, got %T %v", err, err)
 	}
 }
@@ -109,8 +108,7 @@ func TestValidateEventEnvelope_reasoningPartRejectsUnnormalizedDialectWithoutMut
 	if ev.Reasoning.Dialect != lipapi.ReasoningDialect(raw) {
 		t.Fatalf("validator mutated Dialect: got %q", ev.Reasoning.Dialect)
 	}
-	var ve *lipapi.ValidationError
-	if !errors.As(err, &ve) {
+	if _, ok := errors.AsType[*lipapi.ValidationError](err); !ok {
 		t.Fatalf("expected ValidationError, got %T %v", err, err)
 	}
 }

@@ -997,10 +997,10 @@ func TestCompilePathKeysKeepsAnExactBoundedVocabulary(t *testing.T) {
 func TestProfileInputCarriesNoNamespaceOrVersionSetting(t *testing.T) {
 	t.Parallel()
 
-	profileType := reflect.TypeOf(pathvirtualization.ProfileInput{})
+	profileType := reflect.TypeFor[pathvirtualization.ProfileInput]()
 	fields := make([]string, 0, profileType.NumField())
-	for i := range profileType.NumField() {
-		fields = append(fields, profileType.Field(i).Name)
+	for field := range profileType.Fields() {
+		fields = append(fields, field.Name)
 	}
 	want := []string{"Names", "ArgPointers", "ResultJSONPointers"}
 	if !slices.Equal(fields, want) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -203,9 +204,9 @@ func Materialize(ctx context.Context, in MaterializeInput) (MaterializedTrajecto
 	total += newInputBytes
 	reqs = lipapi.UnionProtocolRequirements(reqs, lipapi.DeriveProtocolRequirements(lipapi.Call{Items: in.NewInput}))
 	ordered := make([]lipapi.Item, 0, items)
-	for i := len(records) - 1; i >= 0; i-- {
-		ordered = append(ordered, CloneItems(records[i].InputItems)...)
-		ordered = append(ordered, CloneItems(records[i].OutputItems)...)
+	for _, record := range slices.Backward(records) {
+		ordered = append(ordered, CloneItems(record.InputItems)...)
+		ordered = append(ordered, CloneItems(record.OutputItems)...)
 	}
 	ordered = append(ordered, CloneItems(newInput)...)
 	return MaterializedTrajectory{Items: ordered, InputItems: materializedInputs(records), OutputItems: materializedOutputs(records), NewInput: newInput, ChainDepth: depth, TotalBytes: total, Lineage: lineage, Requirements: reqs, NativeRequirements: native}, nil
@@ -213,16 +214,16 @@ func Materialize(ctx context.Context, in MaterializeInput) (MaterializedTrajecto
 
 func materializedInputs(records []ContinuationRecord) []lipapi.Item {
 	var out []lipapi.Item
-	for i := len(records) - 1; i >= 0; i-- {
-		out = append(out, CloneItems(records[i].InputItems)...)
+	for _, record := range slices.Backward(records) {
+		out = append(out, CloneItems(record.InputItems)...)
 	}
 	return out
 }
 
 func materializedOutputs(records []ContinuationRecord) []lipapi.Item {
 	var out []lipapi.Item
-	for i := len(records) - 1; i >= 0; i-- {
-		out = append(out, CloneItems(records[i].OutputItems)...)
+	for _, record := range slices.Backward(records) {
+		out = append(out, CloneItems(record.OutputItems)...)
 	}
 	return out
 }

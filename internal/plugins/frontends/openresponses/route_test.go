@@ -83,8 +83,7 @@ func TestRoute_CanonicalPathTakeoverConflict(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected canonical path takeover conflict")
 	}
-	var conflict httpcontract.RouteConflictError
-	if !errors.As(err, &conflict) {
+	if _, ok := errors.AsType[httpcontract.RouteConflictError](err); !ok {
 		t.Fatalf("expected RouteConflictError error, got %T (%v)", err, err)
 	}
 }

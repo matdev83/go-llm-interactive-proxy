@@ -122,11 +122,8 @@ func isIgnoredUserAgent(userAgent string, prefixes []string) bool {
 		return false
 	}
 	normalized := strings.ToLower(userAgent)
-	limit := len(prefixes)
-	if limit > MaxIgnoredUserAgentPrefixes {
-		limit = MaxIgnoredUserAgentPrefixes
-	}
-	for i := 0; i < limit; i++ {
+	limit := min(len(prefixes), MaxIgnoredUserAgentPrefixes)
+	for i := range limit {
 		prefix := prefixes[i]
 		if len(prefix) == 0 || len(prefix) > MaxIgnoredUserAgentPrefixBytes {
 			continue
@@ -140,11 +137,8 @@ func isIgnoredUserAgent(userAgent string, prefixes []string) bool {
 }
 
 func hasRecognizedProjectMarker(markers []string) bool {
-	limit := len(markers)
-	if limit > MaxWorkspaceMarkers {
-		limit = MaxWorkspaceMarkers
-	}
-	for i := 0; i < limit; i++ {
+	limit := min(len(markers), MaxWorkspaceMarkers)
+	for i := range limit {
 		marker := markers[i]
 		if len(marker) == 0 || len(marker) > MaxWorkspaceMarkerBytes || !validMarkerName(marker) {
 			continue

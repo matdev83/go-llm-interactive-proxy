@@ -100,8 +100,7 @@ func (g *guard) evalRedact(ctx context.Context, call *lipapi.Call, m sdk.Matcher
 				FailureReason: "detected secret cannot be safely rewritten",
 			}, nil
 		}
-		var unsupported *unsupportedJSONTokenError
-		if errors.As(err, &unsupported) {
+		if _, ok := errors.AsType[*unsupportedJSONTokenError](err); ok {
 			return sdk.Decision{
 				Outcome:       sdk.OutcomeBlock,
 				Findings:      out.Findings,
@@ -138,8 +137,7 @@ func (g *guard) evalLog(ctx context.Context, call *lipapi.Call, m sdk.Matcher, g
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return sdk.Decision{}, err
 		}
-		var betterLeaksErr *betterLeaksScanError
-		if errors.As(err, &betterLeaksErr) {
+		if _, ok := errors.AsType[*betterLeaksScanError](err); ok {
 			d := sdk.Decision{
 				Outcome:       sdk.OutcomeLog,
 				Findings:      out.Findings,

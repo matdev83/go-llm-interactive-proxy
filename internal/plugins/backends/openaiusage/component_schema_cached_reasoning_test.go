@@ -103,7 +103,6 @@ func TestOpenAIUsageEvidence_CachedReasoningBothPricedFailsClosed(t *testing.T) 
 		{name: "chat", path: "chat", chat: wireCacheReasoningChatSuccess, responses: wireResponsesSuccess},
 		{name: "responses", path: "responses", chat: wireVisionChatSuccess, responses: wireCacheReasoningResponsesSuccess},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			server := wireUsageServer(t, tc.chat, tc.responses)
@@ -169,7 +168,6 @@ func TestOpenAIUsageEvidence_CachedReasoningAggregateOnlyStaysComplete(t *testin
 		{name: "chat", path: "chat", chat: wireCacheReasoningChatSuccess, responses: wireResponsesSuccess},
 		{name: "responses", path: "responses", chat: wireVisionChatSuccess, responses: wireCacheReasoningResponsesSuccess},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			server := wireUsageServer(t, tc.chat, tc.responses)
@@ -258,7 +256,6 @@ func TestOpenAIUsageEvidence_CachedReasoningAbsentNullZeroNotOverlap(t *testing.
 		{name: "explicit_zero", promptDetails: `{"cached_tokens":0}`, completionDetails: `{"reasoning_tokens":0}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			server := wireUsageServer(t, wireChatCacheReasoningUsage(tc.promptDetails, tc.completionDetails), wireResponsesSuccess)

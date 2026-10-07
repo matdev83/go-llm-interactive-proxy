@@ -98,7 +98,6 @@ func TestComposeRuntimeConfig_RejectsInvalidBetterLeaksPolicy(t *testing.T) {
 		"disable_rules: ['   ']",
 	}
 	for _, betterLeaks := range cases {
-		betterLeaks := betterLeaks
 		t.Run(betterLeaks, func(t *testing.T) {
 			t.Parallel()
 			regs := []lipsdk.Registration{{

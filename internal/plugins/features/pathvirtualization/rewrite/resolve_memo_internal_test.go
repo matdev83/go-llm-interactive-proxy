@@ -159,9 +159,8 @@ func TestASmallCallNeverReachesTheBound(t *testing.T) {
 // Rewriter later - by this package or by another - fails here.
 func TestTheSharedRewriterCarriesNoResolutionMemo(t *testing.T) {
 	t.Parallel()
-	rewriter := reflect.TypeOf(Rewriter{})
-	for i := range rewriter.NumField() {
-		field := rewriter.Field(i)
+	rewriter := reflect.TypeFor[Rewriter]()
+	for field := range rewriter.Fields() {
 		if field.Type.Kind() == reflect.Map {
 			t.Errorf("Rewriter.%s is a %s; the memo must live on one walk, not on the rewriter "+
 				"every request of a generation shares", field.Name, field.Type.Kind())

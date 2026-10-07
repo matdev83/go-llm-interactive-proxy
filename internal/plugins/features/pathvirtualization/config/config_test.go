@@ -347,18 +347,17 @@ func TestConfigSurfaceExposesNoAliasMarkerOrVersionOverride(t *testing.T) {
 	}
 
 	types := []reflect.Type{
-		reflect.TypeOf(config.Config{}),
-		reflect.TypeOf(config.ToolProfileConfig{}),
-		reflect.TypeOf(config.Resolved{}),
-		reflect.TypeOf(config.Error{}),
-		reflect.TypeOf(expansion.Policy{}),
-		reflect.TypeOf(pathvirtualization.ToolProfile{}),
-		reflect.TypeOf(pathvirtualization.ProfileInput{}),
-		reflect.TypeOf(pathvirtualization.CompiledProfile{}),
+		reflect.TypeFor[config.Config](),
+		reflect.TypeFor[config.ToolProfileConfig](),
+		reflect.TypeFor[config.Resolved](),
+		reflect.TypeFor[config.Error](),
+		reflect.TypeFor[expansion.Policy](),
+		reflect.TypeFor[pathvirtualization.ToolProfile](),
+		reflect.TypeFor[pathvirtualization.ProfileInput](),
+		reflect.TypeFor[pathvirtualization.CompiledProfile](),
 	}
 	for _, cfgType := range types {
-		for i := 0; i < cfgType.NumField(); i++ {
-			field := cfgType.Field(i)
+		for field := range cfgType.Fields() {
 			lower := strings.ToLower(field.Name)
 			for _, concept := range forbiddenConfigConcepts {
 				if strings.Contains(lower, concept) {
@@ -376,7 +375,7 @@ func TestConfigSurfaceExposesNoAliasMarkerOrVersionOverride(t *testing.T) {
 			if !ok || tag == "" {
 				continue
 			}
-			key := strings.Split(tag, ",")[0]
+			key, _, _ := strings.Cut(tag, ",")
 			permitted := allowed
 			if cfgType.Name() == "ToolProfileConfig" {
 				permitted = allowedProfile
@@ -398,15 +397,15 @@ func TestConfigSurfaceExposesNoAliasMarkerOrVersionOverride(t *testing.T) {
 	// let a decoder populate a completeness requirement from operator YAML, which
 	// is how a silent "the zero Policy means measure only" reading could reappear.
 	for _, cfgType := range []reflect.Type{
-		reflect.TypeOf(expansion.Policy{}),
-		reflect.TypeOf(pathvirtualization.ToolProfile{}),
-		reflect.TypeOf(pathvirtualization.ProfileInput{}),
-		reflect.TypeOf(pathvirtualization.CompiledProfile{}),
+		reflect.TypeFor[expansion.Policy](),
+		reflect.TypeFor[pathvirtualization.ToolProfile](),
+		reflect.TypeFor[pathvirtualization.ProfileInput](),
+		reflect.TypeFor[pathvirtualization.CompiledProfile](),
 	} {
-		for i := 0; i < cfgType.NumField(); i++ {
-			if tag := cfgType.Field(i).Tag; tag != "" {
+		for field := range cfgType.Fields() {
+			if tag := field.Tag; tag != "" {
 				t.Errorf("%s.%s carries tag %q; no decode surface belongs on a compile-time value",
-					cfgType.Name(), cfgType.Field(i).Name, tag)
+					cfgType.Name(), field.Name, tag)
 			}
 		}
 	}

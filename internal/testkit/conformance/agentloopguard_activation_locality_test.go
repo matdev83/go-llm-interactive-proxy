@@ -301,7 +301,7 @@ func algPostScopedTurn(ctx context.Context, t *testing.T, d *Deployment, session
 		return resp.StatusCode, nil, nil, err
 	}
 	var frames []algWireFrame
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}

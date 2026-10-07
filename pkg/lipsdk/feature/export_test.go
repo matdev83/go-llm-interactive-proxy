@@ -141,7 +141,7 @@ func BindGeneratedTestPlane[T any](p Plane[T]) Plane[T] {
 				rv := reflect.ValueOf(anyVal)
 				if rv.Kind() == reflect.Slice && !rv.IsNil() {
 					if anyComb := any(combined); anyComb == nil || isReflectNil(reflect.ValueOf(anyComb)) {
-						if typedEmpty, ok := reflect.MakeSlice(rv.Type(), 0, 0).Interface().(T); ok {
+						if typedEmpty, ok := reflect.TypeAssert[T](reflect.MakeSlice(rv.Type(), 0, 0)); ok {
 							combined = typedEmpty
 						}
 					}

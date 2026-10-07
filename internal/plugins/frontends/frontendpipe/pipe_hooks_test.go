@@ -65,8 +65,7 @@ func (w *hookWire) WriteEncodeFailed(rw http.ResponseWriter) error {
 }
 
 func (w *hookWire) WriteHookError(rw http.ResponseWriter, err error) error {
-	var se *frontendpipe.StatusError
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*frontendpipe.StatusError](err); ok {
 		return w.write(rw, se.HTTPStatus(), se.Message)
 	}
 	return w.write(rw, http.StatusBadRequest, err.Error())

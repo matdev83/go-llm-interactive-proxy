@@ -120,10 +120,7 @@ func exactPrivateFindingsAt(fragment LogicalFragment, findings []sdk.Finding, pr
 				matched = append(matched, occurrence)
 			}
 		}
-		uncovered := finding.OccurrenceCount - len(matched)
-		if uncovered < 0 {
-			uncovered = 0
-		}
+		uncovered := max(finding.OccurrenceCount-len(matched), 0)
 		result = append(result, exactPrivateFinding{finding: finding, occurrences: matched, uncoveredCount: uncovered})
 	}
 	return result

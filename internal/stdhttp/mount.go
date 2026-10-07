@@ -130,8 +130,7 @@ func wrapRouteConflict(err error) error {
 	if err == nil {
 		return nil
 	}
-	var detail httpcontract.RouteConflictError
-	if errors.As(err, &detail) {
+	if detail, ok := errors.AsType[httpcontract.RouteConflictError](err); ok {
 		return fmt.Errorf("%w: %w", ErrRouteConflict, detail)
 	}
 	return err

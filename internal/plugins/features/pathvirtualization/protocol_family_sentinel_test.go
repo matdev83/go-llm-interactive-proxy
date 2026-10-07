@@ -78,6 +78,7 @@ package pathvirtualization_test
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -760,12 +761,7 @@ func famCarriesScalar(body []byte, value string) bool {
 	if value == "" {
 		return false
 	}
-	for _, candidate := range famScalars(body) {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(famScalars(body), value)
 }
 
 // famAssertToolIdentity proves the adapter preserved every exact canonical tool name and every

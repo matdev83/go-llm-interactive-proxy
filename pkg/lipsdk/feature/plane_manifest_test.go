@@ -150,7 +150,7 @@ func TestStandardCandidatePlanes_GeneratedDispatchCurrency(t *testing.T) {
 
 	sections := strings.Split(genContent, "func (gf *generatedFrozen) contributeCandidateTo(")
 	require.Len(t, sections, 2, "plane_generated.go must contain contributeCandidateTo")
-	methodBody := strings.Split(sections[1], "\nfunc (gf *generatedFrozen)")[0]
+	methodBody, _, _ := strings.Cut(sections[1], "\nfunc (gf *generatedFrozen)")
 
 	// Candidate branches must exactly match StandardCandidatePlanes
 	for _, candID := range feature.StandardCandidatePlanes {

@@ -99,8 +99,7 @@ func mapCompileError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var se *SchemaError
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*SchemaError](err); ok {
 		return se
 	}
 	msg := strings.ToLower(err.Error())
@@ -118,8 +117,7 @@ func mapValidationError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var ve *jsonschema.ValidationError
-	if errors.As(err, &ve) {
+	if ve, ok := errors.AsType[*jsonschema.ValidationError](err); ok {
 		path := validationInstancePath(ve)
 		return schemaErr(SchemaKindValidationFailed, ReasonValidationFailed, path)
 	}

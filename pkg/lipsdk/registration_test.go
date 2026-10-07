@@ -21,8 +21,7 @@ func TestValidateRegistrationsRejectsDuplicatePluginIDs(t *testing.T) {
 		t.Fatal("expected duplicate registration error")
 	}
 
-	var duplicateErr *lipsdk.DuplicateRegistrationError
-	if !errors.As(err, &duplicateErr) {
+	if _, ok := errors.AsType[*lipsdk.DuplicateRegistrationError](err); !ok {
 		t.Fatalf("expected DuplicateRegistrationError, got %T", err)
 	}
 	if !errors.Is(err, lipsdk.ErrDuplicateRegistration) {
@@ -66,8 +65,7 @@ func TestValidateRegistrationsRejectsMissingMandatoryPlugin(t *testing.T) {
 		t.Fatal("expected missing requirement error")
 	}
 
-	var missingErr *lipsdk.MissingRequirementError
-	if !errors.As(err, &missingErr) {
+	if _, ok := errors.AsType[*lipsdk.MissingRequirementError](err); !ok {
 		t.Fatalf("expected MissingRequirementError, got %T", err)
 	}
 }
@@ -100,8 +98,7 @@ func TestValidateRegistrationsRejectsDisabledMandatoryFrontend(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected disabled mandatory error")
 	}
-	var disabled *lipsdk.DisabledMandatoryPluginError
-	if !errors.As(err, &disabled) {
+	if _, ok := errors.AsType[*lipsdk.DisabledMandatoryPluginError](err); !ok {
 		t.Fatalf("expected DisabledMandatoryPluginError, got %T", err)
 	}
 }

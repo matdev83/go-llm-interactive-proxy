@@ -731,10 +731,7 @@ func TestRewriteCallOnlySegmentBoundaryPrefixIsReplaced(t *testing.T) {
 			if args.FilePath != tc.alias {
 				t.Errorf("file_path = %q, want %q", args.FilePath, tc.alias)
 			}
-			rewritten := 0
-			if stats.Rewritten > 0 {
-				rewritten = stats.Rewritten
-			}
+			rewritten := max(stats.Rewritten, 0)
 			if tc.alias == tc.value && rewritten != 0 {
 				t.Errorf("stats reported %d rewrites for an unchanged value", stats.Rewritten)
 			}
@@ -1189,9 +1186,7 @@ func TestRewriteCallIsSafeForConcurrentUse(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			got, _, err := rewriter.RewriteCall(call)
 			if err != nil {
 				t.Errorf("concurrent RewriteCall: %v", err)
@@ -1200,7 +1195,7 @@ func TestRewriteCallIsSafeForConcurrentUse(t *testing.T) {
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("concurrent result drifted:\ngot:  %s\nwant: %s", got.Items[0].ToolCall.Arguments, want.Items[0].ToolCall.Arguments)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -1234,7 +1229,7 @@ func TestStatsAreContentFree(t *testing.T) {
 		t.Errorf("undefined reason label = %q, want %q", got, "unknown")
 	}
 
-	statsType := reflect.TypeOf(rewrite.Stats{})
+	statsType := reflect.TypeFor[rewrite.Stats]()
 	wantFields := map[string]string{
 		"Eligible":    "int",
 		"Rewritten":   "int",
@@ -1255,7 +1250,7 @@ func TestStatsAreContentFree(t *testing.T) {
 			t.Errorf("Stats.%s type = %s, want %s", name, got, wantType)
 		}
 	}
-	skipType := reflect.TypeOf(rewrite.Skip{})
+	skipType := reflect.TypeFor[rewrite.Skip]()
 	if skipType.NumField() != 2 {
 		t.Errorf("Skip has %d fields, want exactly 2", skipType.NumField())
 	}
