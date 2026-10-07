@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 
 	coregeoip "github.com/matdev83/go-llm-interactive-proxy/internal/core/geoip"
@@ -137,9 +138,9 @@ func resolveForwarded(raw string, trusted []netip.Prefix) (netip.Addr, error) {
 }
 
 func firstUntrustedHop(hops []netip.Addr, trusted []netip.Prefix) (netip.Addr, error) {
-	for i := len(hops) - 1; i >= 0; i-- {
-		if !isTrusted(hops[i], trusted) {
-			return hops[i], nil
+	for _, hop := range slices.Backward(hops) {
+		if !isTrusted(hop, trusted) {
+			return hop, nil
 		}
 	}
 	return netip.Addr{}, fmt.Errorf("geoip: forwarding chain contains no untrusted client hop")

@@ -674,7 +674,6 @@ func auditCorpus(t *testing.T) []auditCase {
 		{name: "windows_extended_drive", root: extendedDriveRoot, target: extendedDriveRoot + `\pkg\lipapi\call.go`},
 		{name: "windows_extended_unc", root: extendedUNCRoot, target: extendedUNCRoot + `\pkg\lipapi\call.go`},
 	} {
-		flavor := flavor
 		// The payload is marshalled rather than spelled as a raw string literal,
 		// because a Windows path carries backslashes that a JSON string literal
 		// escapes and a fixture must not hand the rewriter a document the client's

@@ -17,11 +17,11 @@ import (
 func TestSelfDefenseIsPartOfTheCycleNeutralSecurityProjection(t *testing.T) {
 	t.Parallel()
 
-	field, ok := reflect.TypeOf(contract.HTTPSecurityInput{}).FieldByName("SelfDefense")
+	field, ok := reflect.TypeFor[contract.HTTPSecurityInput]().FieldByName("SelfDefense")
 	if !ok {
 		t.Fatal("contract.HTTPSecurityInput must carry a SelfDefense member")
 	}
-	if want := reflect.TypeOf(contract.SelfDefenseSecurityInput{}); field.Type != want {
+	if want := reflect.TypeFor[contract.SelfDefenseSecurityInput](); field.Type != want {
 		t.Fatalf("SelfDefense type = %s, want %s", field.Type, want)
 	}
 	if field.PkgPath != "" {
@@ -37,10 +37,10 @@ func TestSelfDefenseIsPartOfTheCycleNeutralSecurityProjection(t *testing.T) {
 func TestSelfDefenseProjectionCarriesNoProcessStateLimits(t *testing.T) {
 	t.Parallel()
 
-	limits := reflect.TypeOf(ingressdefense.StateLimits{})
+	limits := reflect.TypeFor[ingressdefense.StateLimits]()
 	for _, owner := range []reflect.Type{
-		reflect.TypeOf(contract.SelfDefenseSecurityInput{}),
-		reflect.TypeOf(contract.HTTPSecurityInput{}),
+		reflect.TypeFor[contract.SelfDefenseSecurityInput](),
+		reflect.TypeFor[contract.HTTPSecurityInput](),
 	} {
 		t.Run(owner.Name(), func(t *testing.T) {
 			t.Parallel()
@@ -76,12 +76,12 @@ func TestSelfDefenseProjectionMemberSetIsExact(t *testing.T) {
 		"Observer":             true,
 		"Now":                  true,
 	}
-	typ := reflect.TypeOf(contract.SelfDefenseSecurityInput{})
+	typ := reflect.TypeFor[contract.SelfDefenseSecurityInput]()
 	if typ.NumField() != len(want) {
 		t.Fatalf("SelfDefenseSecurityInput has %d members, want exactly %d", typ.NumField(), len(want))
 	}
-	for i := range typ.NumField() {
-		name := typ.Field(i).Name
+	for field := range typ.Fields() {
+		name := field.Name
 		if !want[name] {
 			t.Fatalf("unexpected self-defense projection member %q; the projection carries policy, "+
 				"non-owning state, the shared resolver config, the matcher toggle, the published-route "+
@@ -89,11 +89,11 @@ func TestSelfDefenseProjectionMemberSetIsExact(t *testing.T) {
 		}
 	}
 	// The published-route inventory must never become a second sizing surface.
-	for i := range typ.NumField() {
-		switch typ.Field(i).Name {
+	for field := range typ.Fields() {
+		switch field.Name {
 		case "MaxEntries", "StateTTL", "Limits":
 			t.Fatalf("self-defense projection member %q is process-state sizing and must stay "+
-				"restart-required, never a per-request projection", typ.Field(i).Name)
+				"restart-required, never a per-request projection", field.Name)
 		}
 	}
 }
@@ -120,7 +120,7 @@ func TestCredentialDispositionDefaultsToMayAuthenticate(t *testing.T) {
 func TestCredentialProbeTypeCarriesOnlyTheDisposition(t *testing.T) {
 	t.Parallel()
 
-	typ := reflect.TypeOf(contract.CredentialProbe(nil))
+	typ := reflect.TypeFor[contract.CredentialProbe]()
 	if typ == nil {
 		t.Fatal("contract.CredentialProbe must be a defined function type")
 	}
@@ -131,7 +131,7 @@ func TestCredentialProbeTypeCarriesOnlyTheDisposition(t *testing.T) {
 	if typ.Out(0) != want.Out(0) {
 		t.Fatalf("CredentialProbe result = %s, want %s", typ.Out(0), want.Out(0))
 	}
-	if typ.In(0) != reflect.TypeOf((*http.Request)(nil)) {
+	if typ.In(0) != reflect.TypeFor[*http.Request]() {
 		t.Fatalf("CredentialProbe parameter = %s, want *http.Request", typ.In(0))
 	}
 }
@@ -145,8 +145,7 @@ func structPathFor(root, want reflect.Type, seen map[reflect.Type]bool) string {
 		return ""
 	}
 	seen[root] = true
-	for i := range root.NumField() {
-		field := root.Field(i)
+	for field := range root.Fields() {
 		if field.Type == want {
 			return root.Name() + "." + field.Name
 		}

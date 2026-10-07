@@ -32,8 +32,7 @@ func classifyGenaiAPIError(err error) (kind apiFailureKind, retryAfter string) {
 	if errors.As(err, &pae) && pae != nil {
 		return classifyFromAPIError(*pae)
 	}
-	var vae genai.APIError
-	if errors.As(err, &vae) {
+	if vae, ok := errors.AsType[genai.APIError](err); ok {
 		return classifyFromAPIError(vae)
 	}
 	if transporterr.IsRetryable(err) {

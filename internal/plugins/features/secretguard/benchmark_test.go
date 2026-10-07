@@ -9,7 +9,7 @@ import (
 	"math"
 	"os"
 	"runtime"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -262,28 +262,25 @@ func TestBetterLeaksLatencyPercentiles(t *testing.T) {
 	if os.Getenv("SECRETGUARD_BENCH_PERCENTILES") != "1" {
 		t.Skip("set SECRETGUARD_BENCH_PERCENTILES=1 to collect wall-latency percentiles")
 	}
-	samples := benchmarkEnvInt("SECRETGUARD_BENCH_SAMPLES", 100)
-	if samples < 100 {
-		samples = 100
-	}
+	samples := max(benchmarkEnvInt("SECRETGUARD_BENCH_SAMPLES", 100), 100)
 	for _, tc := range betterLeaksPercentileCases(t) {
-		for warmup := 0; warmup < 2; warmup++ {
+		for range 2 {
 			if err := runBetterLeaksBenchmarkCase(tc); err != nil {
 				t.Fatal("latency warmup failed")
 			}
 		}
 		durations := make([]time.Duration, 0, samples)
 		repetitions := benchmarkLatencyRepetitions(tc.payloadBytes)
-		for i := 0; i < samples; i++ {
+		for range samples {
 			started := time.Now()
-			for repetition := 0; repetition < repetitions; repetition++ {
+			for range repetitions {
 				if err := runBetterLeaksBenchmarkCase(tc); err != nil {
 					t.Fatal("latency sample failed")
 				}
 			}
 			durations = append(durations, time.Since(started)/time.Duration(repetitions))
 		}
-		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+		slices.Sort(durations)
 		t.Logf("percentile detector=%s kind=%s bytes=%d hit=%t samples=%d repetitions=%d p50=%s p95=%s p99=%s", tc.detector, benchmarkKindName(tc.kind), tc.payloadBytes, tc.hit, samples, repetitions, percentile(durations, 0.50), percentile(durations, 0.95), percentile(durations, 0.99))
 	}
 }
@@ -394,13 +391,7 @@ func (tc betterLeaksBenchmarkCase) with(detector string, matcher sdk.Matcher, ge
 }
 
 func benchmarkBetterLeaksPolicy() BetterLeaksPolicy {
-	workers := runtime.GOMAXPROCS(0)
-	if workers > 4 {
-		workers = 4
-	}
-	if workers < 1 {
-		workers = 1
-	}
+	workers := max(min(runtime.GOMAXPROCS(0), 4), 1)
 	return BetterLeaksPolicy{
 		Enabled:           true,
 		MinimumConfidence: DefaultBetterLeaksConfidence,
@@ -542,10 +533,7 @@ func percentile(values []time.Duration, fraction float64) time.Duration {
 	if len(values) == 0 {
 		return 0
 	}
-	index := int(math.Ceil(float64(len(values))*fraction)) - 1
-	if index < 0 {
-		index = 0
-	}
+	index := max(int(math.Ceil(float64(len(values))*fraction))-1, 0)
 	if index >= len(values) {
 		index = len(values) - 1
 	}

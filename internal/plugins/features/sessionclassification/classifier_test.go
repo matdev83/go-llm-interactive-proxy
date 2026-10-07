@@ -434,20 +434,19 @@ func TestClassifierHoldsOnlyBoundedGenerationFields(t *testing.T) {
 	// observation sink, and a clock. It holds no HTTP client, no endpoint, no
 	// credential, no per-session map, and no goroutine or timer, so composing or
 	// running a heuristic generation cannot reach an external service.
-	typ := reflect.TypeOf(sessionclassification.Classifier{})
+	typ := reflect.TypeFor[sessionclassification.Classifier]()
 	allowed := map[string]reflect.Type{
-		"cfg":           reflect.TypeOf(sessionclassification.Config{}),
-		"state":         reflect.TypeOf((*sessionclassification.StateAuthority)(nil)).Elem(),
-		"remoteDecider": reflect.TypeOf((*sessionclassification.RemoteDecider)(nil)).Elem(),
-		"remote":        reflect.TypeOf(sessionclassification.RemoteConfig{}),
-		"observer":      reflect.TypeOf((*sessionclassification.Observer)(nil)).Elem(),
+		"cfg":           reflect.TypeFor[sessionclassification.Config](),
+		"state":         reflect.TypeFor[sessionclassification.StateAuthority](),
+		"remoteDecider": reflect.TypeFor[sessionclassification.RemoteDecider](),
+		"remote":        reflect.TypeFor[sessionclassification.RemoteConfig](),
+		"observer":      reflect.TypeFor[sessionclassification.Observer](),
 		"now":           reflect.TypeOf((func() time.Time)(nil)),
 	}
 	if typ.NumField() != len(allowed) {
 		t.Fatalf("classifier has %d fields, want exactly %d bounded fields", typ.NumField(), len(allowed))
 	}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		want, ok := allowed[field.Name]
 		if !ok {
 			t.Errorf("classifier has unapproved field %q of type %s", field.Name, field.Type)

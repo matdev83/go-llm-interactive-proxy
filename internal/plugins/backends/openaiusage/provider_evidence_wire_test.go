@@ -68,7 +68,6 @@ func TestOpenAIUsageEvidence_IntactNativeDetailsInclusionProof(t *testing.T) {
 		{label: "responses", path: "responses"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.label, func(t *testing.T) {
 			billingCallID, err := corebilling.NewBillingCallID()
 			if err != nil {

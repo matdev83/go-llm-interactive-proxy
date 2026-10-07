@@ -197,7 +197,7 @@ func validateSourceReference(root, reference string) error {
 		}
 		return nil
 	}
-	path := strings.SplitN(reference, "#", 2)[0]
+	path, _, _ := strings.Cut(reference, "#")
 	if path == "" {
 		return fmt.Errorf("local reference %q has no path", reference)
 	}

@@ -118,13 +118,7 @@ func ResolveDetectorPolicy(accessMode string, cfg Config) (DetectorPolicy, error
 		workers = *normalized.Workers
 	}
 	if workers == 0 {
-		workers = runtime.GOMAXPROCS(0)
-		if workers > 4 {
-			workers = 4
-		}
-		if workers < 1 {
-			workers = 1
-		}
+		workers = max(min(runtime.GOMAXPROCS(0), 4), 1)
 	}
 
 	return DetectorPolicy{

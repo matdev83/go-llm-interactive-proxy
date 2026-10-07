@@ -101,35 +101,34 @@ func TestStateContractTypesContainOnlyBoundedControlData(t *testing.T) {
 	t.Parallel()
 
 	allowed := map[reflect.Type]map[string]reflect.Type{
-		reflect.TypeOf(sessionclassification.Key{}): {
-			"Kind": reflect.TypeOf(sessionclassification.ScopeKind("")),
-			"ID":   reflect.TypeOf(""),
+		reflect.TypeFor[sessionclassification.Key](): {
+			"Kind": reflect.TypeFor[sessionclassification.ScopeKind](),
+			"ID":   reflect.TypeFor[string](),
 		},
-		reflect.TypeOf(sessionclassification.Record{}): {
-			"Key":                  reflect.TypeOf(sessionclassification.Key{}),
-			"Classification":       reflect.TypeOf(session.Classification{}),
-			"RemoteAttempts":       reflect.TypeOf(uint32(0)),
-			"RemoteLeaseID":        reflect.TypeOf(""),
+		reflect.TypeFor[sessionclassification.Record](): {
+			"Key":                  reflect.TypeFor[sessionclassification.Key](),
+			"Classification":       reflect.TypeFor[session.Classification](),
+			"RemoteAttempts":       reflect.TypeFor[uint32](),
+			"RemoteLeaseID":        reflect.TypeFor[string](),
 			"RemoteLeaseUntil":     reflect.TypeOf(sessionclassification.Record{}.RemoteLeaseUntil),
 			"RemoteNextEligibleAt": reflect.TypeOf(sessionclassification.Record{}.RemoteNextEligibleAt),
 			"UpdatedAt":            reflect.TypeOf(sessionclassification.Record{}.UpdatedAt),
 		},
-		reflect.TypeOf(sessionclassification.RemoteClaim{}): {
-			"Key":          reflect.TypeOf(sessionclassification.Key{}),
-			"LeaseID":      reflect.TypeOf(""),
-			"Attempt":      reflect.TypeOf(uint32(0)),
+		reflect.TypeFor[sessionclassification.RemoteClaim](): {
+			"Key":          reflect.TypeFor[sessionclassification.Key](),
+			"LeaseID":      reflect.TypeFor[string](),
+			"Attempt":      reflect.TypeFor[uint32](),
 			"RetryBackoff": reflect.TypeOf(sessionclassification.RemoteClaim{}.RetryBackoff),
 		},
-		reflect.TypeOf(sessionclassification.RemoteCompletion{}): {
-			"Proposal": reflect.TypeOf(session.Classification{}),
+		reflect.TypeFor[sessionclassification.RemoteCompletion](): {
+			"Proposal": reflect.TypeFor[session.Classification](),
 		},
 	}
 	for typ, expected := range allowed {
 		if typ.NumField() != len(expected) {
 			t.Errorf("%s has %d fields, want exactly %d bounded fields", typ, typ.NumField(), len(expected))
 		}
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
+		for field := range typ.Fields() {
 			wantType, ok := expected[field.Name]
 			if !ok {
 				t.Errorf("%s has unapproved field %q", typ, field.Name)

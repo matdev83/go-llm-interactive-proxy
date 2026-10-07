@@ -868,7 +868,6 @@ func TestInferArgumentsIgnoresMemberDeclarationOrder(t *testing.T) {
 		{keyword: "if", value: `{"type":"object"}`},
 	}
 	for _, member := range ambiguousMembers {
-		member := member
 		t.Run("ambiguous_keyword_"+member.keyword, func(t *testing.T) {
 			t.Parallel()
 
@@ -1108,7 +1107,7 @@ func memberOrders(n int) func(func([]int) bool) {
 			if k == 0 {
 				return yield(slices.Clone(order))
 			}
-			for i := 0; i < k; i++ {
+			for i := range k {
 				order[k-1], order[i] = order[i], order[k-1]
 				cont := walk(k - 1)
 				order[k-1], order[i] = order[i], order[k-1]
@@ -1469,7 +1468,7 @@ func nestedSchema(depth int) string {
 func siblingPathSchema(count int) string {
 	var b strings.Builder
 	b.WriteString(`{"type":"object","properties":{`)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			b.WriteString(`,`)
 		}
@@ -1485,7 +1484,7 @@ func siblingPathSchema(count int) string {
 func inertPropertySchema(count int) string {
 	var b strings.Builder
 	b.WriteString(`{"type":"object","properties":{`)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i > 0 {
 			b.WriteString(`,`)
 		}
@@ -2105,7 +2104,7 @@ func inferAllocatedBytes(t *testing.T, schema string) uint64 {
 func declaredChain(depth int, leaf string) string {
 	var b strings.Builder
 	b.WriteString(`{"type":"object","properties":{`)
-	for i := 0; i < depth; i++ {
+	for range depth {
 		b.WriteString(`"c":{"type":"object","properties":{`)
 	}
 	fmt.Fprintf(&b, `"%s":{"type":"string"}`, leaf)
@@ -2125,7 +2124,7 @@ func declaredChain(depth int, leaf string) string {
 func declaredItemChain(depth int) string {
 	var b strings.Builder
 	b.WriteString(`{"type":"object","properties":{"c":`)
-	for i := 0; i < depth; i++ {
+	for range depth {
 		b.WriteString(`{"type":"array","items":`)
 	}
 	b.WriteString(`{"type":"string"}`)

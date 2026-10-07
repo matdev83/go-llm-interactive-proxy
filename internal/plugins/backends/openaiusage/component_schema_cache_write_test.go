@@ -178,7 +178,6 @@ func TestOpenAIUsageEvidence_CacheWriteStandardFieldObserved(t *testing.T) {
 			wantPath: "$.usage.input_tokens_details.cache_write_tokens",
 		},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			server := wireUsageServer(t, tc.chat, tc.respons)
@@ -370,7 +369,6 @@ func TestOpenAIUsageEvidence_CacheWriteShapesAbsentNullZeroNotOverlap(t *testing
 		{name: "explicit_zero", promptDetails: `{"cache_write_tokens":0}`, hasMeasure: true},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			server := wireUsageServer(t, wireChatCacheWriteUsage(tc.promptDetails), wireResponsesSuccess)

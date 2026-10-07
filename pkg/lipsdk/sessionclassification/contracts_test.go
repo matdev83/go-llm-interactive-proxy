@@ -86,18 +86,18 @@ func TestToolCategorySetUsesCanonicalToolNameCategories(t *testing.T) {
 func TestSessionClassificationInputExposesOnlyBoundedMetadataFields(t *testing.T) {
 	t.Parallel()
 
-	assertStructFields(t, reflect.TypeOf(sessionclassification.Input{}), map[string]reflect.Type{
-		"TraceID":   reflect.TypeOf(""),
-		"Session":   reflect.TypeOf(session.SessionView{}),
-		"Workspace": reflect.TypeOf(workspace.WorkspaceView{}),
-		"Evidence":  reflect.TypeOf(sessionclassification.Evidence{}),
+	assertStructFields(t, reflect.TypeFor[sessionclassification.Input](), map[string]reflect.Type{
+		"TraceID":   reflect.TypeFor[string](),
+		"Session":   reflect.TypeFor[session.SessionView](),
+		"Workspace": reflect.TypeFor[workspace.WorkspaceView](),
+		"Evidence":  reflect.TypeFor[sessionclassification.Evidence](),
 	})
-	assertStructFields(t, reflect.TypeOf(sessionclassification.Evidence{}), map[string]reflect.Type{
-		"Operation":       reflect.TypeOf(lipapi.Operation("")),
-		"ClientUserAgent": reflect.TypeOf(""),
-		"ToolCategories":  reflect.TypeOf(sessionclassification.ToolCategorySet(0)),
+	assertStructFields(t, reflect.TypeFor[sessionclassification.Evidence](), map[string]reflect.Type{
+		"Operation":       reflect.TypeFor[lipapi.Operation](),
+		"ClientUserAgent": reflect.TypeFor[string](),
+		"ToolCategories":  reflect.TypeFor[sessionclassification.ToolCategorySet](),
 	})
-	if got := reflect.TypeOf(sessionclassification.ToolCategorySet(0)).Kind(); got != reflect.Uint16 {
+	if got := reflect.TypeFor[sessionclassification.ToolCategorySet]().Kind(); got != reflect.Uint16 {
 		t.Fatalf("ToolCategorySet underlying kind = %s, want uint16", got)
 	}
 }
@@ -179,8 +179,7 @@ func assertStructFields(t *testing.T, got reflect.Type, want map[string]reflect.
 	if got.NumField() != len(want) {
 		t.Fatalf("%s has %d fields, want %d", got, got.NumField(), len(want))
 	}
-	for i := range got.NumField() {
-		field := got.Field(i)
+	for field := range got.Fields() {
 		wantType, ok := want[field.Name]
 		if !ok {
 			t.Errorf("%s has unexpected field %q", got, field.Name)

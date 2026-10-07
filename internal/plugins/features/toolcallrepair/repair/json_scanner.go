@@ -3,6 +3,7 @@ package repair
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"unicode/utf8"
 )
 
@@ -72,8 +73,8 @@ func CompleteJSONSuffix(in []byte) ([]byte, bool) {
 	if inString {
 		suffix = append(suffix, '"')
 	}
-	for i := len(stack) - 1; i >= 0; i-- {
-		if stack[i] == '{' {
+	for _, opener := range slices.Backward(stack) {
+		if opener == '{' {
 			suffix = append(suffix, '}')
 		} else {
 			suffix = append(suffix, ']')

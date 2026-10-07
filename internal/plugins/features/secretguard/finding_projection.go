@@ -2,6 +2,7 @@ package secretguard
 
 import (
 	"errors"
+	"slices"
 
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
@@ -44,10 +45,5 @@ func (s *betterLeaksScanner) projectSafeFinding(finding betterLeaksFinding) (sdk
 }
 
 func containsPinnedRule(ruleIDs []string, want string) bool {
-	for _, ruleID := range ruleIDs {
-		if ruleID == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ruleIDs, want)
 }

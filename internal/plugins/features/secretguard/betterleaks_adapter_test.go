@@ -128,7 +128,7 @@ func TestBetterLeaksEligibility_AmbiguousStoredRangesFailClosedWithoutPerOccurre
 		t.Fatalf("ambiguous projection = err:%v occurrences:%+v; want retained broad offsets after normalization refusal", err, projected.occurrences)
 	}
 	findings := make([]betterLeaksFinding, 0, maxBetterLeaksOccurrences)
-	for index := 0; index < maxBetterLeaksOccurrences; index++ {
+	for range maxBetterLeaksOccurrences {
 		findings = append(findings, projected)
 	}
 	fragments := []LogicalFragment{{Location: locationStringForTest, Raw: raw, privateID: "fragment[0]"}}
@@ -182,7 +182,7 @@ func newlineDenseNearCapScannerFixture(tb testing.TB) (*betterLeaksScanner, []Lo
 	tail := []byte(strings.Repeat("GITHUB_TOKEN="+adapterGitHubToken+"\n", 256))
 	prefixBytes := DefaultScanMaxBytes - len(tail)
 	raw := make([]byte, DefaultScanMaxBytes)
-	for i := 0; i < prefixBytes; i++ {
+	for i := range prefixBytes {
 		if i%2 == 0 {
 			raw[i] = 'x'
 		} else {
@@ -265,7 +265,7 @@ func newlineDenseValueGroupFixture() ([]byte, []report.Finding) {
 	const targetBytes = 2 * 1024 * 1024
 	var tail strings.Builder
 	findings := make([]report.Finding, 0, maxBetterLeaksOccurrences)
-	for index := 0; index < maxBetterLeaksOccurrences; index++ {
+	for index := range maxBetterLeaksOccurrences {
 		value := fmt.Sprintf("tail-secret-%03d", index)
 		line := "prefix=" + value + ";suffix\n"
 		startLine := index + 1
@@ -847,11 +847,8 @@ func TestBetterLeaksScanner_IsSafeForConcurrentReuse(t *testing.T) {
 	const requests = 16
 	errs := make(chan error, requests)
 	var wg sync.WaitGroup
-	for i := 0; i < requests; i++ {
-		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range requests {
+		wg.Go(func() {
 			result, err := detector.scanFragments(context.Background(), []LogicalFragment{{
 				Location: fmt.Sprintf("messages[%d].parts[0]", i),
 				Raw:      []byte("GITHUB_TOKEN=" + adapterGitHubToken),
@@ -860,7 +857,7 @@ func TestBetterLeaksScanner_IsSafeForConcurrentReuse(t *testing.T) {
 				err = errors.New("concurrent scan produced no finding")
 			}
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -981,7 +978,7 @@ func TestMultipartProjectionRepair_LocalCoverageBoundaries(t *testing.T) {
 
 func TestMultipartProjectionRepair_ComponentCapStillAdmitsKnownRuleOccurrences(t *testing.T) {
 	finding := report.Finding{RuleID: "github-pat", Match: report.Match{Value: "x"}, Location: report.Location{StartLine: 1, EndLine: 1, StartColumn: 1, EndColumn: 1}}
-	for i := 0; i < maxBetterLeaksProjectedComponents; i++ {
+	for i := range maxBetterLeaksProjectedComponents {
 		finding.ComponentSets = append(finding.ComponentSets, report.ComponentSet{Components: []report.ComponentFinding{{RuleID: fmt.Sprintf("component-%d", i), Match: finding.Match, Location: finding.Location}}})
 	}
 	finding.ComponentSets = append(finding.ComponentSets, finding.ComponentSets[0])
@@ -1013,7 +1010,7 @@ func TestMultipartProjectionRepair_RealScannerTruncationBlocksClonePublication(t
 	}
 	generation.betterLeaks.scanner = scanner
 	text := adapterGitHubToken + "\n"
-	for i := 0; i < 101; i++ {
+	for i := range 101 {
 		text += fmt.Sprintf("companion-%03d\n", i)
 	}
 	var upstream report.Finding

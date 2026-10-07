@@ -2347,6 +2347,7 @@ func algGeminiColumn() algProtocolColumn {
 // requirement 7.4's terminal bound, requirement 3.5's private-lifecycle absence)
 // are shared; only the client decode and the A-leg document differ per column.
 func algRunProtocolColumn(t *testing.T, col algProtocolColumn) {
+	t.Helper()
 	t.Run(col.name+"_completion_only", func(t *testing.T) {
 		origin, upstream := algScriptedOrigin(t, algCompletionTurn(t, "resp_alg_col_"+col.name+"_c"))
 		d, _ := algDeployColumn(t, algColumn{

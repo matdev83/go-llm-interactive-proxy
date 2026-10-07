@@ -369,8 +369,7 @@ func TestSession_PostTerminalFrameReturnsProtocolViolationError(t *testing.T) {
 		{Kind: backendplugin.ClientFrameStart, InstanceID: "post-terminal", Invocation: validInvocation()},
 	}}
 	err = sess.Execute(stream)
-	var violation *host.ProtocolViolationError
-	if !errors.As(err, &violation) {
+	if _, ok := errors.AsType[*host.ProtocolViolationError](err); !ok {
 		t.Fatalf("Execute error = %v, want ProtocolViolationError", err)
 	}
 }

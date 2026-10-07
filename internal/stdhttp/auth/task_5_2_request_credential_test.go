@@ -41,7 +41,6 @@ func TestTask52AcceptedCredentialMatcher_resolvesFromIngressForBearerAndAPIKey(t
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -156,10 +155,7 @@ func TestTask52AcceptedCredentialMatcher_concurrentRequestsStayIsolated(t *testi
 
 	var wg sync.WaitGroup
 	for _, credential := range []string{credentialA, credentialB} {
-		credential := credential
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			req.Header.Set(lipsdk.HeaderAPIKey, credential)
 			rec := httptest.NewRecorder()
@@ -167,7 +163,7 @@ func TestTask52AcceptedCredentialMatcher_concurrentRequestsStayIsolated(t *testi
 			if rec.Code != http.StatusOK {
 				t.Errorf("authentication status for %q: got %d", credential, rec.Code)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -227,7 +223,6 @@ func TestTask52AcceptedLocalAPIKeyMatcher_ignoresWeakerSingleUserPolicy(t *testi
 		{name: "authorization_bearer", headerName: lipsdk.HeaderAuthorization, headerVal: "Bearer " + credential},
 		{name: "x_api_key", headerName: lipsdk.HeaderAPIKey, headerVal: credential, headers: lipsdk.HTTPHeaders{APIKey: []string{lipsdk.HeaderAPIKey}}},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			authenticator, err := coreauth.NewLocalAPIKeyAuthenticator([]coreauth.LocalAPIKeyRecord{
@@ -312,9 +307,9 @@ func TestTask52MatcherContract_hasNoRawCredentialGetter(t *testing.T) {
 	forbidden := map[string]struct{}{
 		"Secret": {}, "Secrets": {}, "Value": {}, "Values": {}, "Raw": {}, "Credential": {},
 	}
-	for i := 0; i < typ.NumMethod(); i++ {
-		if _, ok := forbidden[typ.Method(i).Name]; ok {
-			t.Fatalf("request matcher contract exposes raw credential accessor %q", typ.Method(i).Name)
+	for method := range typ.Methods() {
+		if _, ok := forbidden[method.Name]; ok {
+			t.Fatalf("request matcher contract exposes raw credential accessor %q", method.Name)
 		}
 	}
 }

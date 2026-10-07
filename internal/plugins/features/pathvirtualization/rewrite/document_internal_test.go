@@ -348,7 +348,7 @@ func TestSelectorSkipReasonProjectionIsTotal(t *testing.T) {
 		pathvirtualization.SelectorSkipObject:         SkipReasonSelectorObject,
 		pathvirtualization.SelectorSkipNotStringArray: SkipReasonSelectorNotStringArray,
 	}
-	for skip := pathvirtualization.SelectorSkip(0); skip < 16; skip++ {
+	for skip := range pathvirtualization.SelectorSkip(16) {
 		want, known := projected[skip]
 		got := selectorSkipReason(skip)
 		if !known {

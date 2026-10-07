@@ -116,8 +116,7 @@ func assertValidationErrorParity(tb testing.TB, genErr, valErr error, pluginID s
 		}
 	}
 
-	var expAttrErr *lipfeature.AttributedError
-	if errors.As(valErr, &expAttrErr) {
+	if expAttrErr, ok := errors.AsType[*lipfeature.AttributedError](valErr); ok {
 		var genAttrErr *lipfeature.AttributedError
 		if assert.ErrorAs(tb, genErr, &genAttrErr, "production error must wrap AttributedError") {
 			assert.Equal(tb, expAttrErr.PlaneID, genAttrErr.PlaneID, "AttributedError plane ID mismatch")
@@ -147,8 +146,7 @@ func assertReplayErrorParity(tb testing.TB, genErr, replayErr error, pluginID st
 		}
 	}
 
-	var expAttrErr *lipfeature.AttributedError
-	if errors.As(replayErr, &expAttrErr) {
+	if expAttrErr, ok := errors.AsType[*lipfeature.AttributedError](replayErr); ok {
 		var genAttrErr *lipfeature.AttributedError
 		if assert.ErrorAs(tb, genErr, &genAttrErr, "generated error must be an AttributedError") {
 			assert.Equal(tb, expAttrErr.PlaneID, genAttrErr.PlaneID, "AttributedError plane ID mismatch")

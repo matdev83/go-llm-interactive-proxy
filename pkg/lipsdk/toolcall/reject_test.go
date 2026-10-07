@@ -18,8 +18,7 @@ func TestRejectError_noRawPayload(t *testing.T) {
 	if strings.Contains(msg, "{") || strings.Contains(msg, "args") {
 		t.Fatalf("must not include payload: %q", msg)
 	}
-	var re *toolcall.RejectError
-	if !errors.As(err, &re) {
+	if _, ok := errors.AsType[*toolcall.RejectError](err); !ok {
 		t.Fatal("errors.As")
 	}
 }

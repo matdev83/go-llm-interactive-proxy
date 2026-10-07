@@ -1059,9 +1059,7 @@ func TestConcurrentAmbiguousTurnsShareOneLease(t *testing.T) {
 	errs := make(chan error, turns)
 	var wg sync.WaitGroup
 	for range turns {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			got, err := classifier.Classify(context.Background(), ambiguousInput("sess-concurrent"))
 			if err != nil {
@@ -1069,7 +1067,7 @@ func TestConcurrentAmbiguousTurnsShareOneLease(t *testing.T) {
 				return
 			}
 			results <- got
-		}()
+		})
 	}
 	close(start)
 

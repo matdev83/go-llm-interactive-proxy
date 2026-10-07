@@ -97,6 +97,13 @@ linters:
       - text: "Omitempty has no effect on nested struct fields"
         linters:
           - modernize
+      # pkg/lipsdk/controltool production sources stay inside the generic import
+      # contract enforced by TestProductionSourcesStayGeneric; the
+      # slices.ContainsFunc rewrite would add a banned stdlib import.
+      - path: ^pkg/lipsdk/controltool/validate\.go$
+        text: 'Loop can be simplified using slices\.ContainsFunc'
+        linters:
+          - modernize
 
 formatters:
   enable:

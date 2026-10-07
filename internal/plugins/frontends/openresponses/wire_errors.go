@@ -63,8 +63,7 @@ func (WireErrors) WriteExecuteError(w http.ResponseWriter, out execerr.Outcome) 
 }
 
 func (WireErrors) WriteHookError(w http.ResponseWriter, err error) error {
-	var se *frontendpipe.StatusError
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*frontendpipe.StatusError](err); ok {
 		writeWireError(w, se.HTTPStatus(), se.Type, se.Code, se.Message)
 		return nil
 	}

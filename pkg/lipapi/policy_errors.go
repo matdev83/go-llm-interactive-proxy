@@ -198,8 +198,7 @@ func IsPolicyDenied(err error) bool {
 	if errors.Is(err, ErrPolicyDenied) {
 		return true
 	}
-	var pde *PolicyDecisionError
-	if errors.As(err, &pde) {
+	if pde, ok := errors.AsType[*PolicyDecisionError](err); ok {
 		return pde.Kind == PolicyErrorKindDenied
 	}
 	return false
@@ -213,8 +212,7 @@ func IsPolicyFailure(err error) bool {
 	if errors.Is(err, ErrPolicyFailure) {
 		return true
 	}
-	var pde *PolicyDecisionError
-	if errors.As(err, &pde) {
+	if pde, ok := errors.AsType[*PolicyDecisionError](err); ok {
 		return pde.Kind == PolicyErrorKindFailure
 	}
 	return false
@@ -228,8 +226,7 @@ func IsPolicyMalformed(err error) bool {
 	if errors.Is(err, ErrPolicyMalformed) {
 		return true
 	}
-	var pde *PolicyDecisionError
-	if errors.As(err, &pde) {
+	if pde, ok := errors.AsType[*PolicyDecisionError](err); ok {
 		return pde.Kind == PolicyErrorKindMalformed
 	}
 	return false
@@ -238,8 +235,7 @@ func IsPolicyMalformed(err error) bool {
 // PolicyDecisionErrorKindOf returns the stable kind for err when it wraps a
 // *PolicyDecisionError, otherwise the empty kind.
 func PolicyDecisionErrorKindOf(err error) PolicyDecisionErrorKind {
-	var pde *PolicyDecisionError
-	if errors.As(err, &pde) {
+	if pde, ok := errors.AsType[*PolicyDecisionError](err); ok {
 		return pde.Kind
 	}
 	return ""
@@ -247,8 +243,7 @@ func PolicyDecisionErrorKindOf(err error) PolicyDecisionErrorKind {
 
 // PolicyDecisionErrorFrom returns the *PolicyDecisionError wrapped by err, or nil.
 func PolicyDecisionErrorFrom(err error) *PolicyDecisionError {
-	var pde *PolicyDecisionError
-	if errors.As(err, &pde) {
+	if pde, ok := errors.AsType[*PolicyDecisionError](err); ok {
 		return pde
 	}
 	return nil

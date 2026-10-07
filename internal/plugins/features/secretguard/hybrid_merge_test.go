@@ -690,7 +690,6 @@ func TestDecodedJSONOccurrenceValue_MatchesCanonicalSemanticTokens(t *testing.T)
 	cases = append(cases, strings.Repeat("[", 10001)+"true"+strings.Repeat("]", 10001))
 
 	for i, raw := range cases {
-		raw := raw
 		t.Run(fmt.Sprintf("case_%03d", i), func(t *testing.T) {
 			canonical, canonicalErr := decodeJSONPreserveNumbers([]byte(raw))
 			mapped, mappedErr := decodedJSONOccurrenceValue([]byte(raw))

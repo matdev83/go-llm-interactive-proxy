@@ -155,7 +155,7 @@ func TestDecodeConfigRejectsUnboundedExclusionMatchers(t *testing.T) {
 
 	tooMany := strings.Builder{}
 	tooMany.WriteString("heuristic:\n  ignored_user_agent_prefixes:\n")
-	for i := 0; i < sessionclassification.MaxIgnoredUserAgentPrefixes+1; i++ {
+	for i := range sessionclassification.MaxIgnoredUserAgentPrefixes + 1 {
 		fmt.Fprintf(&tooMany, "    - prefix-%d\n", i)
 	}
 	tooLong := fmt.Sprintf("heuristic:\n  ignored_user_agent_prefixes:\n    - %q\n", strings.Repeat("x", sessionclassification.MaxIgnoredUserAgentPrefixBytes+1))

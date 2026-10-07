@@ -271,7 +271,7 @@ func TestSkippedOccurrencesAreCountedByBoundedReason(t *testing.T) {
 func TestTheSkipSeriesIsBoundedByTheClosedVocabulary(t *testing.T) {
 	t.Parallel()
 	tel := telemetry.New(config.Shape{Enabled: true, Mode: rewrite.ModeRewrite})
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		tel.ObserveOutbound(outbound.Report{
 			Outcome: outbound.OutcomeRewriterRan,
 			Stats: rewrite.Stats{
@@ -598,7 +598,7 @@ func TestTheSnapshotIsBoundedWhateverTheTraffic(t *testing.T) {
 	// bounded slot.
 	var outboundUnknown, outboundLastGenuine int64
 	var expansionUnknown, expansionLastGenuine int64
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		if outbound.Outcome(100+i) > outbound.OutcomeWorkspaceUnresolved {
 			outboundUnknown++
 		}
@@ -726,11 +726,11 @@ func TestTheTelemetryIsSafeUnderConcurrentReporters(t *testing.T) {
 	tel := telemetry.New(config.Shape{Enabled: true, Mode: rewrite.ModeRewrite})
 	const writers, perWriter = 8, 64
 	var wg sync.WaitGroup
-	for writer := 0; writer < writers; writer++ {
+	for writer := range writers {
 		wg.Add(1)
 		go func(writer int) {
 			defer wg.Done()
-			for i := 0; i < perWriter; i++ {
+			for range perWriter {
 				tel.ObserveOutbound(outbound.Report{
 					Outcome: outbound.OutcomeRewriterRan,
 					Stats: rewrite.Stats{
@@ -763,7 +763,7 @@ func TestTheTelemetryIsSafeUnderConcurrentReporters(t *testing.T) {
 	// Repeated reads of an unchanged recorder must be identical, which is what makes the
 	// -count=5 determinism obligation hold.
 	first := mustJSON(t, snapshot)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if got := mustJSON(t, tel.Snapshot()); got != first {
 			t.Fatalf("snapshot %d differs from the first: %s != %s", i, got, first)
 		}
@@ -778,7 +778,7 @@ func TestIdenticalTrafficProducesIdenticalSnapshots(t *testing.T) {
 	t.Parallel()
 	feed := func() string {
 		tel := telemetry.New(config.Shape{Enabled: true, Mode: rewrite.ModeRewrite})
-		for i := 0; i < 16; i++ {
+		for i := range 16 {
 			tel.ObserveOutbound(outbound.Report{
 				Outcome:    outbound.OutcomeProjectRootUnusable,
 				RootReason: mixedRootReason(i),
@@ -795,7 +795,7 @@ func TestIdenticalTrafficProducesIdenticalSnapshots(t *testing.T) {
 		return mustJSON(t, tel.Snapshot())
 	}
 	first := feed()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if got := feed(); got != first {
 			t.Fatalf("run %d produced a different snapshot:\nfirst=%s\ngot=%s", i, first, got)
 		}
@@ -837,7 +837,7 @@ func TestTheInventoryIsImmutableAgainstLaterConfiguration(t *testing.T) {
 	resolved := hostileResolve(t, hostileConfig)
 	tel := telemetry.New(resolved.Shape())
 	first := mustJSON(t, tel.Inventory())
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		if got := mustJSON(t, tel.Inventory()); got != first {
 			t.Fatalf("inventory read %d differs: %s != %s", i, got, first)
 		}

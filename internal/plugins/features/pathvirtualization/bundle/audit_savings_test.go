@@ -1454,7 +1454,7 @@ const savingsRootReasonSlots = 7
 // start failing, or silently stop bounding, the day the vocabulary changed.
 func savingsVocabularySize(label func(int) string) int {
 	const ceiling = 256
-	for size := 0; size < ceiling; size++ {
+	for size := range ceiling {
 		if label(size) == "unknown" {
 			return size
 		}
