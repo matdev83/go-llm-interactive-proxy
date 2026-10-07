@@ -234,6 +234,16 @@ classify_diff() {
   printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\nbilling_schema=%s\nos_sensitive=%s\nproto=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive" "$proto"
 }
 
+# Fixture repositories disable background maintenance: a commit otherwise
+# spawns a detached "git maintenance run --auto" that can still be writing
+# into .git when the fixture is removed ("rm: cannot remove .git: Directory
+# not empty").
+init_fixture_repo() {
+  git -C "$1" init -q
+  git -C "$1" config maintenance.auto false
+  git -C "$1" config gc.auto 0
+}
+
 self_test() {
   local relevant unrelated output tmp base head script_path
 
@@ -359,7 +369,7 @@ self_test() {
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
   script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-  git -C "$tmp" init -q
+  init_fixture_repo "$tmp"
   git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit --allow-empty -qm base
   base="$(git -C "$tmp" rev-parse HEAD)"
   relevant=$'internal/plugins/protocols/openresponses/scope\nfixture.go'
@@ -380,7 +390,7 @@ self_test() {
   # diff must retain Kiro policy validation without enabling runtime/test work.
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
-  git -C "$tmp" init -q
+  init_fixture_repo "$tmp"
   git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit --allow-empty -qm base
   base="$(git -C "$tmp" rev-parse HEAD)"
   mkdir -p "$tmp/.kiro/specs/example"
@@ -409,7 +419,7 @@ self_test() {
   # only when the changed lines mention billing.
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
-  git -C "$tmp" init -q
+  init_fixture_repo "$tmp"
   mkdir -p "$tmp/.github/workflows"
   printf '.PHONY: help\nhelp:\n\t@echo usage\n' > "$tmp/Makefile"
   printf 'jobs:\n  test:\n    name: t\n' > "$tmp/.github/workflows/ci.yml"
