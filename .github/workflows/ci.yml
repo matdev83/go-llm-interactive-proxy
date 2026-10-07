@@ -34,6 +34,7 @@ jobs:
       test_cost: ${{ steps.filter.outputs.test_cost }}
       billing_schema: ${{ steps.filter.outputs.billing_schema }}
       os_sensitive: ${{ steps.filter.outputs.os_sensitive }}
+      proto: ${{ steps.filter.outputs.proto }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -138,11 +139,11 @@ jobs:
         run: go run ./tools/changesize --base "$BASE_SHA" --head HEAD
 
       - name: Install buf
-        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        if: needs.changes.result == 'success' && needs.changes.outputs.proto == 'true' && github.event_name == 'pull_request'
         run: go install github.com/bufbuild/buf/cmd/buf@v1.66.0
 
       - name: Protobuf contract gate
-        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        if: needs.changes.result == 'success' && needs.changes.outputs.proto == 'true' && github.event_name == 'pull_request'
         shell: bash
         run: bash scripts/proto-check.sh
 
