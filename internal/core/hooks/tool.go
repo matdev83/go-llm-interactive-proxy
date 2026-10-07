@@ -57,8 +57,7 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 			case sdk.ToolReactorErrorsSwallowEvent:
 				return ToolApplyResult{Emit: false, Event: lipapi.ToolEvent{}}
 			default:
-				var pe *safety.PanicError
-				if errors.As(err, &pe) {
+				if _, ok := errors.AsType[*safety.PanicError](err); ok {
 					logFailOpenHookPanic(ctx, "tool_reactor", r.ID(), err)
 				}
 				continue

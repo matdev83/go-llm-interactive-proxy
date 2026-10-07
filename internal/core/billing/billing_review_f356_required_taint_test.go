@@ -124,7 +124,6 @@ func TestReviewF356MissingRequiredPartitionMemberIsNotComplete(t *testing.T) {
 			b1Measure(t, total, "100"),
 			b1Measure(t, b1, "60"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -156,7 +155,6 @@ func TestReviewF356MissingRequiredPartitionMemberIsNotComplete(t *testing.T) {
 			b1Measure(t, b1, "60"),
 			b1Measure(t, c, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -184,7 +182,6 @@ func TestReviewF356MissingRequiredPartitionMemberIsNotComplete(t *testing.T) {
 			b1Measure(t, total, "60"),
 			b1Measure(t, b1, "60"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -213,7 +210,6 @@ func TestReviewF356MissingRequiredPartitionMemberIsNotComplete(t *testing.T) {
 			b1Measure(t, b1, "60"),
 			b1UnavailableMeasure(c))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -245,7 +241,6 @@ func TestReviewF356MissingRequiredPartitionMemberIsNotComplete(t *testing.T) {
 			b1Measure(t, pricedTotal, "60"),
 			b1Measure(t, b1, "60"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -275,7 +270,6 @@ func TestReviewF356MissingRequiredPartitionMemberIsNotComplete(t *testing.T) {
 			b1Measure(t, b1, "60"),
 			b1Measure(t, c, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				rejected, err := seam.rate(t, resolved, partial)
@@ -329,7 +323,6 @@ func TestReviewF356TaintedAbsentParentFailsClosed(t *testing.T) {
 			b1Measure(t, c, "40"),
 			b1Measure(t, d, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -364,7 +357,6 @@ func TestReviewF356TaintedAbsentParentFailsClosed(t *testing.T) {
 			b1Measure(t, c, "40"),
 			b1Measure(t, d, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -387,7 +379,6 @@ func TestReviewF356TaintedAbsentParentFailsClosed(t *testing.T) {
 			b1Measure(t, sharedB, "60"),
 			b1Measure(t, c, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -413,7 +404,6 @@ func TestReviewF356TaintedAbsentParentFailsClosed(t *testing.T) {
 			b1Measure(t, sharedB, "60"),
 			b1Measure(t, c, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -441,7 +431,6 @@ func TestReviewF356TaintedAbsentParentFailsClosed(t *testing.T) {
 			b1Measure(t, a, "60"),
 			b1Measure(t, sharedB, "60"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -476,7 +465,6 @@ func TestReviewF356TaintedAbsentParentFailsClosed(t *testing.T) {
 			b1Measure(t, c, "40"),
 			b1Measure(t, d, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -518,7 +506,6 @@ func TestReviewF356TaintedAbsentParentFailsClosed(t *testing.T) {
 			b1Measure(t, c, "40"),
 			b1Measure(t, d, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -542,7 +529,6 @@ func TestReviewF356TaintedAbsentParentFailsClosed(t *testing.T) {
 			{name: "shared_first", relationships: append(f356Partition(z, -1, sharedB), f356Partition(a, -1, sharedB, c)...)},
 			{name: "a_first", relationships: append(f356Partition(a, -1, sharedB, c), f356Partition(z, -1, sharedB)...)},
 		} {
-			order := order
 			t.Run(order.name, func(t *testing.T) {
 				t.Parallel()
 				rules := []economics.RatingRule{
@@ -557,7 +543,6 @@ func TestReviewF356TaintedAbsentParentFailsClosed(t *testing.T) {
 					b1Measure(t, c, "40"),
 					b1Measure(t, d, "20"))
 				for _, seam := range review5beSeams() {
-					seam := seam
 					t.Run(seam.name, func(t *testing.T) {
 						t.Parallel()
 						val, err := seam.rate(t, resolved, obs)
@@ -601,7 +586,6 @@ func TestReviewF356RecursiveCoverPropagatesToCompleteness(t *testing.T) {
 			b1Measure(t, y, "30"),
 			b1Measure(t, c, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -649,7 +633,6 @@ func TestReviewF356RecursiveCoverPropagatesToCompleteness(t *testing.T) {
 			b1Measure(t, y, "60"),
 			b1Measure(t, c, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -680,7 +663,6 @@ func TestReviewF356RecursiveCoverPropagatesToCompleteness(t *testing.T) {
 			b1Measure(t, x, "30"),
 			b1Measure(t, c, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)

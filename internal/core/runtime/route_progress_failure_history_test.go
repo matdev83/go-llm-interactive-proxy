@@ -173,13 +173,11 @@ func TestErrorPrecedenceMatrix(t *testing.T) {
 			got := h.FinalError(errBase)
 			switch tc.expected {
 			case errTransport:
-				var gotT *lipapi.TransportRejectError
-				if !errors.As(got, &gotT) {
+				if _, ok := errors.AsType[*lipapi.TransportRejectError](got); !ok {
 					t.Fatalf("expected TransportRejectError, got %v", got)
 				}
 			case errCapability:
-				var gotC *lipapi.RejectError
-				if !errors.As(got, &gotC) {
+				if _, ok := errors.AsType[*lipapi.RejectError](got); !ok {
 					t.Fatalf("expected RejectError, got %v", got)
 				}
 			default:

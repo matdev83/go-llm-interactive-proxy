@@ -86,7 +86,7 @@ func r5bNovelMeasure(index int, value string) metering.Measure {
 // budget.
 func r5bWideMeasure(index int) metering.Measure {
 	dimensions := make([]metering.Dimension, 0, metering.MaxDimensions)
-	for d := 0; d < metering.MaxDimensions; d++ {
+	for d := range metering.MaxDimensions {
 		dimensions = append(dimensions, metering.Dimension{
 			Name:  fmt.Sprintf("dim-%02d-%d", d, index),
 			Value: strings.Repeat("v", metering.MaxDimensionValueBytes),
@@ -266,7 +266,7 @@ func TestEconomicCheckpointDurableHeadMetadataStaysBounded(t *testing.T) {
 		attempt := r5bAttempt(sink)
 		const sourceKey = "r5b-head-fields"
 		const revisions = 1000
-		for i := 0; i < revisions; i++ {
+		for i := range revisions {
 			observation := r5bCumulativeObservation(sourceKey, uint64(i+1), []metering.Measure{r5bNovelMeasure(i, "1")}, nil)
 			if admission := attempt.queueEconomicCheckpoint(observation); admission == economicCheckpointRejected {
 				t.Fatalf("revision %d unexpectedly rejected", i+1)
@@ -322,7 +322,7 @@ func TestEconomicCheckpointDurableHeadMetadataStaysBounded(t *testing.T) {
 		attempt := r5bAttempt(sink)
 		const sourceKey = "r5b-head-wide"
 		const revisions = 200
-		for i := 0; i < revisions; i++ {
+		for i := range revisions {
 			observation := r5bCumulativeObservation(sourceKey, uint64(i+1), []metering.Measure{r5bWideMeasure(i)}, nil)
 			if admission := attempt.queueEconomicCheckpoint(observation); admission == economicCheckpointRejected {
 				t.Fatalf("revision %d unexpectedly rejected", i+1)
@@ -364,7 +364,7 @@ func TestEconomicCheckpointDurableHeadMetadataStaysBounded(t *testing.T) {
 			bytes:      maxEconomicCheckpointHeadMetadataBytes,
 		}
 		var head checkpointDurableHead
-		for i := 0; i < 200; i++ {
+		for i := range 200 {
 			head = head.record(metering.Observation{
 				Semantics:  metering.SemanticsReplacement,
 				Revision:   uint64(i + 1),
@@ -391,9 +391,9 @@ func TestEconomicCheckpointDurableHeadMetadataStaysBounded(t *testing.T) {
 		attempt := r5bAttempt(sink)
 		sources := maxEconomicCheckpointAggregateHeadSources + 1
 		perSource := maxEconomicCheckpointHeadFields
-		for i := 0; i < sources; i++ {
+		for i := range sources {
 			measures := make([]metering.Measure, 0, perSource)
-			for j := 0; j < perSource; j++ {
+			for j := range perSource {
 				measures = append(measures, r5bNovelMeasure(i*perSource+j, "1"))
 			}
 			observation := r5bCumulativeObservation(fmt.Sprintf("r5b-agg-%d", i), 1, measures, nil)
@@ -475,7 +475,7 @@ func TestEconomicCheckpointFailingSinkStaysBoundedAndSticky(t *testing.T) {
 
 	const overflow = 7
 	feed := r5bCheckpointCapacity + overflow
-	for i := 0; i < feed; i++ {
+	for i := range feed {
 		observation := r5bCumulativeObservation(fmt.Sprintf("r5b-fail-%d", i), 1, []metering.Measure{r5bNovelMeasure(i, "1")}, nil)
 		attempt.rememberEconomicEvidenceOnce(execbackend.EconomicEvidence{Observation: observation, Coverage: "complete"})
 	}
@@ -542,9 +542,9 @@ func TestEconomicCheckpointFailingSinkStaysBoundedAndSticky(t *testing.T) {
 
 	// Healthy flushes must also respect the durable-head aggregate budget.
 	sources := maxEconomicCheckpointAggregateHeadSources + 1
-	for i := 0; i < sources; i++ {
+	for i := range sources {
 		measures := make([]metering.Measure, 0, maxEconomicCheckpointHeadFields)
-		for j := 0; j < maxEconomicCheckpointHeadFields; j++ {
+		for j := range maxEconomicCheckpointHeadFields {
 			measures = append(measures, r5bNovelMeasure(100000+i*maxEconomicCheckpointHeadFields+j, "1"))
 		}
 		observation := r5bCumulativeObservation(fmt.Sprintf("r5b-fail-heal-%d", i), 1, measures, nil)
@@ -866,7 +866,7 @@ func TestEconomicCheckpointDurableHeadLiteralBudgetRejectsAtCeiling(t *testing.T
 		attempt := r5bAttempt(sink)
 		const sourceKey = "r5b-literal-head"
 		const size, count = 448, 128
-		for i := 0; i < count; i++ {
+		for i := range count {
 			observation := r5bCumulativeObservation(sourceKey, uint64(i+1), []metering.Measure{r5bCanonicalKeyOfSize(i, size)}, nil)
 			if admission := attempt.queueEconomicCheckpoint(observation); admission == economicCheckpointRejected {
 				t.Fatalf("revision %d unexpectedly rejected", i+1)
@@ -912,9 +912,9 @@ func TestEconomicCheckpointDurableHeadLiteralBudgetRejectsAtCeiling(t *testing.T
 		sink := &refinement41ObservationSink{}
 		attempt := r5bAttempt(sink)
 		const size, perHead, heads = 448, 128, 16
-		for h := 0; h < heads; h++ {
+		for h := range heads {
 			sourceKey := fmt.Sprintf("r5b-literal-agg-%02d", h)
-			for i := 0; i < perHead; i++ {
+			for i := range perHead {
 				observation := r5bCumulativeObservation(sourceKey, uint64(i+1), []metering.Measure{r5bCanonicalKeyOfSize(h*perHead+i, size)}, nil)
 				if admission := attempt.queueEconomicCheckpoint(observation); admission == economicCheckpointRejected {
 					t.Fatalf("head %d revision %d unexpectedly rejected", h, i+1)
@@ -986,7 +986,7 @@ func r5bCanonicalKeyOfExactSize(index, size int) metering.Measure {
 		Unit:      metering.UnitToken,
 		SchemaID:  "r5b.schema",
 	}
-	for d := 0; d < metering.MaxDimensions; d++ {
+	for d := range metering.MaxDimensions {
 		base.Dimensions = append(base.Dimensions, metering.Dimension{Name: fmt.Sprintf("d%02d", d), Value: "v"})
 	}
 	normalized, err := base.Normalize()
@@ -1079,7 +1079,7 @@ func TestEconomicCheckpointDurableHeadBackingStaysWithinBudget(t *testing.T) {
 		attempt := r5bAttempt(sink)
 		const sourceKey = "r5b-backing-head"
 		const feed = 40
-		for i := 0; i < feed; i++ {
+		for i := range feed {
 			observation := r5bCumulativeObservation(sourceKey, uint64(i+1), []metering.Measure{r5bCanonicalKeyOfExactSize(i, keySize)}, nil)
 			if admission := attempt.queueEconomicCheckpoint(observation); admission == economicCheckpointRejected {
 				t.Fatalf("revision %d unexpectedly rejected", i+1)
@@ -1119,9 +1119,9 @@ func TestEconomicCheckpointDurableHeadBackingStaysWithinBudget(t *testing.T) {
 		attempt := r5bAttempt(sink)
 		const heads = maxEconomicCheckpointAggregateHeadSources
 		const feed = 40
-		for h := 0; h < heads; h++ {
+		for h := range heads {
 			sourceKey := fmt.Sprintf("r5b-backing-agg-%02d", h)
-			for i := 0; i < feed; i++ {
+			for i := range feed {
 				observation := r5bCumulativeObservation(sourceKey, uint64(i+1), []metering.Measure{r5bCanonicalKeyOfExactSize(h*feed+i, keySize)}, nil)
 				if admission := attempt.queueEconomicCheckpoint(observation); admission == economicCheckpointRejected {
 					t.Fatalf("head %d revision %d unexpectedly rejected", h, i+1)

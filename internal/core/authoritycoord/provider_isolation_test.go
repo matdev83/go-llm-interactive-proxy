@@ -96,8 +96,7 @@ func TestRequestCoordinator_MalformedDecisionReleasesOwnHold(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from malformed decision")
 	}
-	var unavail *authoritycoord.UnavailableError
-	if !errors.As(err, &unavail) {
+	if _, ok := errors.AsType[*authoritycoord.UnavailableError](err); !ok {
 		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if d.Kind != authority.DecisionDeny {
@@ -252,8 +251,7 @@ func TestAttemptCoordinator_IsolatesProviderPanic(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from attempt provider panic")
 	}
-	var unavail *authoritycoord.UnavailableError
-	if !errors.As(err, &unavail) {
+	if _, ok := errors.AsType[*authoritycoord.UnavailableError](err); !ok {
 		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 }
@@ -280,8 +278,7 @@ func TestAttemptCoordinator_MalformedDecisionReleasesOwnHold(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable error from malformed attempt decision")
 	}
-	var unavail *authoritycoord.UnavailableError
-	if !errors.As(err, &unavail) {
+	if _, ok := errors.AsType[*authoritycoord.UnavailableError](err); !ok {
 		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if d.Kind != authority.DecisionDeny {

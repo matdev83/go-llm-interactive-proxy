@@ -41,8 +41,7 @@ func RunSessionOpenStage(ctx context.Context, log *slog.Logger, obs StageMetrics
 		})
 		if err != nil {
 			if log != nil {
-				var pe *safety.PanicError
-				if errors.As(err, &pe) {
+				if _, ok := errors.AsType[*safety.PanicError](err); ok {
 					logFailOpenExtensionPanic(ctx, log, "session_open", o.ID(), err)
 				} else {
 					log.WarnContext(ctx, "session_open: opener error (fail-open)", "opener", o.ID(), "error", err)

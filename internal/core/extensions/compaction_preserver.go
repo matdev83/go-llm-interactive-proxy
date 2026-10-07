@@ -391,8 +391,7 @@ func isolatePreserverFailure(ctx context.Context, log *slog.Logger, obs StageMet
 	if err == nil {
 		return
 	}
-	var pe *safety.PanicError
-	if errors.As(err, &pe) {
+	if _, ok := errors.AsType[*safety.PanicError](err); ok {
 		if log != nil {
 			log.WarnContext(ctx, "compaction preservation callback failed (fail-open)", "preserver", id, "stage", stage, "outcome", "panic")
 		}

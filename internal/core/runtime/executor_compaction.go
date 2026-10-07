@@ -291,8 +291,7 @@ func isolateCompactionDetectorFailure(ctx context.Context, log *slog.Logger, obs
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var pe *safety.PanicError
-	if errors.As(err, &pe) {
+	if pe, ok := errors.AsType[*safety.PanicError](err); ok {
 		if log != nil {
 			attrs := []slog.Attr{
 				slog.String("operation", operation),

@@ -109,7 +109,6 @@ func TestUncertaintyV1LocalSiblingReportsWithoutChangingMoney(t *testing.T) {
 func TestUncertaintyV1ProviderQuantityAndRetailSiblingReports(t *testing.T) {
 	t.Parallel()
 	for _, basis := range []economics.ValuationBasis{economics.BasisProviderQuantityLocal, economics.BasisCustomerPolicy} {
-		basis := basis
 		t.Run(string(basis), func(t *testing.T) {
 			t.Parallel()
 			assertUncertaintyV1Acceptance29(t, basis)

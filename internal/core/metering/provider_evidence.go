@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -270,9 +271,9 @@ func (b *ProviderEvidenceBuffer) Add(draft ProviderEvidenceDraft) {
 	// would incorrectly discard the final A. Pending drafts are checked first,
 	// then the last accepted drained payload supplies the cross-drain anchor.
 	latest := b.lastFingerprint[key]
-	for i := len(b.drafts) - 1; i >= 0; i-- {
-		if b.drafts[i].SourceEventKey == key {
-			pendingHash, pendingErr := draftFingerprint(b.drafts[i])
+	for _, draft := range slices.Backward(b.drafts) {
+		if draft.SourceEventKey == key {
+			pendingHash, pendingErr := draftFingerprint(draft)
 			if pendingErr != nil {
 				// An accepted pending draft must always fingerprint. If the
 				// baseline can no longer be encoded, never let the failure

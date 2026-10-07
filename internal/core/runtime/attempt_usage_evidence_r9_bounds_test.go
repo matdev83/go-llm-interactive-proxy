@@ -200,7 +200,7 @@ func TestR9EconomicStickyMarkerSurvivesFullConflictCapacity(t *testing.T) {
 	base := r3EconomicObservation("obs-r9-saturated-cap")
 	identity := base.IdentityKey()
 	attempt.rememberEconomicEvidenceOnce(r3Evidence(base, "complete", ""))
-	for i := 0; i < billing.MaxCallLegEvidenceConflicts; i++ {
+	for i := range billing.MaxCallLegEvidenceConflicts {
 		attempt.rememberEconomicEvidenceOnce(r3Evidence(base, "unsupported", "reason-"+strconv.Itoa(i)))
 	}
 	for i := 0; i <= maxEconomicIdentityConflictVariants; i++ {

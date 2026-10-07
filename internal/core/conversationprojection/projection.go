@@ -3,6 +3,7 @@ package conversationprojection
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -117,8 +118,8 @@ func ResolveAfterIngressTailAnchor(call lipapi.Call, snap Snapshot) (MessageAnch
 	if call.HasItemAuthority() {
 		// Establish concrete terminal message boundary before filtering.
 		termIdx := -1
-		for i := len(call.Items) - 1; i >= 0; i-- {
-			if call.Items[i].Kind == lipapi.ItemKindMessage {
+		for i, item := range slices.Backward(call.Items) {
+			if item.Kind == lipapi.ItemKindMessage {
 				termIdx = i
 				break
 			}

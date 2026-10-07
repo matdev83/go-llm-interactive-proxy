@@ -163,7 +163,6 @@ func TestSecretGuardObservabilityCanaries_ComposedPaths(t *testing.T) {
 	}
 
 	for index, tc := range cases {
-		index, tc := index, tc
 		t.Run(tc.name, func(t *testing.T) {
 			guard, services := newCanaryGuard(t, tc.action, tc.exact, tc.better, tc.secret)
 			generation, ok := services.Capability.(*featuresecretguard.GenerationServices)
@@ -172,7 +171,7 @@ func TestSecretGuardObservabilityCanaries_ComposedPaths(t *testing.T) {
 			}
 			diagnostic := canaryDiagnosticJSON(t, generation)
 			if !bytes.Contains(diagnostic, []byte(`"secret_guard"`)) ||
-				!bytes.Contains(diagnostic, []byte(fmt.Sprintf(`"betterleaks_enabled":%t`, tc.better))) {
+				!bytes.Contains(diagnostic, fmt.Appendf(nil, `"betterleaks_enabled":%t`, tc.better)) {
 				t.Fatalf("canary detector posture mismatch: case=%d", index)
 			}
 			sinks.add("diagnostics-"+tc.name, diagnostic)
@@ -244,7 +243,7 @@ func TestSecretGuardObservabilityCanaries_ComposedPaths(t *testing.T) {
 				if denial == nil {
 					t.Fatalf("canary denial error missing: case=%d", index)
 				}
-				sinks.add("denial-error", []byte(fmt.Sprint(denial)))
+				sinks.add("denial-error", fmt.Append(nil, denial))
 				sinks.add("denial-error-json", mustJSON(t, denial))
 			}
 			if raw, err := json.Marshal(decision); err != nil {
@@ -525,7 +524,7 @@ func assertCanaryMetricLabels(t *testing.T, text string) {
 	t.Helper()
 	allowed := map[string]bool{"action": true, "outcome": true, "source_category": true}
 	found := false
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if !strings.HasPrefix(line, "lip_secret_guard_") {
 			continue
 		}
@@ -535,7 +534,7 @@ func assertCanaryMetricLabels(t *testing.T, text string) {
 		if open < 0 || close < open {
 			continue
 		}
-		for _, label := range strings.Split(line[open+1:close], ",") {
+		for label := range strings.SplitSeq(line[open+1:close], ",") {
 			name, _, ok := strings.Cut(label, "=")
 			if !ok || !allowed[strings.TrimSpace(name)] {
 				t.Fatalf("anti-secret metric label failure: line=%d", len(line))

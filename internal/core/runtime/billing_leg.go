@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -560,9 +561,9 @@ func (t *turnTerminal) finalizeOnceWithEvidence(ctx context.Context, state *bill
 }
 
 func lastUsageDeltaOrShell(events []lipapi.Event) lipapi.Event {
-	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Kind == lipapi.EventUsageDelta {
-			return events[i]
+	for _, event := range slices.Backward(events) {
+		if event.Kind == lipapi.EventUsageDelta {
+			return event
 		}
 	}
 	return emptyOperatorUsageShell()

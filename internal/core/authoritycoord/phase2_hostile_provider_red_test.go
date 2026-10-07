@@ -337,8 +337,7 @@ func TestPhase2_UnavailableTruthTable_RequiredFailOpenInfraDegrades(t *testing.T
 				t.Fatal("want error")
 			}
 			if tc.wantUnavailable {
-				var unavail *authoritycoord.UnavailableError
-				if !errors.As(err, &unavail) {
+				if _, ok := errors.AsType[*authoritycoord.UnavailableError](err); !ok {
 					t.Fatalf("want UnavailableError, got %T %v", err, err)
 				}
 			}
@@ -406,8 +405,7 @@ func TestPhase2_MalformedHolds_RejectedAndCompensated(t *testing.T) {
 	if err == nil {
 		t.Fatal("malformed holds must fail closed (req 4.2–4.3)")
 	}
-	var unavail *authoritycoord.UnavailableError
-	if !errors.As(err, &unavail) {
+	if _, ok := errors.AsType[*authoritycoord.UnavailableError](err); !ok {
 		t.Fatalf("want UnavailableError for malformed holds, got %T %v", err, err)
 	}
 	if prior.released.Load() != 1 {
@@ -472,8 +470,7 @@ func TestPhase2_Settle_EmptyAndForeignHandlesUnavailableNotSettled(t *testing.T)
 			if err == nil {
 				t.Fatal("malformed settlement must be unavailable (req 4.5; D5)")
 			}
-			var unavail *authoritycoord.UnavailableError
-			if !errors.As(err, &unavail) {
+			if _, ok := errors.AsType[*authoritycoord.UnavailableError](err); !ok {
 				t.Fatalf("want UnavailableError, got %T %v", err, err)
 			}
 			first := p.settled.Load()
@@ -818,8 +815,7 @@ func TestPhase2_MalformedLease_OwnershipGenerationTiming(t *testing.T) {
 				Now:            func() time.Time { return now },
 			}
 			_, err := coord.Admit(context.Background(), validRequestAdmission())
-			var unavail *authoritycoord.UnavailableError
-			if !errors.As(err, &unavail) {
+			if _, ok := errors.AsType[*authoritycoord.UnavailableError](err); !ok {
 				t.Fatalf("malformed lease must be UnavailableError, got %T %v (req 4.1)", err, err)
 			}
 		})
@@ -842,8 +838,7 @@ func TestPhase2_ProviderPanic_OperatorSafeNoRawPayloadLeak(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unavailable")
 	}
-	var unavail *authoritycoord.UnavailableError
-	if !errors.As(err, &unavail) {
+	if _, ok := errors.AsType[*authoritycoord.UnavailableError](err); !ok {
 		t.Fatalf("want UnavailableError, got %T %v", err, err)
 	}
 	if strings.Contains(err.Error(), secret) {

@@ -176,9 +176,9 @@ const hotPathMaxStageAllocs = 16
 // The control is the SAME wire request with no classifier plane, so the difference
 // between the two runs is the plane and nothing else.
 func TestSessionClassificationPlaneKeepsTheWireLaneWireEligible(t *testing.T) {
-	run := func(tb *testing.T, bundle testFeatureBundle) (wireOpens, canonicalOpens, commits int32) {
-		tb.Helper()
-		ex, metrics, _ := setupTestExecutor(tb)
+	run := func(t *testing.T, bundle testFeatureBundle) (wireOpens, canonicalOpens, commits int32) {
+		t.Helper()
+		ex, metrics, _ := setupTestExecutor(t)
 		var wire, canonical atomic.Int32
 		ex.Backends = map[string]execbackend.Backend{
 			"default": {
@@ -202,11 +202,11 @@ func TestSessionClassificationPlaneKeepsTheWireLaneWireEligible(t *testing.T) {
 		})
 
 		src := newTestSource(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
-		assessment := makeTestAcceptedAssessment(tb, "gen-1", "openai-chat", src, true)
+		assessment := makeTestAcceptedAssessment(t, "gen-1", "openai-chat", src, true)
 		principalCtx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "usr-hot-path-wire"})
 		ctx := largebody.ContextWithWireProof(principalCtx, wireClassificationProof(hotPathWireEvidence), "req-hot-path-wire")
 		if _, err := ex.ExecuteLargeBody(ctx, assessment, src); err != nil {
-			tb.Fatalf("ExecuteLargeBody: %v", err)
+			t.Fatalf("ExecuteLargeBody: %v", err)
 		}
 		return wire.Load(), canonical.Load(), metrics.newCalls.Load()
 	}

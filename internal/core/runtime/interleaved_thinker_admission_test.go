@@ -1032,7 +1032,10 @@ func TestInterleavedThinkerAdmission_LiveWithdrawalAfterAdmittedObserveReleasesN
 
 	for _, mode := range []string{"visible", "hidden"} {
 		for _, w := range []barrierLiveWithdrawal{
-			{name: "original caller", apply: func(t *testing.T, rig *barrierRig, caller context.CancelFunc) { cancelRigCaller(rig, caller) }},
+			{name: "original caller", apply: func(t *testing.T, rig *barrierRig, caller context.CancelFunc) {
+				t.Helper()
+				cancelRigCaller(rig, caller)
+			}},
 			{name: "shared a-leg", apply: cancelRigSharedALeg},
 		} {
 			t.Run(mode+"/"+w.name, func(t *testing.T) {
@@ -1101,7 +1104,10 @@ func TestInterleavedThinkerAdmission_LiveWithdrawalAfterAdmittedFlushReleasesNoO
 	t.Parallel()
 
 	for _, w := range []barrierLiveWithdrawal{
-		{name: "original caller", apply: func(t *testing.T, rig *barrierRig, caller context.CancelFunc) { cancelRigCaller(rig, caller) }},
+		{name: "original caller", apply: func(t *testing.T, rig *barrierRig, caller context.CancelFunc) {
+			t.Helper()
+			cancelRigCaller(rig, caller)
+		}},
 		{name: "shared a-leg", apply: cancelRigSharedALeg},
 	} {
 		t.Run(w.name, func(t *testing.T) {
@@ -1158,7 +1164,10 @@ func TestInterleavedThinkerAdmission_LiveWithdrawalBetweenQueuedLifecycleAndReas
 	t.Parallel()
 
 	for _, w := range []barrierLiveWithdrawal{
-		{name: "original caller", apply: func(t *testing.T, rig *barrierRig, caller context.CancelFunc) { cancelRigCaller(rig, caller) }},
+		{name: "original caller", apply: func(t *testing.T, rig *barrierRig, caller context.CancelFunc) {
+			t.Helper()
+			cancelRigCaller(rig, caller)
+		}},
 		{name: "shared a-leg", apply: cancelRigSharedALeg},
 	} {
 		t.Run(w.name, func(t *testing.T) {

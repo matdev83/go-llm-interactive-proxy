@@ -108,7 +108,6 @@ func TestReview5beConservationBeforePricingExclusions(t *testing.T) {
 			b1Measure(t, childB, "60"),
 			b1Measure(t, childC, "60"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -135,7 +134,6 @@ func TestReview5beConservationBeforePricingExclusions(t *testing.T) {
 			b1Measure(t, childB, "60"),
 			b1Measure(t, childC, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -188,7 +186,6 @@ func TestReview5beUnpricedZeroDoesNotHideAmbiguousInconsistency(t *testing.T) {
 		b1Measure(t, childC, "0"))
 
 	for _, seam := range review5beSeams() {
-		seam := seam
 		t.Run(seam.name, func(t *testing.T) {
 			t.Parallel()
 			val, err := seam.rate(t, resolved, obs)
@@ -252,7 +249,6 @@ func TestReview5beRecursivePaidCoverMustNotDoubleCharge(t *testing.T) {
 			b1Measure(t, subsetD, "20"))
 
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -284,7 +280,6 @@ func TestReview5beRecursivePaidCoverMustNotDoubleCharge(t *testing.T) {
 			b1Measure(t, partC, "40"))
 
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -319,7 +314,6 @@ func TestReview5beRecursivePaidCoverMustNotDoubleCharge(t *testing.T) {
 			b1Measure(t, subsetD, "20"))
 
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -350,7 +344,6 @@ func TestReview5beRecursivePaidCoverMustNotDoubleCharge(t *testing.T) {
 			b1Measure(t, partC, "40"))
 
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -417,7 +410,6 @@ func TestReview5beRecursivePaidCoverMustNotDoubleCharge(t *testing.T) {
 			b1Measure(t, nestedD, "20"))
 
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -472,7 +464,6 @@ func TestReview5beRedundantSubsetPathDoesNotDuplicateACharge(t *testing.T) {
 		b1Measure(t, partC, "40"))
 
 	for _, seam := range review5beSeams() {
-		seam := seam
 		t.Run(seam.name, func(t *testing.T) {
 			t.Parallel()
 			val, err := seam.rate(t, resolved, obs)
@@ -541,7 +532,6 @@ func TestReview5beRedundantSubsetWithExtraPricedSubsetStillRejected(t *testing.T
 		b1Measure(t, extraE, "20"))
 
 	for _, seam := range review5beSeams() {
-		seam := seam
 		t.Run(seam.name, func(t *testing.T) {
 			t.Parallel()
 			val, err := seam.rate(t, resolved, obs)

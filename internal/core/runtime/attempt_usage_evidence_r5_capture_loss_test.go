@@ -37,7 +37,7 @@ func r5ScenarioObservation(sequence int) metering.Observation {
 
 func r5ScenarioObservations(count int) []metering.Observation {
 	out := make([]metering.Observation, 0, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		out = append(out, r5ScenarioObservation(i))
 	}
 	return out

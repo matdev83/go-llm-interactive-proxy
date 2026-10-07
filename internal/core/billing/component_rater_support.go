@@ -356,7 +356,7 @@ func shadowContributingRelations(
 	}
 	scope := newShadowScope(program, cover)
 	pairs := make([]shadowOverlapPair, 0, len(positive)*(len(positive)-1)/2)
-	for i := 0; i < len(positive); i++ {
+	for i := range positive {
 		for j := i + 1; j < len(positive); j++ {
 			pairs = append(pairs, shadowOverlapPair{
 				a:        positive[i],

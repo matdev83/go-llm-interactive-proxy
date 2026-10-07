@@ -148,8 +148,7 @@ func TestApplyToolReactors_rewrite_invalidCanonicalFailsClosed(t *testing.T) {
 	if out.Emit || out.Err == nil {
 		t.Fatalf("want validation error, got %#v", out)
 	}
-	var hm *lipapi.HookMutationError
-	if !errors.As(out.Err, &hm) {
+	if _, ok := errors.AsType[*lipapi.HookMutationError](out.Err); !ok {
 		t.Fatalf("want HookMutationError wrapped, got %v", out.Err)
 	}
 }

@@ -39,8 +39,7 @@ func TestRunPreRequestStage_DenyReturnsPolicyDenied(t *testing.T) {
 		t.Fatalf("pre-request deny must be policy denied, got %v", err)
 	}
 	// Legacy RejectError must still be reachable so existing callers/tests keep working.
-	var re *prerequest.RejectError
-	if !errors.As(err, &re) {
+	if _, ok := errors.AsType[*prerequest.RejectError](err); !ok {
 		t.Fatalf("pre-request deny must preserve *prerequest.RejectError cause, got %T", err)
 	}
 	if !prerequest.IsRejected(err) {

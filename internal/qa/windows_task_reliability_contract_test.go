@@ -68,7 +68,7 @@ func TestWindowsTaskReliability_TargetTableComplete(t *testing.T) {
 	t.Parallel()
 	makefile := readRepositoryFile(t, "Makefile")
 	design := readRepositoryFile(t, ".kiro", "specs", "archive", "windows-task-reliability", "design.md")
-	phonyLine := strings.SplitN(makefile, "\n", 2)[0]
+	phonyLine, _, _ := strings.Cut(makefile, "\n")
 	if !strings.HasPrefix(phonyLine, ".PHONY:") {
 		t.Fatal("Makefile must keep its .PHONY classification table on the first line")
 	}

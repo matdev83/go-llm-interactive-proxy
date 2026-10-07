@@ -28,8 +28,7 @@ func IsAmbiguousRenewError(err error) bool {
 	if errors.Is(err, ErrUnavailable) {
 		return true
 	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if _, ok := errors.AsType[net.Error](err); ok {
 		return true
 	}
 	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, os.ErrDeadlineExceeded) {

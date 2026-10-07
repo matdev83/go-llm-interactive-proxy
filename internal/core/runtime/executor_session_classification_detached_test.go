@@ -479,7 +479,7 @@ func TestDetachedAuxiliaryStateCountIsIndependentOfParentPositiveKeepsParentRow(
 	defer cleanup()
 	parentKey := featurestate.Key{Kind: featurestate.ScopeSecureSession, ID: pr.identity.preSession.AuthoritativeSessionID}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		childCtx := execctx.WithDetachedSession(parentCtx, execctx.DetachedSession{
 			ParentSessionID: parentKey.ID,
 			ParentALegID:    pr.identity.aLeg.ALegID,

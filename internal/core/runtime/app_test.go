@@ -111,8 +111,7 @@ func TestNewRejectsMissingMandatoryPlugin(t *testing.T) {
 		t.Fatal("expected missing mandatory plugin error")
 	}
 
-	var missing *lipsdk.MissingRequirementError
-	if !errors.As(err, &missing) {
+	if _, ok := errors.AsType[*lipsdk.MissingRequirementError](err); !ok {
 		t.Fatalf("expected MissingRequirementError, got %v", err)
 	}
 }

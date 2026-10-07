@@ -90,8 +90,7 @@ func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta
 		deadline := res.Deadline
 		out, err := res.Value, res.Err
 		if err != nil {
-			var pe *safety.PanicError
-			if errors.As(err, &pe) {
+			if _, ok := errors.AsType[*safety.PanicError](err); ok {
 				emitCompletionGateEvidence(iterCtx, ev, g.ID(), zeroOutcome, err, sdkhooks.FailClosed, outputCommitted, false, deadline)
 				logFailOpenExtensionPanic(ctx, log, "completion_gate", g.ID(), err)
 				return CompletionGateChainResult{}, PolicyErrorFromProviderFailure(feature.StageIDCompletionGating, g.ID(), policydecision.FailureBehaviorFailClosed, err)

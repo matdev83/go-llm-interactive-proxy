@@ -96,8 +96,7 @@ func applyErrDetailToOutcome(out *domain.AttemptOutcome, err error) {
 	if err == nil || out == nil {
 		return
 	}
-	var uf *lipapi.UpstreamFailureError
-	if errors.As(err, &uf) {
+	if uf, ok := errors.AsType[*lipapi.UpstreamFailureError](err); ok {
 		if strings.TrimSpace(uf.CandidateKey) != "" {
 			out.ErrorCode = strings.TrimSpace(uf.CandidateKey)
 		} else {

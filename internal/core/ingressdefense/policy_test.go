@@ -362,8 +362,7 @@ func TestPolicyValueSurfaceRejectsAttackerControlledData(t *testing.T) {
 		if typ.NumField() != len(want) {
 			t.Errorf("%s has %d fields, want exactly %d", typ, typ.NumField(), len(want))
 		}
-		for i := range typ.NumField() {
-			field := typ.Field(i)
+		for field := range typ.Fields() {
 			if !slices.Contains(want, field.Name) {
 				t.Errorf("%s.%s is not part of the closed policy surface", typ, field.Name)
 			}
@@ -375,12 +374,12 @@ func TestPolicyValueSurfaceRejectsAttackerControlledData(t *testing.T) {
 }
 
 func checkBoundedValueField(owner reflect.Type, field reflect.StructField) error {
-	prefixType := reflect.TypeOf(netip.Prefix{})
-	addrType := reflect.TypeOf(netip.Addr{})
+	prefixType := reflect.TypeFor[netip.Prefix]()
+	addrType := reflect.TypeFor[netip.Addr]()
 	switch field.Type {
-	case reflect.TypeOf(false), reflect.TypeOf(int(0)), reflect.TypeOf(time.Duration(0)), reflect.TypeOf(time.Time{}):
+	case reflect.TypeFor[bool](), reflect.TypeFor[int](), reflect.TypeFor[time.Duration](), reflect.TypeFor[time.Time]():
 		return nil
-	case reflect.TypeOf(Reason("")):
+	case reflect.TypeFor[Reason]():
 		if field.Name != "Reason" {
 			return fmt.Errorf("%s.%s: only the closed Reason enum may be string-kind", owner, field.Name)
 		}

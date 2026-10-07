@@ -1200,7 +1200,7 @@ func TestReassert_LineageRefusalReasonsAreDeterministic(t *testing.T) {
 	t.Parallel()
 
 	var first strings.Builder
-	for run := 0; run < 5; run++ {
+	for run := range 5 {
 		var seen strings.Builder
 		for _, mutate := range []func(*testing.T, lipapi.Call) lipapi.Call{
 			tsInsertMessage,

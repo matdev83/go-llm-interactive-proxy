@@ -1388,7 +1388,7 @@ func TestControlCallInterception_publicRecvPreservesPTCPrivacyAndStopsOnFatal(t 
 			rig := newInterceptRig(t, provider, nil)
 			stream := []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "before"}, interceptStart("control-1", interceptToolName), interceptArgsDelta("control-1", interceptArgs), interceptFinish("control-1")}
 			if fatal {
-				for i := 0; i < controlClaimedIDCapacity; i++ {
+				for i := range controlClaimedIDCapacity {
 					stream = append(stream, interceptStart("overflow-"+interceptOrdinal(i), interceptToolName))
 				}
 			}

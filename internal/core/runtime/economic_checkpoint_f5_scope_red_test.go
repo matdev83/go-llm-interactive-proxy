@@ -234,7 +234,6 @@ func TestEconomicCheckpointCumulativeReductionScopePreserved(t *testing.T) {
 	t.Parallel()
 
 	for _, variant := range f5ScopeVariants {
-		variant := variant
 		t.Run(variant.name, func(t *testing.T) {
 			t.Parallel()
 

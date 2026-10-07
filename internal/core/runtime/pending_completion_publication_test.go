@@ -564,7 +564,7 @@ func TestPendingReal_actualResponsesHandlerConsumers(t *testing.T) {
 					assert.Equal(t, "text/event-stream; charset=utf-8", w.Header().Get("Content-Type"))
 					deltas := 0
 					completed := 0
-					for _, line := range strings.Split(wire, "\n") {
+					for line := range strings.SplitSeq(wire, "\n") {
 						if !strings.HasPrefix(line, "data: ") {
 							continue
 						}

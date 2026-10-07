@@ -46,8 +46,7 @@ func (a *attemptSession) receive(ctx context.Context, committed bool) (lipapi.Ev
 		return inner.Recv(ctx)
 	})
 	if err != nil {
-		var pe *safety.PanicError
-		if errors.As(err, &pe) {
+		if pe, ok := errors.AsType[*safety.PanicError](err); ok {
 			err = mapStreamPanic(pe, committed)
 		}
 	}
@@ -1706,8 +1705,7 @@ func (a *attemptSession) TerminalizeAttempt(ctx context.Context, intent attemptT
 				closeErr = closeInner()
 			}
 			if closeErr != nil {
-				var pe *safety.PanicError
-				if errors.As(closeErr, &pe) {
+				if pe, ok := errors.AsType[*safety.PanicError](closeErr); ok {
 					// Isolate close panic, log at debug, do not fail terminal effect
 					if a.finalStreamObs != nil && a.finalStreamObs.Log != nil {
 						traceID := strings.TrimSpace(evidence.TraceID)

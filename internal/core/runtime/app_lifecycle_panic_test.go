@@ -122,8 +122,7 @@ func TestApp_Start_rollbackStopPanic_logsAndPreservesPrimaryStartFailure(t *test
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var pe *safety.PanicError
-	if errors.As(err, &pe) {
+	if _, ok := errors.AsType[*safety.PanicError](err); ok {
 		t.Fatal("primary error must not be the rollback panic")
 	}
 	if !strings.Contains(err.Error(), "primary-start-failure") {
