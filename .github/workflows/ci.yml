@@ -293,7 +293,10 @@ jobs:
 
       - name: Build release binary
         if: needs.changes.result == 'success' && env.RUN_LEG == 'true'
-        run: go build -trimpath ./cmd/lipstd
+        # No -trimpath: it keys separate compiler objects (a second ~1.1 GB set), which
+        # overflowed the ci-unit snapshot and forced every PR to recompile cmd/lipstd's
+        # whole dependency tree (~2 min). Release artifacts keep -trimpath via .goreleaser.yaml.
+        run: go build ./cmd/lipstd
 
       # Publish successful per-OS unit/build snapshots for the next main or PR run.
       - name: Save bounded ci-unit Go cache

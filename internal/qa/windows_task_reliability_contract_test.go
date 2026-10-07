@@ -334,7 +334,7 @@ func TestWindowsTaskReliability_LinuxEvidence(t *testing.T) {
 		}
 	}
 	ci := workflowJob(t, "ci.yml", "test")
-	if !strings.Contains(ci, "go test -timeout=8m ${{ matrix.packages }}") || !strings.Contains(ci, "go build -trimpath ./cmd/lipstd") {
+	if !strings.Contains(ci, "go test -timeout=8m ${{ matrix.packages }}") || !strings.Contains(ci, "go build ./cmd/lipstd") {
 		t.Fatal("CI test matrix no longer owns portable cmd/lipstd test/build evidence")
 	}
 
