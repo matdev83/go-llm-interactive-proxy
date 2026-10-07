@@ -425,7 +425,7 @@ func TestWarmPositiveCacheEntryPerformsNoDurableOrRemoteWork(t *testing.T) {
 
 	durable.resetCalls()
 	const warmTurns = 64
-	for turn := 0; turn < warmTurns; turn++ {
+	for turn := range warmTurns {
 		got, err := classifier.Classify(ctx, ratchetUnknownInput(warmKey.ID))
 		if err != nil {
 			t.Fatalf("warm turn %d: %v", turn, err)
@@ -509,7 +509,7 @@ func TestUnknownTurnDurableIOIsLimitedToTheMissItself(t *testing.T) {
 		coordinator, nil, clock)
 
 	const unknownTurns = 32
-	for turn := 0; turn < unknownTurns; turn++ {
+	for turn := range unknownTurns {
 		got, err := classifier.Classify(ctx, ratchetUnknownInput("still-unknown-9-3"))
 		if err != nil {
 			t.Fatalf("unknown turn %d: %v", turn, err)

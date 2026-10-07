@@ -104,8 +104,7 @@ func ClassifyExecuteError(err error, committed bool) *ExecuteFailureError {
 	if err == nil {
 		return nil
 	}
-	var ef *ExecuteFailureError
-	if errors.As(err, &ef) {
+	if ef, ok := errors.AsType[*ExecuteFailureError](err); ok {
 		out := *ef
 		out.OutputCommitted = committed
 		if out.Err == nil {
@@ -119,8 +118,7 @@ func ClassifyExecuteError(err error, committed bool) *ExecuteFailureError {
 	if isProtocolSentinel(err) {
 		return &ExecuteFailureError{Kind: ExecuteFailureProtocolViolation, Err: err, OutputCommitted: committed}
 	}
-	var ce *ClassifiedError
-	if errors.As(err, &ce) {
+	if ce, ok := errors.AsType[*ClassifiedError](err); ok {
 		switch ce.Code {
 		case "frame_too_large", "protocol":
 			return &ExecuteFailureError{Kind: ExecuteFailureProtocolViolation, Err: err, OutputCommitted: committed}
@@ -130,8 +128,7 @@ func ClassifyExecuteError(err error, committed bool) *ExecuteFailureError {
 			return &ExecuteFailureError{Kind: ExecuteFailureCanceled, Err: err, OutputCommitted: committed}
 		}
 	}
-	var me backendplugin.ModeError
-	if errors.As(err, &me) {
+	if _, ok := errors.AsType[backendplugin.ModeError](err); ok {
 		return &ExecuteFailureError{Kind: ExecuteFailureTransportDeath, Err: err, OutputCommitted: committed}
 	}
 	if st, ok := status.FromError(err); ok {
@@ -153,8 +150,7 @@ func ClassifyExecuteError(err error, committed bool) *ExecuteFailureError {
 }
 
 func isProtocolSentinel(err error) bool {
-	var protocolViolation *publichost.ProtocolViolationError
-	if errors.As(err, &protocolViolation) {
+	if _, ok := errors.AsType[*publichost.ProtocolViolationError](err); ok {
 		return true
 	}
 	return errors.Is(err, backendplugin.ErrMultipleTerminals) ||

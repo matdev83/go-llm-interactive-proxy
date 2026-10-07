@@ -101,8 +101,7 @@ func TestValidateCompatibleManifestOwnership_rejectsReservedAmongEnabled(t *test
 	if err == nil {
 		t.Fatal("expected reserved backend_prefix error")
 	}
-	var coll *pluginreg.OwnershipCollisionError
-	if !errors.As(err, &coll) {
+	if _, ok := errors.AsType[*pluginreg.OwnershipCollisionError](err); !ok {
 		t.Fatalf("error = %v, want OwnershipCollisionError", err)
 	}
 }

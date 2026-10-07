@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/responseitem"
@@ -92,8 +93,7 @@ func newCompactionHTTPError(status int) error {
 }
 
 func compactionStatus(err error) int {
-	var classified *compactionError
-	if errors.As(err, &classified) {
+	if classified, ok := errors.AsType[*compactionError](err); ok {
 		return classified.status
 	}
 	return 0
@@ -729,8 +729,7 @@ func buildReplacement(history NativeHistory, compaction opaqueResponseItem, cfg 
 	var retained []inputItem
 	var total int64
 	images := 0
-	for i := len(history.Items) - 1; i >= 0; i-- {
-		item := history.Items[i]
+	for _, item := range slices.Backward(history.Items) {
 		keep, cost, imageCount := replacementCandidate(item, cfg)
 		if !keep || total+cost > cfg.TotalMessageTokens || images+imageCount > cfg.MaxImages {
 			continue

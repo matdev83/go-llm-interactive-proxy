@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
@@ -480,8 +481,8 @@ func (h *Host) Close() error {
 	h.instances = map[string]*instanceRec{}
 	h.mu.Unlock()
 	var first error
-	for i := len(slots) - 1; i >= 0; i-- {
-		if err := h.reapSlot(slots[i]); err != nil && first == nil {
+	for _, slot := range slices.Backward(slots) {
+		if err := h.reapSlot(slot); err != nil && first == nil {
 			first = err
 		}
 	}

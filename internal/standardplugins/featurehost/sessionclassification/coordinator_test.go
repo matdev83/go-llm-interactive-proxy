@@ -801,7 +801,7 @@ func TestCoordinatorWarmPositiveSkipsStore(t *testing.T) {
 	store.claims.Store(0)
 	store.completes.Store(0)
 
-	for turn := 0; turn < 3; turn++ {
+	for turn := range 3 {
 		record, found, err := coordinator.Load(ctx, key)
 		if err != nil || !found || record.Classification != want {
 			t.Fatalf("warm Load() turn %d = (%+v, %v, %v); want original positive record", turn, record, found, err)

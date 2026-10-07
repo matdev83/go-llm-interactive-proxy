@@ -499,10 +499,10 @@ func TestSessionClassificationLineageIsNotCarriedByTheRouteSelector(t *testing.T
 func TestLineageEvidenceCarriesNoRouteState(t *testing.T) {
 	t.Parallel()
 
-	typ := reflect.TypeOf(sdkclassification.Evidence{})
+	typ := reflect.TypeFor[sdkclassification.Evidence]()
 	got := make([]string, 0, typ.NumField())
-	for i := range typ.NumField() {
-		got = append(got, typ.Field(i).Name)
+	for field := range typ.Fields() {
+		got = append(got, field.Name)
 	}
 	assert.ElementsMatch(t, []string{"Operation", "ClientUserAgent", "ToolCategories"}, got,
 		"sdkclassification.Evidence must carry only bounded derived facts; a route, "+

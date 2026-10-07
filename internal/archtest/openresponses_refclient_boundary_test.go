@@ -179,6 +179,6 @@ func refclientAllowedImport(imp string) bool {
 }
 
 func isStdlibImport(imp string) bool {
-	first := strings.SplitN(imp, "/", 2)[0]
+	first, _, _ := strings.Cut(imp, "/")
 	return !strings.Contains(first, ".")
 }

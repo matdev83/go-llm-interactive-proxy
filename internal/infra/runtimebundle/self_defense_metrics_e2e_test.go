@@ -30,7 +30,7 @@ func selfDefenseE2EConfig(metricsEnabled bool, authFailures int) *config.Config 
 	cfg := processServicesTestConfig()
 	cfg.Observability.Metrics.Enabled = metricsEnabled
 	cfg.Server.Address = "127.0.0.1:8080"
-	cfg.Access.SelfDefense.Adaptive.AuthFailures = intPtr(authFailures)
+	cfg.Access.SelfDefense.Adaptive.AuthFailures = new(authFailures)
 	// The auth-event sink is disabled so the captured log proves the
 	// self-defense path itself is silent, not that an unrelated sink is quiet.
 	cfg.Auth = config.AuthConfig{

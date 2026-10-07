@@ -58,9 +58,7 @@ func runGOWORKOffCommandPlanContext(ctx context.Context, plan []goworkOffCmd) er
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(plan))
 	for _, step := range plan {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			cmd := exec.CommandContext(ctx, step.Name, step.Args...)
 			cmd.Dir = step.Dir
 			cmd.Env = step.Env
@@ -73,7 +71,7 @@ func runGOWORKOffCommandPlanContext(ctx context.Context, plan []goworkOffCmd) er
 				cancel()
 			default:
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

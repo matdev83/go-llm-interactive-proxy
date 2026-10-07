@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"runtime"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -131,8 +132,8 @@ func TestCleanup_ReverseOrderBuildResults(t *testing.T) {
 			return nil
 		}))
 	}
-	for i := len(cleanups) - 1; i >= 0; i-- {
-		_ = cleanups[i].Cleanup()
+	for _, cleanup := range slices.Backward(cleanups) {
+		_ = cleanup.Cleanup()
 	}
 	if len(order) != 3 || order[0] != 2 || order[1] != 1 || order[2] != 0 {
 		t.Fatalf("%v", order)

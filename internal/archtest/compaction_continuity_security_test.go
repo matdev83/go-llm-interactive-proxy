@@ -391,7 +391,7 @@ func forbiddenTypeKey(typ reflect.Type, forbidden map[string]struct{}) string {
 		seen[current] = true
 		for field := range current.Fields() {
 			key := strings.ToLower(field.Name)
-			if tag := strings.Split(field.Tag.Get("json"), ",")[0]; tag != "" && tag != "-" {
+			if tag, _, _ := strings.Cut(field.Tag.Get("json"), ","); tag != "" && tag != "-" {
 				key = strings.ToLower(tag)
 			}
 			if _, blocked := forbidden[strings.ReplaceAll(key, "_", "")]; blocked {

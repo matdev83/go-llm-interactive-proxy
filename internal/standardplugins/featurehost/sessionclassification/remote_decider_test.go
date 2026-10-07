@@ -222,9 +222,7 @@ func TestStoreScopeAdmitsOneLeaseForConcurrentAmbiguousTurns(t *testing.T) {
 				// Half the turns go through each coordinator, so the race crosses
 				// the process-local boundary as well as the turn boundary.
 				classifier := classifiers[index%len(classifiers)]
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					<-start
 					got, err := classifier.Classify(context.Background(), ambiguousFlowInput(sessionID))
 					if err != nil {
@@ -232,7 +230,7 @@ func TestStoreScopeAdmitsOneLeaseForConcurrentAmbiguousTurns(t *testing.T) {
 						return
 					}
 					results <- got
-				}()
+				})
 			}
 			close(start)
 
@@ -324,13 +322,11 @@ func TestDurableBunStoreAdmitsOneLeaseAcrossStoreInstances(t *testing.T) {
 		if index%2 == 1 {
 			target = second
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			claim, _, ok, err := target.ClaimRemote(ctx, flowKey(key), startAt, budget, leaseTTL, 0)
 			results <- outcome{claim: claim, ok: ok, err: err}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

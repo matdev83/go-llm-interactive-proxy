@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -301,8 +302,8 @@ func wsOpenCommitted(ev lipapi.Event) bool {
 
 func prependManagedEvents(events []lipapi.Event, rest lipapi.ManagedEventStream) lipapi.ManagedEventStream {
 	out := rest
-	for i := len(events) - 1; i >= 0; i-- {
-		out = &codexPrependManaged{first: events[i], rest: out}
+	for _, event := range slices.Backward(events) {
+		out = &codexPrependManaged{first: event, rest: out}
 	}
 	return out
 }

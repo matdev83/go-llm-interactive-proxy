@@ -146,7 +146,6 @@ func TestGenerationProjectsEveryConfigurableMountPathAsACandidate(t *testing.T) 
 
 	i := 0
 	for name, apply := range groups {
-		apply := apply
 		path := families[i%len(families)] + "/x"
 		i++
 		t.Run(name, func(t *testing.T) {

@@ -52,7 +52,7 @@ func TestListObservationsStatementEvidenceOnlyRequiresCorrelationBLeg(t *testing
 func TestListObservationsStatementEvidenceOnlyUsesCandidateIndex(t *testing.T) {
 	store := newSQLiteJournal(t)
 	ctx := context.Background()
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		unrelated := r10UnrelatedBLegObservation(t, "sqlite-test", fmt.Sprintf("usage-plan-%03d", i), "b-plan")
 		require.NoError(t, store.AppendObservation(ctx, unrelated))
 	}

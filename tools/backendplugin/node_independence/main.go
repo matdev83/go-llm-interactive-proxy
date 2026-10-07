@@ -529,8 +529,7 @@ func runControl(kind, dir string, env []string, argv ...string) controlResult {
 		}
 		return result
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		result.LaunchFailed = false
 		result.Pass = kind == "negative"
 		if !result.Pass {
@@ -674,7 +673,7 @@ func readLines(path string) []string {
 		return nil
 	}
 	var lines []string
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if strings.TrimSpace(line) != "" {
 			lines = append(lines, line)
 		}

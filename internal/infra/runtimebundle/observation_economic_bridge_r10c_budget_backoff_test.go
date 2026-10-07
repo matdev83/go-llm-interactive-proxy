@@ -41,7 +41,7 @@ func TestObservationEconomicRelayCandidateBudgetBackoffDefersWithoutReclaim(t *t
 
 	const candidateCount = 4
 	candidates := make([]metering.Observation, 0, candidateCount)
-	for i := 0; i < candidateCount; i++ {
+	for i := range candidateCount {
 		candidate := bridgeStatementObservation(t, fmt.Sprintf("line-backoff-%d", i), "b-budget-backoff", storeID, uint64(i+1))
 		candidate.Correlation.ProviderRequestID = "request-other"
 		require.NoError(t, candidate.Validate())
@@ -152,7 +152,7 @@ func TestObservationEconomicRelayCandidateBudgetPersistFailureDoesNotClaimDeferr
 
 	const candidateCount = 4
 	candidates := make([]metering.Observation, 0, candidateCount)
-	for i := 0; i < candidateCount; i++ {
+	for i := range candidateCount {
 		candidate := bridgeStatementObservation(t, fmt.Sprintf("line-persist-%d", i), "b-budget-persist", storeID, uint64(i+1))
 		candidate.Correlation.ProviderRequestID = "request-other"
 		require.NoError(t, candidate.Validate())

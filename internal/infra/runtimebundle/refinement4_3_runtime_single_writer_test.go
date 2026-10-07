@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -156,7 +157,7 @@ func runtime43BaseProduction(store billing.AuthoritativeBilling, sink billing.Te
 func cleanupRuntime43Owner(t *testing.T, closers *[]func() error) {
 	t.Helper()
 	t.Cleanup(func() {
-		for i := len(*closers) - 1; i >= 0; i-- {
+		for i := range slices.Backward(*closers) {
 			if err := (*closers)[i](); err != nil {
 				t.Errorf("cleanup process resource: %v", err)
 			}

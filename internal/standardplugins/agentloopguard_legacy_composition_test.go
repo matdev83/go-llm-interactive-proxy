@@ -297,7 +297,6 @@ func TestStandardBundle_AgentLoopGuardLegacyBundlesMatchOldStyleConfig(t *testin
 	}
 
 	for _, tc := range fixtures {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

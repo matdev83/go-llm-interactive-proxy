@@ -243,7 +243,7 @@ func TestBunStoreConcurrentPromotionHasOneWinner(t *testing.T) {
 	var winnerCount atomic.Int32
 	gotRecords := make(chan featurestate.Record, workerCount)
 	errCh := make(chan error, workerCount)
-	for i := 0; i < workerCount; i++ {
+	for i := range workerCount {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()

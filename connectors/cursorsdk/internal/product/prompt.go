@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -228,12 +229,12 @@ func writePromptLine(b *limitedBuffer, m lipapi.Message) error {
 }
 
 func extractLastUserText(messages []lipapi.Message) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role != lipapi.RoleUser {
+	for _, message := range slices.Backward(messages) {
+		if message.Role != lipapi.RoleUser {
 			continue
 		}
 		var parts []string
-		for _, p := range messages[i].Parts {
+		for _, p := range message.Parts {
 			if p.Kind == lipapi.PartText {
 				parts = append(parts, p.Text)
 			}
@@ -273,8 +274,8 @@ func writeMessageHash(h interface{ Write([]byte) (int, error) }, m lipapi.Messag
 }
 
 func lastTurnID(messages []lipapi.Message) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role != lipapi.RoleUser {
+	for i, message := range slices.Backward(messages) {
+		if message.Role != lipapi.RoleUser {
 			continue
 		}
 		h := hashTranscriptPrefix(nil, messages[i:i+1], 1)

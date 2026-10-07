@@ -186,7 +186,7 @@ func appendBridgeUnrelatedHistory(ctx context.Context, store *journalstore.Durab
 	for offset := 0; offset < count; offset += chunk {
 		size := min(count-offset, chunk)
 		batch := make([]metering.Observation, 0, size)
-		for i := 0; i < size; i++ {
+		for i := range size {
 			index := start + offset + i
 			observation := bridgeRuntimeObservation(fmt.Sprintf("unrelated-%06d", index), uint64(index+1))
 			observation.StreamID = "bridge-unrelated-stream"

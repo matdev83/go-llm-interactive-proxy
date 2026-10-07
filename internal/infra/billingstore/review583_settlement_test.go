@@ -56,7 +56,6 @@ type review583Case struct {
 func review583RunSettlementSuite(t *testing.T, newStore func(t *testing.T) *DurableStore) {
 	t.Helper()
 	for _, tc := range review583Cases(t) {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store := newStore(t)

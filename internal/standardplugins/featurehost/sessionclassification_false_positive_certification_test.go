@@ -1583,7 +1583,7 @@ func TestFalsePositiveUnknownTurnDoesNotRescanAccumulatedTranscript(t *testing.T
 	// transcript-shaped member, so no transcript scan is even expressible. A
 	// locally declared mirror of Input would prove nothing here, so the real
 	// types are reflected.
-	inputType := reflect.TypeOf(sdkclassification.Input{})
+	inputType := reflect.TypeFor[sdkclassification.Input]()
 	wantInputFields := []string{"TraceID", "Session", "Workspace", "Evidence"}
 	if inputType.NumField() != len(wantInputFields) {
 		t.Fatalf("sdkclassification.Input has %d fields, want exactly %d bounded fields", inputType.NumField(), len(wantInputFields))
@@ -1593,7 +1593,7 @@ func TestFalsePositiveUnknownTurnDoesNotRescanAccumulatedTranscript(t *testing.T
 			t.Fatalf("sdkclassification.Input field %d = %q, want %q", i, got, want)
 		}
 	}
-	evidenceType := reflect.TypeOf(sdkclassification.Evidence{})
+	evidenceType := reflect.TypeFor[sdkclassification.Evidence]()
 	wantEvidenceFields := []string{"Operation", "ClientUserAgent", "ToolCategories"}
 	if evidenceType.NumField() != len(wantEvidenceFields) {
 		t.Fatalf("sdkclassification.Evidence has %d fields, want exactly %d bounded fields", evidenceType.NumField(), len(wantEvidenceFields))
