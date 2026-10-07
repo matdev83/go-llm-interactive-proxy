@@ -133,8 +133,7 @@ func mapEngineArgsShapeReason(err error) string {
 			return toolcall.ReasonUnrepairable
 		}
 	}
-	var je *jsonshape.Error
-	if errors.As(err, &je) {
+	if je, ok := errors.AsType[*jsonshape.Error](err); ok {
 		switch je.Kind {
 		case jsonshape.KindCanceled:
 			return toolcall.ReasonCanceled

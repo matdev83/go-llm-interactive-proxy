@@ -18,8 +18,7 @@ func TestCallValidate_requiresMessages(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var v *lipapi.ValidationError
-	if !errors.As(err, &v) {
+	if _, ok := errors.AsType[*lipapi.ValidationError](err); !ok {
 		t.Fatalf("expected ValidationError, got %T", err)
 	}
 	if !errors.Is(err, lipapi.ErrInvalidCall) {

@@ -105,7 +105,7 @@ func argForms(set pathvirtualization.SelectorSet) []string {
 func TestToolProfileCarriesExactlyTheDesignShape(t *testing.T) {
 	t.Parallel()
 
-	profileType := reflect.TypeOf(pathvirtualization.ToolProfile{})
+	profileType := reflect.TypeFor[pathvirtualization.ToolProfile]()
 	wantFields := []struct {
 		name string
 		kind reflect.Kind
@@ -130,7 +130,7 @@ func TestToolProfileCarriesExactlyTheDesignShape(t *testing.T) {
 			t.Fatalf("ToolProfile.%s carries tag %q; no decode surface belongs here", field.Name, field.Tag)
 		}
 	}
-	if got := profileType.Field(3).Type; got != reflect.TypeOf(pathvirtualization.OpaqueResultMode(0)) {
+	if got := profileType.Field(3).Type; got != reflect.TypeFor[pathvirtualization.OpaqueResultMode]() {
 		t.Fatalf("ToolProfile.OpaqueResultMode has type %v, want OpaqueResultMode", got)
 	}
 }

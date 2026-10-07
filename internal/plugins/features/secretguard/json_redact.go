@@ -131,8 +131,7 @@ func walkRedactJSON(ctx context.Context, m sdk.Matcher, v *any) ([]sdk.Finding, 
 			c := cur[k]
 			f, err := walkRedactJSON(ctx, m, &c)
 			if err != nil {
-				var unsupported *unsupportedJSONTokenError
-				if errors.As(err, &unsupported) {
+				if unsupported, ok := errors.AsType[*unsupportedJSONTokenError](err); ok {
 					combined := mergeFindings(all, unsupported.findings)
 					return combined, newUnsupportedJSONTokenError(combined)
 				}
@@ -148,8 +147,7 @@ func walkRedactJSON(ctx context.Context, m sdk.Matcher, v *any) ([]sdk.Finding, 
 			c := cur[i]
 			f, err := walkRedactJSON(ctx, m, &c)
 			if err != nil {
-				var unsupported *unsupportedJSONTokenError
-				if errors.As(err, &unsupported) {
+				if unsupported, ok := errors.AsType[*unsupportedJSONTokenError](err); ok {
 					combined := mergeFindings(all, unsupported.findings)
 					return combined, newUnsupportedJSONTokenError(combined)
 				}

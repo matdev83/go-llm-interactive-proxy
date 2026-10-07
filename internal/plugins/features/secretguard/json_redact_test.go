@@ -162,8 +162,7 @@ func TestRedactJSONPayload_unsupportedTokenIsAtomic(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported json token error")
 	}
-	var unsupported *unsupportedJSONTokenError
-	if !errors.As(err, &unsupported) {
+	if _, ok := errors.AsType[*unsupportedJSONTokenError](err); !ok {
 		t.Fatalf("error type: %T", err)
 	}
 	if out != nil {

@@ -69,8 +69,7 @@ func (e *Error) Unwrap() error {
 
 // Classify returns the guard kind for typed guard errors.
 func Classify(err error) Kind {
-	var guardErr *Error
-	if errors.As(err, &guardErr) {
+	if guardErr, ok := errors.AsType[*Error](err); ok {
 		return guardErr.Kind
 	}
 	return ""

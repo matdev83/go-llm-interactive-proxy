@@ -168,8 +168,7 @@ func TestHandleResponse_functionCall_marshalArgsError_wrapsAndPreservesCause(t *
 	if !strings.Contains(err.Error(), "gemini: marshal tool arguments") {
 		t.Fatalf("got %q", err.Error())
 	}
-	var unsupported *json.UnsupportedTypeError
-	if !errors.As(err, &unsupported) {
+	if _, ok := errors.AsType[*json.UnsupportedTypeError](err); !ok {
 		t.Fatalf("expected json.UnsupportedTypeError in chain, got %T", err)
 	}
 }

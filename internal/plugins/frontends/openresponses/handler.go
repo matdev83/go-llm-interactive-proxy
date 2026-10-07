@@ -212,8 +212,7 @@ func safeCanonicalErrorMessage(message string) string {
 // rendering provider or internal error text. Unknown execution failures remain
 // gateway errors; only the known client/policy roots are downgraded to 4xx.
 func classifyExecutionError(err error) (status int, typ, code, message string) {
-	var streamErr *lipapi.StreamError
-	if errors.As(err, &streamErr) {
+	if streamErr, ok := errors.AsType[*lipapi.StreamError](err); ok {
 		return classifyCanonicalEventError(lipapi.Event{
 			Kind:         lipapi.EventError,
 			ErrorCode:    streamErr.Code,

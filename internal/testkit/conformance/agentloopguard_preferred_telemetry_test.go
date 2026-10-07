@@ -37,6 +37,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -338,9 +339,7 @@ func algTelemetryColumn(strategy string, origin http.Handler) algColumn {
 func algTelemetryCreateBody(t *testing.T, input string, extra map[string]any) string {
 	t.Helper()
 	doc := map[string]any{"model": "gpt-4o-mini", "input": input, "stream": false}
-	for k, v := range extra {
-		doc[k] = v
-	}
+	maps.Copy(doc, extra)
 	raw, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatalf("marshal telemetry create body: %v", err)
@@ -451,10 +450,12 @@ func TestPreferredProtocolTelemetry_activationVocabularyIsClosedAndDistinguishab
 		{
 			name: "active",
 			col: func(t *testing.T) algColumn {
+				t.Helper()
 				o, _ := algScriptedOrigin(t, algCompletionTurn(t, "resp_alg_tel_active"))
 				return algTelemetryColumn(AgentLoopGuardStrategyAttemptCompletion, o)
 			},
 			body: func(t *testing.T) string {
+				t.Helper()
 				return algTelemetryCreateBody(t, "apply the schema, verify the backfill, then report the result", nil)
 			},
 			wantReason: controltool.ReasonActive,
@@ -462,10 +463,12 @@ func TestPreferredProtocolTelemetry_activationVocabularyIsClosedAndDistinguishab
 		{
 			name: "backend_tools_unsupported",
 			col: func(t *testing.T) algColumn {
+				t.Helper()
 				o, _ := algScriptedChatOrigin(t, algChatTextTurn(t, "chatcmpl_alg_tel_notools", algUnmarkedText))
 				return algColumn{Strategy: AgentLoopGuardStrategyAttemptCompletion, Frontend: FrontendOpenAIResponses, Backend: BackendCompatibleOpenAI, ProfileID: morphProfile, Transport: TransportJSON, Origin: o}
 			},
 			body: func(t *testing.T) string {
+				t.Helper()
 				return algTelemetryCreateBody(t, "apply the schema, verify the backfill, then report the result", nil)
 			},
 			wantReason: controltool.ReasonBackendToolsUnsupported,
@@ -473,10 +476,12 @@ func TestPreferredProtocolTelemetry_activationVocabularyIsClosedAndDistinguishab
 		{
 			name: "tool_choice_none",
 			col: func(t *testing.T) algColumn {
+				t.Helper()
 				o, _ := algScriptedOrigin(t, algUnmarkedStopTurn(t, "resp_alg_tel_none"), algRepairStopTurn(t, "resp_alg_tel_none_repair"))
 				return algTelemetryColumn(AgentLoopGuardStrategyAttemptCompletion, o)
 			},
 			body: func(t *testing.T) string {
+				t.Helper()
 				return algTelemetryCreateBody(t, "apply the schema, verify the backfill, then report the result", map[string]any{"tool_choice": "none"})
 			},
 			wantReason: controltool.ReasonToolChoiceNone,
@@ -484,10 +489,12 @@ func TestPreferredProtocolTelemetry_activationVocabularyIsClosedAndDistinguishab
 		{
 			name: "tool_name_collision",
 			col: func(t *testing.T) algColumn {
+				t.Helper()
 				o, _ := algScriptedOrigin(t, algUnmarkedStopTurn(t, "resp_alg_tel_collision"), algRepairStopTurn(t, "resp_alg_tel_collision_repair"))
 				return algTelemetryColumn(AgentLoopGuardStrategyAttemptCompletion, o)
 			},
 			body: func(t *testing.T) string {
+				t.Helper()
 				return algTelemetryCreateBody(t, "apply the schema, verify the backfill, then report the result", map[string]any{
 					"tools": []any{algClientTool(algControlToolName)},
 				})

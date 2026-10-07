@@ -27,7 +27,6 @@ func TestDecodeConfig_DetectorControlsPreservePresence(t *testing.T) {
 		{name: "false", yaml: "action: block\nauto_discovered_local_keys:\n  enabled: false\n", wantPresent: true, wantValue: false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg, err := DecodeConfig(mustYAML(t, tc.yaml))
@@ -69,7 +68,6 @@ func TestComposeRuntimeConfig_ResolvesDetectorDefaultsCharacterization(t *testin
 		{name: "multi_true_absent_rejected", accessMode: "multi_user", local: "true", betterLeaks: "", wantErrorPart: "auto_discovered_local_keys"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			raw := "action: block\n"

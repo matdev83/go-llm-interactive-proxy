@@ -80,8 +80,7 @@ func IsSessionDenial(err error) bool {
 
 // SessionDenialPublicCode returns the stable [SessionDenialCode] for err when it wraps *SessionDenialError.
 func SessionDenialPublicCode(err error) string {
-	var sd *SessionDenialError
-	if errors.As(err, &sd) {
+	if sd, ok := errors.AsType[*SessionDenialError](err); ok {
 		return string(sd.code)
 	}
 	return ""

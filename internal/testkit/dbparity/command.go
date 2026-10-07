@@ -422,8 +422,8 @@ func formatPackagePath(pkg string) string {
 
 func envLookup(env []string, key string) string {
 	targetKey := strings.ToUpper(strings.TrimSpace(key))
-	for i := len(env) - 1; i >= 0; i-- {
-		k, v, ok := splitEnv(env[i])
+	for _, envEntry := range slices.Backward(env) {
+		k, v, ok := splitEnv(envEntry)
 		if !ok {
 			continue
 		}

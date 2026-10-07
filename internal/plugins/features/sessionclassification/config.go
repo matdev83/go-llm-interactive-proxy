@@ -3,6 +3,7 @@ package sessionclassification
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -313,12 +314,7 @@ func mappingFields(node *yaml.Node, section string, allowed ...string) (map[stri
 }
 
 func isAllowedKey(key string, allowed []string) bool {
-	for _, candidate := range allowed {
-		if key == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(allowed, key)
 }
 
 func scalarString(node *yaml.Node, maxBytes int) (string, bool) {

@@ -136,7 +136,6 @@ func TestOpenAIUsageEvidence_ImageTokenAbsentStillCompletes(t *testing.T) {
 		{name: "chat", path: "chat", chat: wireAbsentImageChatSuccess, respons: wireResponsesSuccess},
 		{name: "responses", path: "responses", chat: wireVisionChatSuccess, respons: wireAbsentImageResponsesSuccess},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			server := wireUsageServer(t, tc.chat, tc.respons)

@@ -290,7 +290,6 @@ func TestLegacyEnabledYAMLOmitsStrategyAndKeepsVerifierDefaults(t *testing.T) {
 	t.Parallel()
 
 	for _, source := range legacyEnabledConfigSources {
-		source := source
 		t.Run(string(source), func(t *testing.T) {
 			t.Parallel()
 			cfg := decodeLegacyYAML(t, legacyEnabledYAML(source, ""))
@@ -321,11 +320,9 @@ func TestLegacyAcceptanceMatrix(t *testing.T) {
 	t.Parallel()
 
 	for _, source := range legacyEnabledConfigSources {
-		source := source
 		t.Run(string(source), func(t *testing.T) {
 			t.Parallel()
 			for _, tc := range legacyAcceptanceCases {
-				tc := tc
 				t.Run(tc.name, func(t *testing.T) {
 					t.Parallel()
 					runLegacyAcceptanceCase(t, source, tc)
@@ -339,7 +336,6 @@ func TestLegacyAcceptanceMatrixProgressAndBudgetCaps(t *testing.T) {
 	t.Parallel()
 
 	for _, source := range legacyEnabledConfigSources {
-		source := source
 		t.Run(string(source), func(t *testing.T) {
 			t.Parallel()
 
@@ -465,7 +461,6 @@ func TestLegacyExplicitStrategyDecisionsMatchOldStyleConfig(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range legacyAcceptanceCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -558,7 +553,6 @@ func TestLegacyExplicitStrategyHandlesUnknownAndCrossStrategyState(t *testing.T)
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

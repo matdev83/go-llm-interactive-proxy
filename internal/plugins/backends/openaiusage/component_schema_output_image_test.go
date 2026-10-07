@@ -228,7 +228,6 @@ func TestOpenAIUsageEvidence_OutputImageAbsentNullZeroNotOverlap(t *testing.T) {
 		{name: "explicit_zero", chatJSON: wireFlatOutputImageChatUsage("output_image_tokens", "0"), hasImage: true},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			callID, observation := wireFlatChatEvidence(t, tc.chatJSON, "shape-"+tc.name)
@@ -262,7 +261,6 @@ func TestOpenAIUsageEvidence_OutputImageAbsentNullZeroNotOverlap(t *testing.T) {
 func TestOpenAIUsageEvidence_OutputImageAliasesShareCanonicalOverlap(t *testing.T) {
 	t.Parallel()
 	for _, key := range []string{"output_image_tokens", "image_output_tokens", "completion_image_tokens"} {
-		key := key
 		t.Run(key, func(t *testing.T) {
 			t.Parallel()
 			callID, observation := wireFlatChatEvidence(t, wireFlatOutputImageChatUsage(key, "5"), "alias-"+key)

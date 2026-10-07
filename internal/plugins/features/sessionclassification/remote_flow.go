@@ -70,8 +70,7 @@ type RemoteFailure interface {
 // network failure, because that is the only claim a caller may make about an
 // error it cannot classify (requirements 6.9, 9.4).
 func remoteFailureOutcome(err error) RemoteOutcome {
-	var failure RemoteFailure
-	if errors.As(err, &failure) {
+	if failure, ok := errors.AsType[RemoteFailure](err); ok {
 		if outcome := failure.Outcome(); RemoteOutcomeAllowed(outcome) {
 			return outcome
 		}

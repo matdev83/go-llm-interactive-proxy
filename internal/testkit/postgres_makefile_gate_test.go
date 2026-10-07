@@ -371,7 +371,7 @@ func assertMakefileTarget(t *testing.T, text, target string, check func(*testing
 func assertTargetNoPrerequisites(t *testing.T, recipe, targetPrefix string) {
 	t.Helper()
 	normalized := strings.ReplaceAll(recipe, "\r\n", "\n")
-	firstLine := strings.Split(normalized, "\n")[0]
+	firstLine, _, _ := strings.Cut(normalized, "\n")
 	if !strings.HasPrefix(firstLine, targetPrefix) {
 		t.Fatalf("target line does not start with %q: %q", targetPrefix, firstLine)
 	}

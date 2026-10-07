@@ -149,8 +149,7 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	if runErr := dbparity.Run(ctx, mode, opts, stdout, stderr); runErr != nil {
-		var stepErr *dbparity.RunStepError
-		if errors.As(runErr, &stepErr) {
+		if stepErr, ok := errors.AsType[*dbparity.RunStepError](runErr); ok {
 			exitCode := dbparity.MapExitStatus(stepErr)
 			_, _ = fmt.Fprintf(stderr, "\ndbparity: test failed for component %q package %q (backend: %s, exit code: %d)\n",
 				stepErr.Component, stepErr.Package, stepErr.Backend, exitCode)

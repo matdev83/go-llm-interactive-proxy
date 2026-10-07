@@ -252,8 +252,7 @@ func writeError(w http.ResponseWriter, status int, code string) {
 }
 
 func writeJSONBodyError(w http.ResponseWriter, err error) {
-	var maxErr *http.MaxBytesError
-	if errors.As(err, &maxErr) {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		writeError(w, http.StatusRequestEntityTooLarge, "request_too_large")
 		return
 	}

@@ -409,12 +409,10 @@ func TestCertifiedProfilesCompileCanonicalEquivalentEvidence(t *testing.T) {
 	}
 
 	for _, lane := range evidenceLanes() {
-		lane := lane
 		t.Run(lane.laneID, func(t *testing.T) {
 			t.Parallel()
 
 			for _, tc := range cases {
-				tc := tc
 				t.Run(tc.name, func(t *testing.T) {
 					t.Parallel()
 
@@ -462,7 +460,6 @@ func TestCertifiedProfilesCompileCanonicalEquivalentEvidenceForStreamedBodies(t 
 	const toolName = "read_file"
 
 	for _, lane := range evidenceLanes() {
-		lane := lane
 		t.Run(lane.laneID, func(t *testing.T) {
 			t.Parallel()
 
@@ -512,7 +509,6 @@ func TestCertifiedProfileEvidenceRetainsNoToolDefinitionContent(t *testing.T) {
 	}
 
 	for _, lane := range evidenceLanes() {
-		lane := lane
 		t.Run(lane.laneID, func(t *testing.T) {
 			t.Parallel()
 
@@ -560,7 +556,6 @@ func TestCertifiedProfileEvidenceSurvivesWireFactsPropagation(t *testing.T) {
 	const toolName = "read_file"
 
 	for _, lane := range evidenceLanes() {
-		lane := lane
 		t.Run(lane.laneID, func(t *testing.T) {
 			t.Parallel()
 

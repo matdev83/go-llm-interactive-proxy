@@ -130,7 +130,7 @@ func TestClassifyEmitsExactlyOneBoundedTransitionPerPositiveSession(t *testing.T
 		Revision:   1,
 	}
 	const turns = 5
-	for turn := 0; turn < turns; turn++ {
+	for turn := range turns {
 		got, err := classifier.Classify(t.Context(), in)
 		if err != nil {
 			t.Fatalf("turn %d Classify: %v", turn, err)
@@ -512,7 +512,7 @@ func TestObserverIsOptionalAndAddsNoHotPathDependency(t *testing.T) {
 		t.Fatalf("classification without an observer = %+v, want the accepted positive", got)
 	}
 
-	field, ok := reflect.TypeOf(sessionclassification.ClassifierDeps{}).FieldByName("Observer")
+	field, ok := reflect.TypeFor[sessionclassification.ClassifierDeps]().FieldByName("Observer")
 	if !ok {
 		t.Fatal("ClassifierDeps has no bounded Observer dependency")
 	}

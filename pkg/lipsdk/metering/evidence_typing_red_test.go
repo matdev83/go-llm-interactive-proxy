@@ -183,7 +183,6 @@ func TestSafeEvidenceProviderNestedImageTokenPath(t *testing.T) {
 	t.Parallel()
 	const location = "$.usage.prompt_tokens_details.image_tokens"
 	for _, valid := range []string{"0", "2", "1000"} {
-		valid := valid
 		t.Run("valid/"+valid, func(t *testing.T) {
 			t.Parallel()
 			if err := sanitizeTestField(location, valid).Validate(); err != nil {
@@ -202,7 +201,6 @@ func TestSafeEvidenceProviderNestedImageTokenPath(t *testing.T) {
 		{name: "overflow", lexeme: strings.Repeat("9", 20)},
 		{name: "leading zero", lexeme: "007"},
 	} {
-		probe := probe
 		t.Run("invalid/"+probe.name, func(t *testing.T) {
 			t.Parallel()
 			if err := sanitizeTestField(location, probe.lexeme).Validate(); err == nil {

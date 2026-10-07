@@ -129,6 +129,7 @@ func TestHybridMergeManyFragmentCallAllocationBound(t *testing.T) {
 	const n = 2048
 	call, matcher, generation := manyExactFragmentCall(t, n)
 	result := testing.Benchmark(func(b *testing.B) {
+		b.Helper()
 		for b.Loop() {
 			checkManyExactFragmentCall(b, &call, matcher, generation)
 		}
@@ -150,7 +151,7 @@ func TestScanOutcomeIndexedFindingsPreserveExactAttribution(t *testing.T) {
 			out.Findings = []sdk.Finding{first}
 			want = []sdk.Finding{first}
 		}
-		for i := 0; i < 4096; i++ {
+		for i := range 4096 {
 			finding := first
 			finding.Aliases = []string{"LATER"}
 			finding.SourceCategory = sdk.SourceCategoryRequestCred

@@ -2,6 +2,7 @@ package sessionclassification_test
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,8 +34,8 @@ func TestObservationPayloadsCarryOnlyBoundedClosedEnumFields(t *testing.T) {
 				name   string
 				typeOf reflect.Type
 			}{
-				{name: "Mode", typeOf: reflect.TypeOf(sessionclassification.Mode(""))},
-				{name: "Outcome", typeOf: reflect.TypeOf(sessionclassification.EvaluationOutcome(""))},
+				{name: "Mode", typeOf: reflect.TypeFor[sessionclassification.Mode]()},
+				{name: "Outcome", typeOf: reflect.TypeFor[sessionclassification.EvaluationOutcome]()},
 			},
 		},
 		{
@@ -44,10 +45,10 @@ func TestObservationPayloadsCarryOnlyBoundedClosedEnumFields(t *testing.T) {
 				name   string
 				typeOf reflect.Type
 			}{
-				{name: "Source", typeOf: reflect.TypeOf(session.ClassificationSource(""))},
-				{name: "Confidence", typeOf: reflect.TypeOf(session.ConfidenceBand(""))},
-				{name: "Evidence", typeOf: reflect.TypeOf(session.EvidenceCode(""))},
-				{name: "Revision", typeOf: reflect.TypeOf(uint64(0))},
+				{name: "Source", typeOf: reflect.TypeFor[session.ClassificationSource]()},
+				{name: "Confidence", typeOf: reflect.TypeFor[session.ConfidenceBand]()},
+				{name: "Evidence", typeOf: reflect.TypeFor[session.EvidenceCode]()},
+				{name: "Revision", typeOf: reflect.TypeFor[uint64]()},
 			},
 		},
 		{
@@ -57,8 +58,8 @@ func TestObservationPayloadsCarryOnlyBoundedClosedEnumFields(t *testing.T) {
 				name   string
 				typeOf reflect.Type
 			}{
-				{name: "Outcome", typeOf: reflect.TypeOf(sessionclassification.RemoteOutcome(""))},
-				{name: "Latency", typeOf: reflect.TypeOf(time.Duration(0))},
+				{name: "Outcome", typeOf: reflect.TypeFor[sessionclassification.RemoteOutcome]()},
+				{name: "Latency", typeOf: reflect.TypeFor[time.Duration]()},
 			},
 		},
 		{
@@ -68,8 +69,8 @@ func TestObservationPayloadsCarryOnlyBoundedClosedEnumFields(t *testing.T) {
 				name   string
 				typeOf reflect.Type
 			}{
-				{name: "Operation", typeOf: reflect.TypeOf(sessionclassification.StoreOperation(""))},
-				{name: "Outcome", typeOf: reflect.TypeOf(sessionclassification.StoreOutcome(""))},
+				{name: "Operation", typeOf: reflect.TypeFor[sessionclassification.StoreOperation]()},
+				{name: "Outcome", typeOf: reflect.TypeFor[sessionclassification.StoreOutcome]()},
 			},
 		},
 	}
@@ -347,10 +348,5 @@ func FuzzObservationValidationIsExactlyTheClosedEnumMembership(f *testing.F) {
 }
 
 func slicesContains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }

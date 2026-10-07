@@ -22,8 +22,8 @@ import (
 func TestMeta_ViewFieldSetMatchesToolMetaAuthoritativeViewSemantics(t *testing.T) {
 	t.Parallel()
 
-	metaType := reflect.TypeOf(toolcall.Meta{})
-	hookType := reflect.TypeOf(sdkhooks.ToolMeta{})
+	metaType := reflect.TypeFor[toolcall.Meta]()
+	hookType := reflect.TypeFor[sdkhooks.ToolMeta]()
 
 	// Legacy identity fields are append-only frozen: same name, same index,
 	// same type. Anything else is a breaking change for a public SDK struct.

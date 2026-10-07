@@ -74,8 +74,7 @@ func TestSessionClassificationBaseline_CanonicalAndWireInputs(t *testing.T) {
 	require.True(t, ok, "proof must carry the bounded classification evidence carrier")
 	require.Equal(t, reflect.TypeFor[sessionclassification.Evidence](), carrier.Type,
 		"the carrier must be the provider-neutral SDK evidence type itself")
-	for i := range proofType.NumField() {
-		field := proofType.Field(i)
+	for field := range proofType.Fields() {
 		if field.Type == reflect.TypeFor[sessionclassification.Evidence]() {
 			continue
 		}
