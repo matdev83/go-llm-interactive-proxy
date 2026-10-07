@@ -138,6 +138,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: go run ./tools/changesize --base "$BASE_SHA" --head HEAD
 
+      - name: Validate test quarantine
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        run: go run ./tools/devcheck -task=quarantine
+
       - name: Install buf
         if: needs.changes.result == 'success' && needs.changes.outputs.proto == 'true' && github.event_name == 'pull_request'
         run: go install github.com/bufbuild/buf/cmd/buf@v1.66.0

@@ -53,6 +53,17 @@ export GO_TEST_FLAGS
 export LIP_TEST_PACKAGES
 export LIP_TEST_PARALLEL
 
+# Tests listed in .github/test-quarantine.txt fail on main and are skipped until
+# their linked issue is fixed. GOFLAGS carries the -skip so every go test run
+# from make targets and the scripts they call honours it without shell quoting.
+LIP_TEST_QUARANTINE := $(filter Test% Fuzz% Benchmark% Example%,$(file < .github/test-quarantine.txt))
+ifneq ($(LIP_TEST_QUARANTINE),)
+LIP_EMPTY :=
+LIP_SPACE := $(LIP_EMPTY) $(LIP_EMPTY)
+GOFLAGS += -skip=^($(subst $(LIP_SPACE),|,$(LIP_TEST_QUARANTINE)))$$
+export GOFLAGS
+endif
+
 # The Windows test-cost ratchet is explicit and opt-in.  CI supplies the PR
 # base SHA; local callers can override these values when comparing a known
 # base or retaining artifacts outside the checkout.
