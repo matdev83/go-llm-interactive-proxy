@@ -399,7 +399,7 @@ function Apply-AnchorCompatibilityPatch {
         "internal/stdhttp/request_plane_generation_test.go",
         "internal/infra/runtimebundle/publish_pinned_characterization_test.go",
         "internal/infra/runtimehost/observability_test.go",
-        "internal/qa/phase74_migration_rollout_evidence_test.go",
+        "internal/qa/dual_plane_migration_smoke_test.go",
         "internal/plugins/frontends/openresponses/websocket_upgrade_test.go",
         "scripts/quality-checks.ps1",
         "tools/changesize/main_test.go"
