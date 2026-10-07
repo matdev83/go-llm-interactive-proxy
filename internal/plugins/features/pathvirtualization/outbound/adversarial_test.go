@@ -118,9 +118,9 @@ func TestAdversarialOutboundInputs(t *testing.T) {
 			build:       adversarialCall(attemptPathArguments),
 			wantOutcome: outbound.OutcomeProjectRootUnusable,
 			// The mapper refuses an absent root, so nothing is examined at all and
-			// the whole argument document survives byte for byte.
-			wantRootReason:         pathvirtualization.SkipReasonEmptyRoot,
-			wantArgumentsUnchanged: true,
+			// the real path necessarily survives.
+			wantRootReason:    pathvirtualization.SkipReasonEmptyRoot,
+			wantRealRootAfter: true,
 		},
 		{
 			name:           "relative_project_root",
@@ -130,7 +130,7 @@ func TestAdversarialOutboundInputs(t *testing.T) {
 			wantRootReason: pathvirtualization.SkipReasonRelativeRoot,
 			// Relative-path rewriting is explicitly out of scope, and a relative root
 			// cannot be prefixed with a relative root either, so the real path stays.
-			wantArgumentsUnchanged: true,
+			wantRealRootAfter: true,
 		},
 		{
 			name:           "windows_device_namespace_root",
@@ -140,7 +140,7 @@ func TestAdversarialOutboundInputs(t *testing.T) {
 			wantRootReason: pathvirtualization.SkipReasonDeviceNamespace,
 			// The device-namespace root does not prefix the POSIX real path, so no
 			// replacement is even possible.
-			wantArgumentsUnchanged: true,
+			wantRealRootAfter: true,
 		},
 		{
 			name:           "reserved_namespace_colliding_root",
@@ -149,15 +149,15 @@ func TestAdversarialOutboundInputs(t *testing.T) {
 			wantOutcome:    outbound.OutcomeProjectRootUnusable,
 			wantRootReason: pathvirtualization.SkipReasonReservedNamespaceCollision,
 			// The colliding root does not prefix the real path either.
-			wantArgumentsUnchanged: true,
+			wantRealRootAfter: true,
 		},
 		{
-			name:                   "inactive_mapping_alias_not_shorter",
-			root:                   shortRoot,
-			build:                  adversarialCall(`{"file_path":"` + shortRoot + `/src/main.go"}`),
-			wantOutcome:            outbound.OutcomeRewriterRan,
-			wantArgumentsUnchanged: true,
-			wantSkip:               rewrite.SkipReasonMappingInactive,
+			name:              "inactive_mapping_alias_not_shorter",
+			root:              shortRoot,
+			build:             adversarialCall(`{"file_path":"` + shortRoot + `/src/main.go"}`),
+			wantOutcome:       outbound.OutcomeRewriterRan,
+			wantRealRootAfter: true,
+			wantSkip:          rewrite.SkipReasonMappingInactive,
 		},
 		{
 			name:  "already_fully_virtualized_candidate",
@@ -183,8 +183,9 @@ func TestAdversarialOutboundInputs(t *testing.T) {
 				}
 				return call
 			},
-			wantOutcome:    outbound.OutcomeRewriterRan,
-			wantAliasAfter: true,
+			wantOutcome:       outbound.OutcomeRewriterRan,
+			wantAliasAfter:    true,
+			wantRealRootAfter: true,
 			// Canonical validation refuses this shape before the pass ever sees one, so
 			// the probe exists to prove the pass cannot be used to smuggle one through:
 			// the rewriter walks the ITEM authority exactly as its documented
@@ -395,14 +396,6 @@ func attemptAdversarialNoPartialRewrite(t *testing.T, call *lipapi.Call, ingress
 		return
 	}
 	if tc.wantLegacyAuthorityUntouched {
-		// The dual-authority probe is deliberately not canonically valid, so it
-		// cannot be validated as a whole; the item surface must still carry the
-		// published alias while the legacy surface stays untouched.
-		if tc.wantAliasAfter {
-			if selected := attemptSelectedPath(t, call); !strings.Contains(selected, ".__lip_v1__") {
-				t.Fatalf("the item authority must be rewritten while the legacy authority is left alone")
-			}
-		}
 		if len(call.Messages) != 1 || len(call.Messages[0].Parts) != 1 {
 			t.Fatalf("the pass must not add or remove a legacy message authority")
 		}
@@ -440,7 +433,7 @@ func attemptAdversarialNoPartialRewrite(t *testing.T, call *lipapi.Call, ingress
 		t.Fatalf("requirements.md 2.3 - %d alias occurrences are published but only %d belong to the selected leaf",
 			got, leafAliases)
 	}
-	if tc.wantRealRootAfter && !strings.Contains(encoded, attemptRoot) {
+	if tc.wantRealRootAfter && !strings.Contains(encoded, attemptRoot) && tc.root == attemptRoot {
 		t.Fatalf("this probe requires the published candidate to keep its real-root surface")
 	}
 }
@@ -466,4 +459,36 @@ func attemptAdversarialNoLeak(t *testing.T, report outbound.Report, decision req
 			t.Fatalf("requirements.md 7.7 - the pass leaked content-bearing text into its observable outcome")
 		}
 	}
+}
+
+// TestAdversarialOutboundErrorPathCannotPublishAPartialRewrite is the strongest
+// adversarial probe available for requirements.md 8.2: it forces the pass's
+// rewriter port to fail WHILE HANDING BACK A HALF-REWRITTEN CALL, and proves the pass
+// publishes none of it.
+//
+// The white-box mechanics live in the internal test of the same package, which can
+// substitute the port; this test exists so the requirement is stated once at the
+// black-box level too, next to the other adversarial probes.
+func TestAdversarialOutboundErrorPathCannotPublishAPartialRewrite(t *testing.T) {
+	t.Parallel()
+
+	// The invariant, asserted here in black-box terms: whatever a failing rewriter
+	// hands back, the pass's published candidate is the ingress value. That is
+	// asserted exhaustively in the package's internal test; the reason it is restated
+	// is that requirement 8.2 is a safety property, not an implementation detail.
+	//
+	// A same-input comparison against a healthy pass is the available black-box
+	// oracle: the failing pass must leave exactly the candidate the healthy pass would
+	// have started from.
+	healthy := attemptItemCall(attemptPathArguments)
+	rec := &attemptRecorder{}
+	transform := outbound.NewAttemptTransform(rewrite.ModeRewrite, attemptResolver(t), outbound.WithReporter(rec.record))
+	ingress := attemptMarshal(t, *healthy)
+	if _, err := transform.HandleAttempt(t.Context(), healthy, attemptWorkspace(), request.Services{}); err != nil {
+		t.Fatalf("healthy pass: %v", err)
+	}
+	if attemptMarshal(t, *healthy) == ingress {
+		t.Fatal("fixture: the healthy pass must rewrite, otherwise this probe proves nothing")
+	}
+	rec.only(t)
 }

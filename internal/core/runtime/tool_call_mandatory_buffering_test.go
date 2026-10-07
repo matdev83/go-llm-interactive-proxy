@@ -762,6 +762,29 @@ func TestToolCallAssembler_RaisedMandatoryBoundDoesNotRaiseRepairBudget(t *testi
 				repair.DefaultMaxArgsBytes, len(released), released != args)
 		}
 	})
+
+	t.Run("repair_budget_constant_is_untouched", func(t *testing.T) {
+		t.Parallel()
+		if repair.DefaultMaxArgsBytes != defaultToolCallFinalizationMaxArgsBytes {
+			t.Fatalf("tool-call-repair repair budget changed: %d want %d",
+				repair.DefaultMaxArgsBytes, defaultToolCallFinalizationMaxArgsBytes)
+		}
+		if defaultToolCallFinalizationMaxArgsBytes != 64*1024 {
+			t.Fatalf("core default assembly bound changed: %d", defaultToolCallFinalizationMaxArgsBytes)
+		}
+		// The two 64 KiB numbers are deliberately independent values and must not
+		// be coupled: core's default assembly bound and the SDK's mandatory
+		// configurable floor.
+		if toolcall.MinMandatoryMaxArgsBytes != 64*1024 {
+			t.Fatalf("mandatory configurable floor changed: %d", toolcall.MinMandatoryMaxArgsBytes)
+		}
+		if toolcall.DefaultMandatoryMaxArgsBytes != 1<<20 {
+			t.Fatalf("default mandatory bound changed: %d", toolcall.DefaultMandatoryMaxArgsBytes)
+		}
+		if toolcall.MaxMandatoryMaxArgsBytes != lipapi.MaxEventDeltaBytes {
+			t.Fatalf("mandatory ceiling must stay the canonical delta ceiling: %d", toolcall.MaxMandatoryMaxArgsBytes)
+		}
+	})
 }
 
 // failingOrdinaryFin is an ordinary, non-declaring finalizer that fails before

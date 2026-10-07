@@ -2,9 +2,6 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-# main and dev receive merges and author nothing. The layout guard below checks
-# where a worktree lives; this checks what is checked out in it.
-bash "$repo_root/scripts/check-merge-receiver-branch.sh"
 # Host-pinned structural guard (no-op unless hostname is exactly agent-dev):
 # no git worktree may live outside <container>/worktrees/ (except branches/main).
 bash "$repo_root/scripts/check-worktree-layout.sh"

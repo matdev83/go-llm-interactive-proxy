@@ -6,17 +6,6 @@ GO ?= go
 # full-suite fallback: agents must choose the package(s) they are iterating on.
 PKGS ?=
 MODULE ?= .
-# Local shared VM budgets; CI and Windows retain their existing defaults.
-ifneq ($(OS),Windows_NT)
-LIP_LOCAL_AGENT_DEV := $(shell bash scripts/dev-cpu-defaults.sh --local)
-endif
-ifeq ($(LIP_LOCAL_AGENT_DEV),yes)
-DEV_JOBS ?= 1
-GOMAXPROCS ?= 2
-LIP_TEST_PACKAGES ?= 1
-LIP_TEST_PARALLEL ?= 2
-export GOMAXPROCS
-endif
 DEV_JOBS ?= 4
 DEV_REPEAT ?= 1
 DEV_BASE ?=
@@ -45,13 +34,15 @@ LIP_TEST_PARALLEL ?= $(if $(NUMBER_OF_PROCESSORS),$(NUMBER_OF_PROCESSORS),8)
 else
 LIP_TEST_PARALLEL ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 endif
+GO_TEST_FLAGS ?= -parallel=$(strip $(LIP_TEST_PARALLEL)) -timeout=10m
 # Package processes and parallel tests are separate budgets. Leave package
 # concurrency at Go's native default unless measurements justify an override.
 LIP_TEST_PACKAGES ?=
-GO_TEST_FLAGS ?= -parallel=$(strip $(LIP_TEST_PARALLEL)) -timeout=10m $(if $(strip $(LIP_TEST_PACKAGES)),-p=$(strip $(LIP_TEST_PACKAGES)))
+ifneq ($(strip $(LIP_TEST_PACKAGES)),)
+GO_TEST_FLAGS += -p=$(strip $(LIP_TEST_PACKAGES))
+endif
 export GO_TEST_FLAGS
 export LIP_TEST_PACKAGES
-export LIP_TEST_PARALLEL
 
 # The Windows test-cost ratchet is explicit and opt-in.  CI supplies the PR
 # base SHA; local callers can override these values when comparing a known

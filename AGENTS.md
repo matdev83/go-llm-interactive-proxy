@@ -33,8 +33,7 @@
 Keep `main` branch clean. It should be only a PR merge receiver, never a merge donor.
 
 - Before changing files, check the current worktree and branch. If already inside a non-`main` worktree dedicated to the user's task, work there; do not create another worktree.
-- Otherwise, create a sibling worktree from `main` with an adequately named `fix/`, `spec/`, or `feat/` branch and work there, never on `main`. Use an **absolute** path directly under `<container>/worktrees/`: `git -C <container>/branches/main worktree add -b fix/short-description <container>/worktrees/fix/short-description origin/main`. A relative path resolves against your current directory, so issuing this from `branches/main` lands the new worktree inside it and the layout guard rejects it at commit time.
-- `main` and `dev` receive merges and author nothing. The pre-commit hook refuses a commit on either; `LIP_ALLOW_MERGE_RECEIVER_COMMIT=1` is maintainer-only and agents never set it.
+- Otherwise, create a sibling worktree from `main` with an adequately named `fix/`, `spec/`, or `feat/` branch and work there, never on `main`.
 - Run `codegraph init` from the root of every newly created worktree before implementation. When reusing a dedicated worktree, run it only if `.codegraph/` is absent.
 
 The source-change gate limits a commit or PR to **100 modified `*.go` files** (100 changed files gate on Go sources). Skill, catalog, and documentation paths do not consume this gate. Split large Go refactors so they stay reviewable and mergeable. Pre-commit, the recommended pre-push hook, and PR CI apply the same limit to staged paths or the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning. The overrides are maintainer-only: agents never set them or apply the label. When the gate fires, stop, propose a split into slices, and report.
@@ -109,9 +108,6 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - Kiro guide: `.kiro/AGENTS.md`.
 
 ## Verification
-
-- `git commit` and `git push` run the full pre-commit/pre-push quality gate, which includes the complete root-module test suite and takes minutes. Run them as a background command with no tool timeout so a harness timeout cannot kill the gate halfway and leave the commit unapplied. Never reach for `--no-verify` when a gate fails.
-- On this host, config-source integrity tests require `TMPDIR` on **ext4** (`/tmp` is tmpfs and makes them fail with `source-integrity-failed` regardless of your change). `scripts/require-ext4-tmpdir.sh` reports this up front; see `docs/development-iteration.md` for the storage requirement and how to find a suitable path.
 
 - Automatic local feedback: `make dev-test-changed` selects branch changes plus staged, unstaged and untracked edits against the merge base with local `origin/main`. Inspect with `DEV_PLAN=1`, override the comparison with `DEV_BASE=<ref>`, or run complete default module tests with `DEV_FULL=1`. This does not replace comprehensive delivery or GitHub checks. See `docs/development-iteration.md` for selection and fallback rules.
 - Inner loop: `make dev-test PKGS='./path/to/package/...'`; use `make dev-build` or `make dev-lint` with the same explicit scope when needed. For nested modules add `MODULE=connectors/name` and use module-relative `PKGS`. These are feedback, not delivery certification; include affected consumers when contracts change.

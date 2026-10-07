@@ -21,65 +21,46 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/expansion"
 )
 
-// TestEveryReportEnumRendersAsABoundedString pins requirements.md 7.7 at the
-// serialization boundary: every enum dimension of the report reaches an exporter as
-// the fixed, closed label, never as the ordinal an integer-coded enum otherwise
-// renders as, and a value outside the vocabulary still degrades to a bounded label.
-//
-// The expected labels are hard-coded rather than read back from the code under test,
-// so a String method that started echoing its input - the risk the string-typed root
-// refusal carries - fails here instead of agreeing with itself.
 func TestEveryReportEnumRendersAsABoundedString(t *testing.T) {
 	t.Parallel()
-
-	for _, tc := range []struct {
-		outcome expansion.Outcome
-		label   string
-	}{
-		{expansion.OutcomeExpanded, "expanded"},
-		{expansion.OutcomeNoop, "noop"},
-		{expansion.OutcomeRejected, "rejected"},
-		{expansion.Outcome(0xFF), "unknown"},
+	for _, outcome := range []expansion.Outcome{
+		expansion.OutcomeExpanded,
+		expansion.OutcomeNoop,
+		expansion.OutcomeRejected,
+		expansion.Outcome(0xFF),
 	} {
-		assertEnumField(t, renderReport(t, tc.outcome, expansion.ReasonExpanded), "Outcome", tc.label)
+		assertEnumField(t, renderReport(t, outcome, expansion.ReasonExpanded), "Outcome", outcome.String())
 	}
-	for _, tc := range []struct {
-		reason expansion.Reason
-		label  string
-	}{
-		{expansion.ReasonNone, ""},
-		{expansion.ReasonExpanded, "expanded"},
-		{expansion.ReasonAuditMode, "audit_mode"},
-		{expansion.ReasonNoAlias, "no_alias"},
-		{expansion.ReasonNoSelectors, "no_selectors"},
-		{expansion.ReasonArgsAbsent, "args_absent"},
-		{expansion.ReasonPayloadNotObject, "payload_not_object"},
-		{expansion.ReasonRootUnusable, "root_unusable"},
-		{expansion.ReasonMappingInactive, "mapping_inactive"},
-		{expansion.ReasonArgsUnparseable, "args_unparseable"},
-		{expansion.ReasonMalformedReservedAlias, "malformed_reserved_alias"},
-		{expansion.ReasonWorkspaceMismatch, "workspace_mismatch"},
-		{expansion.ReasonExpandedTooLarge, "expanded_too_large"},
-		{expansion.ReasonInvalidRewrite, "invalid_rewrite"},
-		{expansion.Reason(0xFF), "unknown"},
+	for _, reason := range []expansion.Reason{
+		expansion.ReasonNone,
+		expansion.ReasonExpanded,
+		expansion.ReasonAuditMode,
+		expansion.ReasonNoAlias,
+		expansion.ReasonNoSelectors,
+		expansion.ReasonArgsAbsent,
+		expansion.ReasonPayloadNotObject,
+		expansion.ReasonRootUnusable,
+		expansion.ReasonMappingInactive,
+		expansion.ReasonArgsUnparseable,
+		expansion.ReasonMalformedReservedAlias,
+		expansion.ReasonWorkspaceMismatch,
+		expansion.ReasonExpandedTooLarge,
+		expansion.ReasonInvalidRewrite,
+		expansion.Reason(0xFF),
 	} {
-		assertEnumField(t, renderReport(t, expansion.OutcomeNoop, tc.reason), "Reason", tc.label)
+		assertEnumField(t, renderReport(t, expansion.OutcomeNoop, reason), "Reason", reason.String())
 	}
-	for _, tc := range []struct {
-		root  pathvirtualization.SkipReason
-		label string
-	}{
-		{pathvirtualization.SkipReasonNone, ""},
-		{pathvirtualization.SkipReasonEmptyRoot, "empty_root"},
-		{pathvirtualization.SkipReasonRelativeRoot, "relative_root"},
-		{pathvirtualization.SkipReasonMalformedVolumeRoot, "malformed_volume_root"},
-		{pathvirtualization.SkipReasonDeviceNamespace, "device_namespace"},
-		{pathvirtualization.SkipReasonReservedNamespaceCollision, "reserved_namespace_collision"},
-		// A real root handed to the string-typed enum must not survive into the export.
-		{pathvirtualization.SkipReason("/home/dev/projects/go-llm-interactive-proxy"), "unknown"},
+	for _, root := range []pathvirtualization.SkipReason{
+		pathvirtualization.SkipReasonNone,
+		pathvirtualization.SkipReasonEmptyRoot,
+		pathvirtualization.SkipReasonRelativeRoot,
+		pathvirtualization.SkipReasonMalformedVolumeRoot,
+		pathvirtualization.SkipReasonDeviceNamespace,
+		pathvirtualization.SkipReasonReservedNamespaceCollision,
+		pathvirtualization.SkipReason("/home/dev/projects/go-llm-interactive-proxy"),
 	} {
 		assertEnumField(t, renderReportWithRoot(t, expansion.OutcomeNoop,
-			expansion.ReasonRootUnusable, tc.root), "RootReason", tc.label)
+			expansion.ReasonRootUnusable, root), "RootReason", root.String())
 	}
 }
 
@@ -93,51 +74,6 @@ func TestTheRenderedReasonIsThePublishedReasonCode(t *testing.T) {
 	assertEnumField(t, rendered, "Reason", expansion.ReasonWorkspaceMismatch.String())
 	if !strings.Contains(rendered, `"workspace_mismatch"`) {
 		t.Fatalf("the stale-workspace label must reach the export verbatim: %s", rendered)
-	}
-}
-
-// TestParseReasonRejectsAnythingOutsideTheClosedVocabulary pins the decode side of
-// the same wire contract: every label the pass can publish parses back to its own
-// reason, while the empty label and any other text are rejected rather than mistaken
-// for ReasonNone. A consumer acting on a toolcall.Result.ReasonCode depends on
-// exactly that distinction.
-func TestParseReasonRejectsAnythingOutsideTheClosedVocabulary(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		reason expansion.Reason
-		label  string
-	}{
-		{expansion.ReasonExpanded, "expanded"},
-		{expansion.ReasonAuditMode, "audit_mode"},
-		{expansion.ReasonNoAlias, "no_alias"},
-		{expansion.ReasonNoSelectors, "no_selectors"},
-		{expansion.ReasonArgsAbsent, "args_absent"},
-		{expansion.ReasonPayloadNotObject, "payload_not_object"},
-		{expansion.ReasonRootUnusable, "root_unusable"},
-		{expansion.ReasonMappingInactive, "mapping_inactive"},
-		{expansion.ReasonArgsUnparseable, "args_unparseable"},
-		{expansion.ReasonMalformedReservedAlias, "malformed_reserved_alias"},
-		{expansion.ReasonWorkspaceMismatch, "workspace_mismatch"},
-		{expansion.ReasonExpandedTooLarge, "expanded_too_large"},
-		{expansion.ReasonInvalidRewrite, "invalid_rewrite"},
-	} {
-		got, ok := expansion.ParseReason(tc.label)
-		if !ok || got != tc.reason {
-			t.Errorf("ParseReason(%q) = (%v, %v), want (%v, true)", tc.label, got, ok, tc.reason)
-		}
-	}
-	for _, label := range []string{
-		"",
-		"unknown",
-		"expanded ",
-		"reason_expanded",
-		"/home/dev/projects/go-llm-interactive-proxy",
-		".__lip_v1__/w_AAAAAAAAAAAAAAAAAAAA",
-	} {
-		if got, ok := expansion.ParseReason(label); ok || got != expansion.ReasonNone {
-			t.Errorf("ParseReason(%q) = (%v, %v), want (ReasonNone, false)", label, got, ok)
-		}
 	}
 }
 

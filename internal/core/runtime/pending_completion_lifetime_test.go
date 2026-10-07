@@ -44,47 +44,6 @@ import (
 // errPendingLifetimeBoom is the bounded stand-in failure these cases inject.
 var errPendingLifetimeBoom = errors.New("pending lifetime boom")
 
-// requirePendingPublicationCloseWon asserts that a Close which withdrew the
-// publication before the private stage FAILED the terminal with a close-won
-// cause, instead of reporting a successful turn for a batch that will never be
-// released.
-//
-// Only the sites that read the error out of the RECV loop use this. A real
-// Close both withdraws the publication window and ends the shared A-leg, so
-// whichever of the two the receive loop observes first decides the surfaced
-// cause: the publication fence reports errPendingPublicationWithdrawn, while the
-// A-leg scope reports leglifecycle.ErrALegCanceled. The receive loop consults
-// the A-leg scope on paths that return before the publication fence is
-// evaluated, so under load the cancellation is legitimately observed first.
-// Pinning a single one of the two made the expectation scheduler-dependent
-// without strengthening it: both causes are the same terminal outcome.
-//
-// This loosens the EXPECTED cause, never the invariant. The failure modes these
-// cases exist to catch stay fatal, namely a nil error and any unrelated cause.
-// The load-bearing assertions that follow remain unchanged and are what actually
-// make a leak observable: no NORMAL-COMPLETED billing handoff, no deliverable
-// publication, no queued event, no retained candidate, and exactly one
-// conservative observer finish.
-//
-// Sites that read the withdrawal straight off a fence (a stagePendingCompletion
-// or accepted-normal claim, or the staging callback) must keep pinning
-// errPendingPublicationWithdrawn exactly: those paths never consult the A-leg
-// scope, so a second cause is not reachable there.
-func requirePendingPublicationCloseWon(t *testing.T, err error, msg string) {
-	t.Helper()
-	switch {
-	case err == nil:
-		t.Fatalf("%s: a withdrawn publication must fail the terminal, got success", msg)
-	case errors.Is(err, errPendingPublicationWithdrawn):
-		return
-	case errors.Is(err, leglifecycle.ErrALegCanceled):
-		return
-	default:
-		t.Fatalf("%s: got %v, want a close-won cause (%v or %v)", msg, err,
-			errPendingPublicationWithdrawn, leglifecycle.ErrALegCanceled)
-	}
-}
-
 // pendingLifetimeBarrierWait bounds the one wait that is expected to be
 // instantaneous: the deferred observer finish a winning Close must perform while
 // the publication preflight is blocked. It only turns a missing barrier into a
@@ -1288,7 +1247,7 @@ func TestPendingReal_claimFailureStopsCustomerSettlementAndBillingHandoff(t *tes
 
 	require.NoError(t, <-closeDone, "a Close that wins the publication must still succeed")
 	got := <-recvDone
-	requirePendingPublicationCloseWon(t, got.err,
+	require.ErrorIs(t, got.err, errPendingPublicationWithdrawn,
 		"a publication withdrawn before its claim must fail the terminal instead of reporting success")
 	assert.Positive(t, decider.seen.Load(),
 		"the accepted normal candidate must really have been evaluated at the terminal-decision chokepoint")
@@ -1449,7 +1408,7 @@ func TestPendingReal_realCloseAfterSettlementStopsTheBillingHandoff(t *testing.T
 
 	require.NoError(t, <-closeDone, "a Close that wins the publication window must still succeed")
 	got := <-recvDone
-	requirePendingPublicationCloseWon(t, got.err,
+	require.ErrorIs(t, got.err, errPendingPublicationWithdrawn,
 		"a real Close after a successful private stage must withdraw the publication")
 	assert.Empty(t, capture.completed(),
 		"a real Close after settlement must never admit a NORMAL-COMPLETED billing handoff; sealed=%+v",

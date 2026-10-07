@@ -6,7 +6,6 @@
 # filtering can miss reverse dependencies affected by a changed package.
 
 set -euo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/dev-cpu-defaults.sh"
 
 pre_flags=()
 if [[ "${LIP_TEST_PRECOMMIT:-}" =~ ^(1|true|yes|on)$ ]]; then
@@ -26,14 +25,6 @@ test_parallel="${LIP_TEST_PARALLEL:-}"
 if [ -z "$test_parallel" ]; then
 	test_parallel=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 fi
-test_package_flags=()
-if [[ -n ${LIP_TEST_PACKAGES:-} ]]; then
-	if [[ ! $LIP_TEST_PACKAGES =~ ^[1-9][0-9]*$ ]]; then
-		echo "LIP_TEST_PACKAGES must be a positive integer" >&2
-		exit 2
-	fi
-	test_package_flags=("-p=$LIP_TEST_PACKAGES")
-fi
 # Hook-local Git pins must not bind temporary-repository fixtures to the caller.
 git_env_names=$(git rev-parse --local-env-vars)
 mapfile -t git_local_env <<< "$git_env_names"
@@ -47,9 +38,9 @@ package_list=$(go list "${pre_flags[@]}" ./...)
 mapfile -t ordinary_packages < <(printf '%s\n' "$package_list" | grep -vE '/internal/archtest(/|$)' || true)
 mapfile -t architecture_packages < <(printf '%s\n' "$package_list" | grep -E '/internal/archtest(/|$)' || true)
 if [ ${#ordinary_packages[@]} -gt 0 ]; then
-	go test "-parallel=$test_parallel" "${test_package_flags[@]}" "${pre_flags[@]}" "${ordinary_packages[@]}"
+	go test "-parallel=$test_parallel" "${pre_flags[@]}" "${ordinary_packages[@]}"
 fi
 if [ ${#architecture_packages[@]} -gt 0 ]; then
-	go test "-parallel=$test_parallel" "${test_package_flags[@]}" "${pre_flags[@]}" "${architecture_packages[@]}"
+	go test "-parallel=$test_parallel" "${pre_flags[@]}" "${architecture_packages[@]}"
 fi
 exit $?

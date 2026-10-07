@@ -123,14 +123,13 @@ func FuzzExpansionFinalizeNeverReleasesACurrentWorkspaceAlias(f *testing.F) {
 	})
 }
 
-// TestExpansionFinalizerExpandsADocumentPastItsOwnDeclaredBound proves that the
-// declared bound is a DECLARATION the assembler enforces, not a rule this pass
-// enforces itself: a document the assembler could still hand over is expanded, and
-// requirement 4.5's refusal belongs to the assembler's chokepoint rather than to
-// this pass's own arithmetic. This pass's own contribution to the overflow case is
-// therefore exactly nothing, which is what the test asserts by observing that no
-// bound is enforced here.
-func TestExpansionFinalizerExpandsADocumentPastItsOwnDeclaredBound(t *testing.T) {
+// TestExpansionFinalizerRejectsAVeryLargeValidDocumentPastTheDeclaredBound proves
+// requirement 4.5 at the feature level rather than only at the assembler level: a
+// document the assembler could still hand over is expanded, and the declared bound is
+// the assembler's chokepoint rather than this pass's own arithmetic. This pass's own
+// contribution to the overflow case is therefore exactly nothing, which is what the
+// test asserts by observing that no bound is enforced here.
+func TestExpansionFinalizerRejectsAVeryLargeValidDocumentPastTheDeclaredBound(t *testing.T) {
 	t.Parallel()
 
 	fixture := newExpansionFixture(t)

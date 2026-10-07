@@ -58,6 +58,31 @@ func TestClassifyPathFlavorTable(t *testing.T) {
 	}
 }
 
+// TestClassifyPathFlavorTableCoversEveryFlavor keeps the acceptance table
+// complete: dropping a flavor row would otherwise silently drop coverage.
+func TestClassifyPathFlavorTableCoversEveryFlavor(t *testing.T) {
+	t.Parallel()
+
+	want := map[pathvirtualization.PathFlavor]int{
+		pathvirtualization.FlavorPOSIX:                0,
+		pathvirtualization.FlavorWindowsDrive:         0,
+		pathvirtualization.FlavorWindowsUNC:           0,
+		pathvirtualization.FlavorWindowsExtendedDrive: 0,
+		pathvirtualization.FlavorWindowsExtendedUNC:   0,
+	}
+	for _, tc := range flavorCases() {
+		if _, ok := want[tc.wantFlavor]; !ok {
+			continue
+		}
+		want[tc.wantFlavor]++
+	}
+	for flavor, rows := range want {
+		if rows == 0 {
+			t.Errorf("flavor %v has no acceptance row", flavor)
+		}
+	}
+}
+
 // TestClassifyPathRejectionsAreDistinguishable proves the bounded reason set
 // separates the rejection classes the specification names instead of collapsing
 // them into one opaque failure.
@@ -103,55 +128,51 @@ func TestClassifyPathRejectionsAreDistinguishable(t *testing.T) {
 	}
 }
 
-// TestSkipReasonLabelsAreBounded pins the closed refusal vocabulary of flavor
-// parsing as fixed, content-free labels, and proves that a value outside it
-// degrades to "unknown" in both renderings.
+// TestClassifyPathRejectionReasonsAreBounded pins the closed reason vocabulary of
+// the package so a later task cannot invent an unbounded code.
 //
-// This is the content-freedom rule of requirements.md 7.7 applied to the one
-// string-typed enum in the package: any caller can construct a SkipReason that
-// holds a real project root, and String plus MarshalText are the only things
-// keeping those bytes out of a log line or a metric label.
-func TestSkipReasonLabelsAreBounded(t *testing.T) {
+// Two bounded enums feed the same observability dimension of design.md 408: the
+// SkipReason a project root is rejected with, and the ExpandResult an expansion is
+// classified as. seen is collected from every table that can produce a code, so a
+// code added without a table row, or a table row with an unlisted code, both fail
+// here.
+func TestClassifyPathRejectionReasonsAreBounded(t *testing.T) {
 	t.Parallel()
 
-	want := []struct {
-		reason pathvirtualization.SkipReason
-		label  string
-	}{
-		{pathvirtualization.SkipReasonNone, ""},
-		{pathvirtualization.SkipReasonEmptyRoot, "empty_root"},
-		{pathvirtualization.SkipReasonRelativeRoot, "relative_root"},
-		{pathvirtualization.SkipReasonMalformedVolumeRoot, "malformed_volume_root"},
-		{pathvirtualization.SkipReasonDeviceNamespace, "device_namespace"},
-		{pathvirtualization.SkipReasonReservedNamespaceCollision, "reserved_namespace_collision"},
+	known := map[string]bool{
+		// SkipReason codes: none, unusable roots, and reserved-namespace collision.
+		"": true,
+		string(pathvirtualization.SkipReasonEmptyRoot):                  true,
+		string(pathvirtualization.SkipReasonRelativeRoot):               true,
+		string(pathvirtualization.SkipReasonMalformedVolumeRoot):        true,
+		string(pathvirtualization.SkipReasonDeviceNamespace):            true,
+		string(pathvirtualization.SkipReasonReservedNamespaceCollision): true,
+		// ExpandResult codes: pass-through, expansion, and the two fail-closed
+		// reserved-alias rejections.
+		pathvirtualization.ExpandResultNotApplicable.String():          true,
+		pathvirtualization.ExpandResultExpanded.String():               true,
+		pathvirtualization.ExpandResultMalformedReservedAlias.String(): true,
+		pathvirtualization.ExpandResultWorkspaceMismatch.String():      true,
 	}
-	for _, tc := range want {
-		if got := tc.reason.String(); got != tc.label {
-			t.Errorf("SkipReason(%q).String() = %q, want %q", string(tc.reason), got, tc.label)
-		}
-		rendered, err := tc.reason.MarshalText()
-		if err != nil {
-			t.Fatalf("SkipReason(%q).MarshalText: %v", string(tc.reason), err)
-		}
-		if string(rendered) != tc.label {
-			t.Errorf("SkipReason(%q).MarshalText() = %q, want %q", string(tc.reason), rendered, tc.label)
+	seen := map[string]bool{}
+	for _, tc := range flavorCases() {
+		seen[string(tc.wantReason)] = true
+	}
+	for _, tc := range reservedRootCases() {
+		if tc.wantCollision {
+			seen[string(pathvirtualization.SkipReasonReservedNamespaceCollision)] = true
 		}
 	}
-	for _, hostile := range []pathvirtualization.SkipReason{
-		"/home/dev/projects/go-llm-interactive-proxy",
-		`C:\Users\dev\source\repos\go-llm-interactive-proxy`,
-		".__lip_v1__/w_AAAAAAAAAAAAAAAAAAAA",
-	} {
-		if got := hostile.String(); got != "unknown" {
-			t.Errorf("SkipReason(%q).String() = %q, want the bounded fallback %q", string(hostile), got, "unknown")
+	for _, tc := range reservedAliasCases() {
+		seen[tc.wantRes.String()] = true
+	}
+	for reason := range seen {
+		if !known[reason] {
+			t.Errorf("a table declares unknown reason code %q", reason)
 		}
-		rendered, err := hostile.MarshalText()
-		if err != nil {
-			t.Fatalf("SkipReason(%q).MarshalText: %v", string(hostile), err)
-		}
-		if string(rendered) != "unknown" {
-			t.Errorf("SkipReason(%q).MarshalText() = %q, want the bounded fallback %q", string(hostile), rendered, "unknown")
-		}
+	}
+	if len(seen) != len(known) {
+		t.Errorf("tables cover %d reason codes, want all %d bounded codes", len(seen), len(known))
 	}
 }
 

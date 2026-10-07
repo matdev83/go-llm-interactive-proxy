@@ -403,41 +403,63 @@ func TestSessionClassificationStageFileDoesNotTouchRequestContent(t *testing.T) 
 	}
 }
 
-// TestSessionClassificationStagePreservesPriorPositive proves an established
-// positive classification is immutable at this stage: the stage short-circuits
-// at extensions.RunSessionClassificationStage, so a classifier that would
-// propose a different valid classification never gets the chance to replace it.
+// TestSessionClassificationStagePreservesPriorPositive proves runtime/store/
+// remote failures never reject the request and never discard an already-positive
+// classification.
 //
-// The injected classifier deliberately returns a WELL-FORMED positive different
-// from the prior one. A classifier returning only an error or an invalid value
-// would leave the observed value unchanged even if the short-circuit were
-// removed (the validate gate turns those into no-ops), so those rows could
-// never fail and were removed. The per-failure-class proof and the
-// invocation-count half live in
-// TestSessionClassificationFailurePreservesPersistedPositive and
-// TestSessionClassificationEstablishedPositiveSkipsClassifier
-// (executor_session_classification_failure_test.go, task 6.3).
+// SCOPE: because preSession.Classification is pre-set to a positive here, the
+// generic runner short-circuits at extensions.RunSessionClassificationStage and
+// the injected classify funcs are never invoked — this occurrence proves the
+// preservation property only, not that each failure class fires on this path.
+// The invocation-count half is covered by
+// TestSessionClassificationEstablishedPositiveSkipsClassifier, and the composed
+// version that genuinely runs every failure class against a persisted positive
+// is TestSessionClassificationFailurePreservesPersistedPositive. Both live in
+// executor_session_classification_failure_test.go (task 6.3).
 func TestSessionClassificationStagePreservesPriorPositive(t *testing.T) {
 	priorPositive := codingAgentSessionClassification("prior.persisted_state", 2)
-	downgradeCandidate := codingAgentSessionClassification("classifier.would_overwrite", 9)
-	classifier := newSpySessionClassifier("classification-preserve", func(context.Context, sessionclassification.Input) (session.Classification, error) {
-		return downgradeCandidate, nil
-	})
 
-	ex := classificationExec(t)
-	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
-		Workspace:     workspace.NewResolverChain([]lipworkspace.Resolver{classificationWorkspaceResolver{}}),
-		FeaturePlanes: freezeBundle(testFeatureBundle{SessionClassifier: classifier}),
-	})
-	ibt := &identityBoundTurn{
-		traceID:    "trace-classification-preserve",
-		preSession: session.SessionView{AuthoritativeSessionID: "sess-1", ALegID: "aleg-1", Classification: priorPositive},
-		workspace:  lipworkspace.WorkspaceView{ID: "workspace-classification"},
+	cases := []struct {
+		name     string
+		classify func(context.Context, sessionclassification.Input) (session.Classification, error)
+	}{
+		{
+			name: "classifier error",
+			classify: func(context.Context, sessionclassification.Input) (session.Classification, error) {
+				return session.Classification{}, errors.New("remote classifier unavailable")
+			},
+		},
+		{
+			name: "invalid classification output",
+			classify: func(context.Context, sessionclassification.Input) (session.Classification, error) {
+				return session.Classification{Kind: session.KindCodingAgent}, nil
+			},
+		},
+		{
+			name: "unknown proposal does not downgrade",
+			classify: func(context.Context, sessionclassification.Input) (session.Classification, error) {
+				return session.Classification{}, nil
+			},
+		},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := classificationExec(t)
+			ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
+				Workspace:     workspace.NewResolverChain([]lipworkspace.Resolver{classificationWorkspaceResolver{}}),
+				FeaturePlanes: freezeBundle(testFeatureBundle{SessionClassifier: newSpySessionClassifier("classification-failure", tc.classify)}),
+			})
+			ibt := &identityBoundTurn{
+				traceID:    "trace-classification-failure",
+				preSession: session.SessionView{AuthoritativeSessionID: "sess-1", ALegID: "aleg-1", Classification: priorPositive},
+				workspace:  lipworkspace.WorkspaceView{ID: "workspace-classification"},
+			}
 
-	ex.runSessionClassificationStage(context.Background(), classificationCall(), ibt)
-	if ibt.preSession.Classification != priorPositive {
-		t.Fatalf("classification = %+v, want the preserved prior positive %+v: an established positive is immutable", ibt.preSession.Classification, priorPositive)
+			ex.runSessionClassificationStage(context.Background(), classificationCall(), ibt)
+			if ibt.preSession.Classification != priorPositive {
+				t.Fatalf("classification = %+v, want the preserved prior positive %+v", ibt.preSession.Classification, priorPositive)
+			}
+		})
 	}
 }
 

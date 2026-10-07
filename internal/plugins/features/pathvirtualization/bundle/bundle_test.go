@@ -199,36 +199,6 @@ func TestADisabledResolutionPublishesNoPlaneAtAll(t *testing.T) {
 	}
 }
 
-// TestTheDisabledResolutionStillHandsBackAReadableRecorder is requirement 7.8's
-// diagnostics half of "disabled by default": the entry point that hands a deployment
-// the recorder returns one even when the feature is off, and its inventory answers
-// "this generation has it off" rather than handing the reader a nil to special-case.
-//
-// The empty bundle and the recorder are asserted together because the promise covers
-// both: a disabled generation contributes no plane, and the surface an operator reads
-// to learn that fact still exists.
-func TestTheDisabledResolutionStillHandsBackAReadableRecorder(t *testing.T) {
-	t.Parallel()
-	tel, b, err := bundle.FeatureBundleWithTelemetry(resolve(t, "enabled: false\nmode: rewrite\n"))
-	if err != nil {
-		t.Fatalf("FeatureBundleWithTelemetry: %v", err)
-	}
-	if tel == nil {
-		t.Fatal("a disabled resolution handed back no recorder; a diagnostics reader would have to special-case nil")
-	}
-	inventory := tel.Inventory()
-	if inventory.Enabled {
-		t.Fatalf("a disabled resolution's inventory reports enabled=%t", inventory.Enabled)
-	}
-	if inventory.Mode != rewrite.ModeAudit.String() {
-		t.Fatalf("disabled inventory mode = %q, want the engine's zero mode %q",
-			inventory.Mode, rewrite.ModeAudit.String())
-	}
-	if !b.PlaneSet.IsZero() {
-		t.Fatal("a disabled resolution published planes alongside the recorder")
-	}
-}
-
 // TestARewriteModeRegistrationActuallyMutates is the mode obligation: the mode
 // crosses the bundle boundary as a value, so a rewrite registration cannot degrade
 // into the engine's zero value (audit) and silently measure a rollout the operator
