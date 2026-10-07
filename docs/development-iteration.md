@@ -43,7 +43,9 @@ certification runs only when a config-source path is staged. CI's `Go suite (Lin
 tagged root suite and lint on every PR, and the required `Repo hygiene` check
 fails when either does. The module-wide owner-callback escape gate
 (`TestRuntimebundle_NoCompleteOwnerCallbackEscapes`, ~2 min) runs in its own
-parallel `Owner callback gate (Linux)` job instead of inside the suite. `LIP_PRECOMMIT_FULL=1 git commit` (or
+parallel `Owner callback gate (Linux)` job instead of inside the suite, and the suite itself runs
+as two shards (`heavy`: the few slow packages named in `ci.yml`; `rest`: everything else) so no single runner compiles and runs
+every package. `LIP_PRECOMMIT_FULL=1 git commit` (or
 `make precommit-full`) runs the old complete local gate. `scripts/hooks/pre-push`
 re-checks release cleanliness and change size.
 
