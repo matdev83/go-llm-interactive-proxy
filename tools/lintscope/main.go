@@ -42,12 +42,13 @@ type listedPackage struct {
 func main() {
 	mode := flag.String("mode", "changed", "changed or staged local work, or base for a CI branch diff")
 	base := flag.String("base", "", "comparison commit for -mode=base")
+	direct := flag.Bool("direct", false, "lint only the changed packages, without consumers or the shared-input full fallback")
 	root := flag.String("root", ".", "repository root")
 	format := flag.String("format", "json", "json or lines for shell adapters")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	plan, err := buildLintPlan(ctx, *root, *mode, *base)
+	plan, err := buildLintPlan(ctx, *root, *mode, *base, *direct)
 	if err == nil {
 		switch *format {
 		case "json":
@@ -136,7 +137,7 @@ func isSkillPath(name string) bool {
 	return false
 }
 
-func buildLintPlan(ctx context.Context, root, mode, base string) (lintPlan, error) {
+func buildLintPlan(ctx context.Context, root, mode, base string, direct bool) (lintPlan, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return lintPlan{}, err
@@ -152,7 +153,7 @@ func buildLintPlan(ctx context.Context, root, mode, base string) (lintPlan, erro
 	}
 	byModule := map[string][]string{}
 	for _, name := range paths {
-		if requiresFullLint(name) {
+		if !direct && requiresFullLint(name) {
 			return lintPlan{Full: true}, nil
 		}
 		if !strings.HasSuffix(name, ".go") || isSkillPath(name) {
@@ -215,23 +216,46 @@ func buildLintPlan(ctx context.Context, root, mode, base string) (lintPlan, erro
 			}
 			seeds = append(seeds, seed)
 		}
+		if direct {
+			// A deleted package has nothing left to lint; CI lints its consumers.
+			selected := directPackages(graph, seeds)
+			if len(selected) > 0 {
+				plan.Modules = append(plan.Modules, moduleScope{Directory: module, Packages: relativePatterns(selected, modulePath)})
+			}
+			continue
+		}
 		selected := affectedPackages(graph, seeds)
 		// Unresolved/deleted package selection must never silently omit evidence.
 		if len(selected) == 0 {
 			return lintPlan{Full: true}, nil
 		}
-		var patterns []string
-		for _, name := range selected {
-			rel := strings.TrimPrefix(name, modulePath)
-			if rel == "" {
-				patterns = append(patterns, ".")
-			} else {
-				patterns = append(patterns, "."+rel)
-			}
-		}
-		plan.Modules = append(plan.Modules, moduleScope{Directory: module, Packages: patterns})
+		plan.Modules = append(plan.Modules, moduleScope{Directory: module, Packages: relativePatterns(selected, modulePath)})
 	}
 	return plan, nil
+}
+
+func relativePatterns(selected []string, modulePath string) []string {
+	var patterns []string
+	for _, name := range selected {
+		rel := strings.TrimPrefix(name, modulePath)
+		if rel == "" {
+			patterns = append(patterns, ".")
+		} else {
+			patterns = append(patterns, "."+rel)
+		}
+	}
+	return patterns
+}
+
+func directPackages(graph []listedPackage, seeds []string) []string {
+	var selected []string
+	for _, pkg := range graph {
+		if slices.Contains(seeds, pkg.ImportPath) {
+			selected = append(selected, pkg.ImportPath)
+		}
+	}
+	slices.Sort(selected)
+	return selected
 }
 
 func affectedPackages(graph []listedPackage, seeds []string) []string {

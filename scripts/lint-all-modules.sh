@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGED=0
 CHANGED=0
 BASE=""
+DIRECT=0
 ADVISORY=0
 
 while [[ $# -gt 0 ]]; do
@@ -22,12 +23,16 @@ while [[ $# -gt 0 ]]; do
       BASE="${2:?--base needs a commit}"
       shift 2
       ;;
+    --direct)
+      DIRECT=1
+      shift
+      ;;
     --advisory)
       ADVISORY=1
       shift
       ;;
     *)
-      echo "usage: $0 [--staged|--changed|--base <commit>] [--advisory]" >&2
+      echo "usage: $0 [--staged|--changed|--base <commit>] [--direct] [--advisory]" >&2
       exit 2
       ;;
   esac
@@ -51,7 +56,7 @@ if (( STAGED || CHANGED )) || [[ -n "$BASE" ]]; then
   mode=changed
   if (( STAGED )); then mode=staged; fi
   if [[ -n "$BASE" ]]; then mode=base; fi
-  plan="$(go -C "$ROOT" run -buildvcs=false ./tools/lintscope -mode "$mode" -base "$BASE" -format=lines)"
+  plan="$(go -C "$ROOT" run -buildvcs=false ./tools/lintscope -mode "$mode" -base "$BASE" -direct="$(( DIRECT ))" -format=lines)"
   if [[ "$plan" == "FULL" ]]; then
     FULL=1
   elif [[ -n "$plan" ]]; then

@@ -61,7 +61,7 @@ func writeScopeFile(t *testing.T, root, name, body string) {
 func TestLocalLintPlanReadsActualGitAndTestImportGraph(t *testing.T) {
 	root := scopeFixture(t)
 	writeScopeFile(t, root, "base/base.go", "package base\nconst Value = 2\n")
-	plan, err := buildLintPlan(context.Background(), root, "changed", "")
+	plan, err := buildLintPlan(context.Background(), root, "changed", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,14 +76,14 @@ func TestLocalLintPlanUntrackedNestedModuleUsesModuleRelativeScope(t *testing.T)
 	writeScopeFile(t, root, "connectors/test/go.mod", "module example.com/connector\n\ngo 1.26.0\n")
 	writeScopeFile(t, root, "connectors/test/backend/backend.go", "package backend\n")
 	// Dependency changes deliberately force the comprehensive fallback.
-	plan, err := buildLintPlan(context.Background(), root, "changed", "")
+	plan, err := buildLintPlan(context.Background(), root, "changed", "", false)
 	if err != nil || !plan.Full {
 		t.Fatalf("untracked dependency change plan=%+v err=%v", plan, err)
 	}
 	scopeGit(t, root, "add", ".")
 	scopeGit(t, root, "-c", "user.name=Scope Test", "-c", "user.email=scope@example.invalid", "commit", "-qm", "connector")
 	writeScopeFile(t, root, "connectors/test/backend/backend.go", "package backend\nconst Value = 2\n")
-	plan, err = buildLintPlan(context.Background(), root, "changed", "")
+	plan, err = buildLintPlan(context.Background(), root, "changed", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestLocalLintPlanUntrackedNestedModuleUsesModuleRelativeScope(t *testing.T)
 func TestLocalLintPlanDoesNotHideDiscoveryFailure(t *testing.T) {
 	root := scopeFixture(t)
 	writeScopeFile(t, root, "base/base.go", "package base\nimport _ \"example.invalid/unavailable\"\n")
-	if _, err := buildLintPlan(context.Background(), root, "changed", ""); err == nil {
+	if _, err := buildLintPlan(context.Background(), root, "changed", "", false); err == nil {
 		t.Fatal("failed graph discovery must fail closed")
 	}
 }
@@ -105,7 +105,7 @@ func TestLocalLintPlanDocumentationAndEmptyIndex(t *testing.T) {
 	root := scopeFixture(t)
 	writeScopeFile(t, root, "docs/note.md", "documentation\n")
 	for _, mode := range []string{"changed", "staged"} {
-		plan, err := buildLintPlan(context.Background(), root, mode, "")
+		plan, err := buildLintPlan(context.Background(), root, mode, "", false)
 		if err != nil || plan.Full || len(plan.Modules) != 0 {
 			t.Fatalf("%s plan=%+v err=%v", mode, plan, err)
 		}
@@ -113,7 +113,7 @@ func TestLocalLintPlanDocumentationAndEmptyIndex(t *testing.T) {
 }
 
 func TestLocalLintPlanCleanCheckoutRetainsOnlyTheRootGate(t *testing.T) {
-	plan, err := buildLintPlan(context.Background(), scopeFixture(t), "changed", "")
+	plan, err := buildLintPlan(context.Background(), scopeFixture(t), "changed", "", false)
 	want := []moduleScope{{Directory: ".", Packages: []string{"./..."}}}
 	if err != nil || plan.Full || !reflect.DeepEqual(plan.Modules, want) {
 		t.Fatalf("clean plan=%+v err=%v", plan, err)
@@ -125,7 +125,7 @@ func TestLocalLintPlanStagedScopeDoesNotIncludeUnstagedPackages(t *testing.T) {
 	writeScopeFile(t, root, "base/base.go", "package base\nconst Value = 2\n")
 	scopeGit(t, root, "add", "base/base.go")
 	writeScopeFile(t, root, "unrelated/new.go", "package unrelated\nconst New = 1\n")
-	plan, err := buildLintPlan(context.Background(), root, "staged", "")
+	plan, err := buildLintPlan(context.Background(), root, "staged", "", false)
 	want := []moduleScope{{Directory: ".", Packages: []string{"./base", "./consumer", "./testconsumer"}}}
 	if err != nil || plan.Full || !reflect.DeepEqual(plan.Modules, want) {
 		t.Fatalf("staged plan=%+v err=%v want %v", plan, err, want)
@@ -133,7 +133,7 @@ func TestLocalLintPlanStagedScopeDoesNotIncludeUnstagedPackages(t *testing.T) {
 }
 
 func TestLocalLintPlanDoesNotHideGitFailure(t *testing.T) {
-	if _, err := buildLintPlan(context.Background(), t.TempDir(), "changed", ""); err == nil {
+	if _, err := buildLintPlan(context.Background(), t.TempDir(), "changed", "", false); err == nil {
 		t.Fatal("failed Git discovery must fail closed")
 	}
 }
@@ -144,12 +144,24 @@ func TestLocalLintPlanBaseScopeReadsCommittedBranchDiff(t *testing.T) {
 	writeScopeFile(t, root, "base/base.go", "package base\nconst Value = 2\n")
 	scopeGit(t, root, "-c", "user.name=Scope Test", "-c", "user.email=scope@example.invalid", "commit", "-qam", "change")
 	writeScopeFile(t, root, "unrelated/new.go", "package unrelated\nconst New = 1\n")
-	plan, err := buildLintPlan(context.Background(), root, "base", "fixture-base")
+	plan, err := buildLintPlan(context.Background(), root, "base", "fixture-base", false)
 	want := []moduleScope{{Directory: ".", Packages: []string{"./base", "./consumer", "./testconsumer"}}}
 	if err != nil || plan.Full || !reflect.DeepEqual(plan.Modules, want) {
 		t.Fatalf("base plan=%+v err=%v want %v", plan, err, want)
 	}
-	if _, err := buildLintPlan(context.Background(), root, "base", ""); err == nil {
+	if _, err := buildLintPlan(context.Background(), root, "base", "", false); err == nil {
 		t.Fatal("base mode without a commit must fail closed")
+	}
+}
+
+func TestLocalLintPlanDirectScopeSkipsConsumersAndSharedFallback(t *testing.T) {
+	root := scopeFixture(t)
+	writeScopeFile(t, root, "base/base.go", "package base\nconst Value = 2\n")
+	writeScopeFile(t, root, "Makefile", "all:\n")
+	scopeGit(t, root, "add", "base/base.go", "Makefile")
+	plan, err := buildLintPlan(context.Background(), root, "staged", "", true)
+	want := []moduleScope{{Directory: ".", Packages: []string{"./base"}}}
+	if err != nil || plan.Full || !reflect.DeepEqual(plan.Modules, want) {
+		t.Fatalf("direct plan=%+v err=%v want %v", plan, err, want)
 	}
 }

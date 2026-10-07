@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pre-commit quality gate. The default is fast: build, vet and tests of the
-# packages the change affects, plus scoped lint. CI (ci.yml "Go suite" and
+# Pre-commit quality gate. The default is fast: build, vet, tests and lint of
+# the staged packages only. CI (ci.yml "Go suite" and
 # "Lint") runs the complete tagged suite and lint on every PR, so the hook does
 # not repeat them. LIP_PRECOMMIT_FULL=1 or `make precommit-full` restores the
 # complete local gate: whole root suite, certification, full lint, govulncheck.
@@ -54,6 +54,28 @@ if [[ "${LIP_PRECOMMIT_FULL:-}" != "1" ]]; then
 	LIP_SKIP_LINT=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh"
 
 	echo ""
+	# Test only the packages whose files are staged. Nearly every package
+	# reaches the repository-wide suites (archtest, qa, runtime, runtimebundle)
+	# through reverse dependencies, so a reverse-dependency scope costs about
+	# as much as the full suite; CI's Go suite owns those consumers.
+	declare -A test_packages=()
+	while IFS= read -r file; do
+		[[ "$file" == *.go && -f "$file" ]] || continue
+		dir=$(dirname "$file")
+		module=$dir
+		while [[ "$module" != "." && ! -f "$module/go.mod" ]]; do
+			module=$(dirname "$module")
+		done
+		if [[ "$module" == "." ]]; then
+			package="./$dir"
+		else
+			package=".${dir#"$module"}"
+		fi
+		test_packages["$module"]+=" ${package%/.}"
+	done <<< "$staged_files"
+	if [[ ${#test_packages[@]} -eq 0 ]]; then
+		echo "No staged Go packages to test."
+	fi
 	# Hook-local Git pins must not bind temporary-repository fixtures to the
 	# caller, so the tests run in a subshell without them.
 	(
@@ -61,15 +83,11 @@ if [[ "${LIP_PRECOMMIT_FULL:-}" != "1" ]]; then
 		for name in "${git_local_env[@]}"; do
 			unset "$name"
 		done
-		plan="$(go run -buildvcs=false ./tools/devcheck -task=test -scope=changed -base=HEAD -plan 2>&1)"
-		if grep -q '^full_default_tests_reason=' <<< "$plan"; then
-			grep '^full_default_tests_reason=' <<< "$plan"
-			echo "Skipping local tests: a shared input changed, so the complete suite is due and CI runs it."
-			echo "Run it locally with: LIP_PRECOMMIT_FULL=1 git commit, or make dev-test-changed DEV_FULL=1."
-		else
-			echo "Testing packages affected by the uncommitted change (CI runs the complete suite)..."
-			go run -buildvcs=false ./tools/devcheck -task=test -scope=changed -base=HEAD
-		fi
+		for module in "${!test_packages[@]}"; do
+			packages=$(tr ' ' '\n' <<< "${test_packages[$module]}" | sed '/^$/d' | sort -u | tr '\n' ' ')
+			echo "Testing staged packages in module $module (CI runs the complete suite): $packages"
+			go run -buildvcs=false ./tools/devcheck -task=test -module="$module" -packages="$packages"
+		done
 	)
 
 	if [[ "$(go env GOOS)" == "linux" ]] && grep -qE '^(internal/infra/(configsource|runtimehost)/|scripts/(test-)?configsource-)' <<< "$staged_files"; then
@@ -121,14 +139,9 @@ if [[ "${LIP_SKIP_LINT:-}" != "1" ]]; then
 		echo "Running complete multi-module linter across all modules (precommit-full)..."
 		bash "$SCRIPT_DIR/lint-all-modules.sh"
 	else
-		lint_plan="$(go run -buildvcs=false ./tools/lintscope -mode staged -format=lines)"
-		if [[ "$lint_plan" == "FULL" ]]; then
-			echo "Skipping local lint: a shared lint input changed, so every module is due and CI lints them."
-			echo "Run it locally with: make lint"
-		else
-			echo "Running multi-module linter on staged modules..."
-			bash "$SCRIPT_DIR/lint-all-modules.sh" --staged
-		fi
+		# Staged packages only: consumers are linted by CI's Lint job.
+		echo "Running multi-module linter on staged packages (CI lints their consumers)..."
+		bash "$SCRIPT_DIR/lint-all-modules.sh" --staged --direct
 	fi
 else
 	echo ""

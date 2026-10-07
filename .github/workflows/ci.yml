@@ -351,6 +351,8 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          # Kiro spec checks resolve recorded commit SHAs.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Go

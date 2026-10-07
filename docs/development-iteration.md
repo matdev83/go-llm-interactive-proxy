@@ -34,18 +34,18 @@ than repeating the logic.
 
 ### Commit runs an affected-scope gate; CI runs the full suite
 
-`scripts/hooks/pre-commit` builds, vets and tests the packages the uncommitted
-change affects (`devcheck -scope=changed`, reverse dependencies included) and
-lints the staged packages. Config-source certification runs only when a
-config-source path is staged. When a shared input changes (Makefile, `scripts/`,
-`.github/`, `go.mod`, `pkg/`, ...) the hook skips the local suite or lint and
-says so. CI's `Go suite (Linux)` and `Lint (Linux)` jobs run the complete
+`scripts/hooks/pre-commit` builds, vets, tests and lints only the packages whose
+files are staged (about 40 seconds for a one-package change on `agent-dev`).
+It does not test their consumers: nearly every package reaches the
+repository-wide suites through reverse dependencies, which made a
+reverse-dependency scope cost as much as the full suite. Config-source
+certification runs only when a config-source path is staged. CI's `Go suite (Linux)` and `Lint (Linux)` jobs run the complete
 tagged root suite and lint on every PR, and the required `Repo hygiene` check
 fails when either does. `LIP_PRECOMMIT_FULL=1 git commit` (or
 `make precommit-full`) runs the old complete local gate. `scripts/hooks/pre-push`
 re-checks release cleanliness and change size.
 
-A large affected set still takes minutes, so run commits as a background command
+A commit touching many packages still takes minutes, so run commits as a background command
 with no tool timeout: a harness timeout that kills the gate mid-run leaves the
 commit unapplied and the index still staged.
 
