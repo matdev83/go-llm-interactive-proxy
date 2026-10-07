@@ -363,8 +363,7 @@ func TestParseInvalidQueryWrapsParseQueryError(t *testing.T) {
 	if !errors.Is(err, ErrInvalidSelector) {
 		t.Fatalf("expected ErrInvalidSelector in chain: %v", err)
 	}
-	var escErr url.EscapeError
-	if !errors.As(err, &escErr) {
+	if _, ok := errors.AsType[url.EscapeError](err); !ok {
 		t.Fatalf("expected url.EscapeError in chain, got %T: %v", err, err)
 	}
 }

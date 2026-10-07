@@ -86,7 +86,6 @@ func TestReview63cNestedPayableDescendantKeepsUnprovableCoverDiagnosed(t *testin
 			b1Measure(t, x, "60"),
 			b1Measure(t, d, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -116,7 +115,6 @@ func TestReview63cNestedPayableDescendantKeepsUnprovableCoverDiagnosed(t *testin
 			b1Measure(t, z, "60"),
 			b1Measure(t, d, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -144,7 +142,6 @@ func TestReview63cNestedPayableDescendantKeepsUnprovableCoverDiagnosed(t *testin
 			b1Measure(t, c, "40"),
 			b1Measure(t, d, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -167,7 +164,6 @@ func TestReview63cNestedPayableDescendantKeepsUnprovableCoverDiagnosed(t *testin
 		resolved := f356Schema(t, "f63c-subset-only", rules, graph)
 		obs := f3Observation(t, "f63c-subset-only", b1Measure(t, d, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -227,7 +223,6 @@ func TestReview63cNestedPayableDescendantKeepsUnprovableCoverDiagnosed(t *testin
 					append(f356Partition(b, -1, x, y), f356Partition(a, -1, b, c)...), a, d),
 			},
 		} {
-			order := order
 			t.Run(order.name, func(t *testing.T) {
 				t.Parallel()
 				rules := []economics.RatingRule{
@@ -239,7 +234,6 @@ func TestReview63cNestedPayableDescendantKeepsUnprovableCoverDiagnosed(t *testin
 					b1Measure(t, x, "60"),
 					b1Measure(t, d, "20"))
 				for _, seam := range review5beSeams() {
-					seam := seam
 					t.Run(seam.name, func(t *testing.T) {
 						seam := seam
 						t.Parallel()
@@ -280,7 +274,6 @@ func TestReview63cTransitiveSubsetQuantityConsistency(t *testing.T) {
 		{name: "twenty_to_twenty_both_priced", ancestor: "20", descendant: "20", ancestorPrice: "1", wantTotal: ""},
 	}
 	for _, testCase := range vectors {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 			rules := []economics.RatingRule{
@@ -292,7 +285,6 @@ func TestReview63cTransitiveSubsetQuantityConsistency(t *testing.T) {
 				b1Measure(t, a, testCase.ancestor),
 				b1Measure(t, c, testCase.descendant))
 			for _, seam := range review5beSeams() {
-				seam := seam
 				t.Run(seam.name, func(t *testing.T) {
 					seam := seam
 					t.Parallel()
@@ -341,7 +333,6 @@ func TestReview63cTransitiveSubsetQuantityConsistency(t *testing.T) {
 			b1Measure(t, a, "10"),
 			b1Measure(t, d, "30"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -363,7 +354,6 @@ func TestReview63cTransitiveSubsetQuantityConsistency(t *testing.T) {
 			b1Measure(t, a, "0"),
 			b1Measure(t, c, "5"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -383,7 +373,6 @@ func TestReview63cTransitiveSubsetQuantityConsistency(t *testing.T) {
 		resolved := f356Schema(t, "f63t-absent-ancestor", rules, chain)
 		obs := f3Observation(t, "f63t-absent-ancestor", b1Measure(t, c, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()

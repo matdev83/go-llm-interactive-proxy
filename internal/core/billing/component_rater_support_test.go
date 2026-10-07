@@ -345,7 +345,7 @@ func TestSupportPredicateHasOnlyApprovedProductionConsumers(t *testing.T) {
 		t.Fatalf("ReadDir: %v", err)
 	}
 	declaring := supportShadowDeclaringFile(t, sources)
-	for _, name := range strings.Split(supportShadowPredicateNames, "|") {
+	for name := range strings.SplitSeq(supportShadowPredicateNames, "|") {
 		if !strings.Contains(string(sources[declaring]), name) {
 			t.Errorf("the declaring file %s does not declare %q; the excluded file is not the predicate's own home", declaring, name)
 		}

@@ -111,7 +111,7 @@ func TestProviderEvidenceF6InvalidDraftLossAcrossDrainsIsBounded(t *testing.T) {
 		t.Fatalf("live prefix drain lost the valid prefix: %+v", first)
 	}
 
-	for round := 0; round < 5; round++ {
+	for round := range 5 {
 		invalidKey := "provider.f6.live.invalid." + strconv.Itoa(round)
 		b.Add(f6InvalidMediaMoneyDraft(invalidKey, uint64(round+1)))
 		drained := b.DrainEconomicObservations()
@@ -148,7 +148,7 @@ func TestProviderEvidenceF6InvalidDraftOneMarkerPerDrain(t *testing.T) {
 	t.Parallel()
 	b := NewProviderEvidenceBuffer()
 	b.BindEconomicEvidence(testObservationIdentity())
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		b.Add(f6InvalidMediaMoneyDraft("provider.f6.batch."+strconv.Itoa(i), uint64(i+1)))
 	}
 	observations := b.DrainEconomicObservations()

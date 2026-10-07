@@ -102,7 +102,6 @@ func TestReview62aZeroChargeParentDoesNotMaskMissingPartitionMember(t *testing.T
 			b1Measure(t, a, "0"),
 			b1Measure(t, b, "60"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -127,7 +126,6 @@ func TestReview62aZeroChargeParentDoesNotMaskMissingPartitionMember(t *testing.T
 			b1Measure(t, aZeroRate, "100"),
 			b1Measure(t, b, "60"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -157,7 +155,6 @@ func TestReview62aZeroChargeParentDoesNotMaskMissingPartitionMember(t *testing.T
 			b1Measure(t, b, "60"),
 			b1Measure(t, c, "40"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -193,7 +190,6 @@ func TestReview62aZeroChargeParentDoesNotMaskMissingPartitionMember(t *testing.T
 			b1Measure(t, a, "100"),
 			b1Measure(t, b, "60"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)
@@ -252,7 +248,6 @@ func TestReview62aSubsetQuantityConsistency(t *testing.T) {
 		{name: "zero_subset_inside_parent_valid", parentAmount: "100", subsetAmount: "0", parentPrice: "0", subsetPrice: "1", wantTotal: "0/0"},
 	}
 	for _, testCase := range vectors {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 			rules := []economics.RatingRule{b1Rule(t, "f62b-subset-rate", s, testCase.subsetPrice)}
@@ -264,7 +259,6 @@ func TestReview62aSubsetQuantityConsistency(t *testing.T) {
 				b1Measure(t, a, testCase.parentAmount),
 				b1Measure(t, s, testCase.subsetAmount))
 			for _, seam := range review5beSeams() {
-				seam := seam
 				t.Run(seam.name, func(t *testing.T) {
 					seam := seam
 					t.Parallel()
@@ -300,7 +294,6 @@ func TestReview62aSubsetQuantityConsistency(t *testing.T) {
 			b1Measure(t, a, "20"),
 			b1Measure(t, s, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -326,7 +319,6 @@ func TestReview62aSubsetQuantityConsistency(t *testing.T) {
 			b1Measure(t, a, "20"),
 			b1Measure(t, s, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -355,7 +347,6 @@ func TestReview62aSubsetQuantityConsistency(t *testing.T) {
 		resolved := f356Schema(t, "f62b-absent-parent", rules, f62Subset(absentParent, s))
 		obs := f3Observation(t, "f62b-absent-parent", b1Measure(t, s, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -377,7 +368,6 @@ func TestReview62aSubsetQuantityConsistency(t *testing.T) {
 			b1UnavailableMeasure(a),
 			b1Measure(t, s, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				t.Parallel()
@@ -443,7 +433,6 @@ func TestReview62aCrossScopeAndDirectionSubsetControls(t *testing.T) {
 			b1Measure(t, parentKey, "0"),
 			b1Measure(t, childKey, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				val, err := seam.rate(t, resolved, obs)
@@ -473,7 +462,6 @@ func TestReview62aCrossScopeAndDirectionSubsetControls(t *testing.T) {
 			b1Measure(t, a, "0"),
 			b1Measure(t, s, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				val, err := seam.rate(t, resolved, obs)
@@ -509,7 +497,6 @@ func TestReview62aOpenAIFamilySubsetKeysAreChecked(t *testing.T) {
 		b1Measure(t, aggregate, "0"),
 		b1Measure(t, cached, "40"))
 	for _, seam := range review5beSeams() {
-		seam := seam
 		t.Run(seam.name, func(t *testing.T) {
 			seam := seam
 			t.Parallel()
@@ -539,7 +526,6 @@ func TestReview62aUnresolvedCoverWithPayableSubsetFailsClosed(t *testing.T) {
 		b1Measure(t, b, "60"),
 		b1Measure(t, d, "20"))
 	for _, seam := range review5beSeams() {
-		seam := seam
 		t.Run(seam.name, func(t *testing.T) {
 			seam := seam
 			t.Parallel()
@@ -568,7 +554,6 @@ func TestReview62aUnresolvedCoverWithPayableSubsetFailsClosed(t *testing.T) {
 			b1Measure(t, c, "40"),
 			b1Measure(t, d, "20"))
 		for _, seam := range review5beSeams() {
-			seam := seam
 			t.Run(seam.name, func(t *testing.T) {
 				seam := seam
 				val, err := seam.rate(t, resolvedControl, obsControl)

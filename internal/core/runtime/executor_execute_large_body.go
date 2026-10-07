@@ -1170,8 +1170,7 @@ func (e *Executor) openWireAttemptTx(
 		legCancel()
 		_ = bodyReader.Close()
 		tx.abortLaunchPermit()
-		var pe *safety.PanicError
-		if errors.As(err, &pe) {
+		if pe, ok := errors.AsType[*safety.PanicError](err); ok {
 			err = mapBackendPanic(pe, false, c.Key)
 		}
 		isTTFT := (ttftDeadline.scope != ttftTimeoutNone) &&

@@ -211,8 +211,7 @@ func TestApplyCompletionGateChain_failOpenPanicStopsChain(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected panic error")
 	}
-	var pe *safety.PanicError
-	if !errors.As(err, &pe) {
+	if _, ok := errors.AsType[*safety.PanicError](err); !ok {
 		t.Fatalf("want *safety.PanicError, got %T", err)
 	}
 }

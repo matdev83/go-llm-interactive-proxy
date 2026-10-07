@@ -522,11 +522,11 @@ func TestStateLeavesAdaptiveExemptionToTheAdapter(t *testing.T) {
 func TestStateExposesOnlyOffenseRecordersAndNoStatusTakingAPI(t *testing.T) {
 	t.Parallel()
 
-	typ := reflect.TypeOf((*State)(nil))
+	typ := reflect.TypeFor[*State]()
 	want := []string{"Clear", "IsQuarantined", "Len", "RecordAuthFailure", "RecordProbe"}
 	var got []string
-	for i := range typ.NumMethod() {
-		got = append(got, typ.Method(i).Name)
+	for method := range typ.Methods() {
+		got = append(got, method.Name)
 	}
 	sort.Strings(got)
 	if !reflect.DeepEqual(got, want) {
@@ -539,12 +539,12 @@ func TestStateExposesOnlyOffenseRecordersAndNoStatusTakingAPI(t *testing.T) {
 func TestEntryShapeCarriesOnlyBoundedExactAddressData(t *testing.T) {
 	t.Parallel()
 
-	typ := reflect.TypeOf(entry{})
+	typ := reflect.TypeFor[entry]()
 	if typ.NumField() != len(boundedEntryFields) {
 		t.Fatalf("adaptive entry has %d fields, want exactly %d", typ.NumField(), len(boundedEntryFields))
 	}
-	for i := range typ.NumField() {
-		if err := checkBoundedEntryField(typ, typ.Field(i)); err != nil {
+	for field := range typ.Fields() {
+		if err := checkBoundedEntryField(typ, field); err != nil {
 			t.Error(err)
 		}
 	}
@@ -568,8 +568,8 @@ func TestEntryShapeGateRejectsRetainedRequestData(t *testing.T) {
 	for _, value := range []any{rawPathEntry{}, aggregateEntry{}} {
 		typ := reflect.TypeOf(value)
 		var rejected bool
-		for i := range typ.NumField() {
-			if err := checkBoundedEntryField(typ, typ.Field(i)); err != nil {
+		for field := range typ.Fields() {
+			if err := checkBoundedEntryField(typ, field); err != nil {
 				rejected = true
 			}
 		}
@@ -577,24 +577,24 @@ func TestEntryShapeGateRejectsRetainedRequestData(t *testing.T) {
 			t.Fatalf("%s passed the bounded entry gate; the gate is vacuous", typ)
 		}
 	}
-	typ := reflect.TypeOf(admittedEntry{})
+	typ := reflect.TypeFor[admittedEntry]()
 	if err := checkBoundedEntryField(typ, typ.Field(0)); err != nil {
 		t.Fatalf("bounded entry field rejected: %v", err)
 	}
 }
 
 var boundedEntryFields = map[string]reflect.Type{
-	"windowStartedAt": reflect.TypeOf(time.Time{}),
-	"failures":        reflect.TypeOf(int(0)),
-	"offenseLevel":    reflect.TypeOf(int(0)),
-	"quarantineUntil": reflect.TypeOf(time.Time{}),
-	"lastHostileAt":   reflect.TypeOf(time.Time{}),
+	"windowStartedAt": reflect.TypeFor[time.Time](),
+	"failures":        reflect.TypeFor[int](),
+	"offenseLevel":    reflect.TypeFor[int](),
+	"quarantineUntil": reflect.TypeFor[time.Time](),
+	"lastHostileAt":   reflect.TypeFor[time.Time](),
 	// admission is internal ring bookkeeping, not adaptive state: a bounded
 	// monotonic counter that lets a ring slot prove it still owns the live entry
 	// it names, after Clear or a TTL expiry left that same address re-admitted
 	// into a second slot. It carries no request data, influences no offense
 	// decision, and is never read outside the shard lock.
-	"admission": reflect.TypeOf(uint64(0)),
+	"admission": reflect.TypeFor[uint64](),
 }
 
 // checkBoundedEntryField keeps one source entry limited to the normative
@@ -765,7 +765,7 @@ func TestStateOwnsNoClockGoroutineOrTimer(t *testing.T) {
 	if scanned == 0 {
 		t.Fatal("no production source scanned; the resource gate is vacuous")
 	}
-	if err := runtimeResourceViolation(reflect.TypeOf(State{}), map[reflect.Type]bool{}); err != nil {
+	if err := runtimeResourceViolation(reflect.TypeFor[State](), map[reflect.Type]bool{}); err != nil {
 		t.Errorf("State: %v", err)
 	}
 }
@@ -879,13 +879,13 @@ func runtimeResourceViolation(typ reflect.Type, seen map[reflect.Type]bool) erro
 		return fmt.Errorf("field of type %s introduces a channel", typ)
 	}
 	switch typ {
-	case reflect.TypeOf(time.Timer{}), reflect.TypeOf(time.Ticker{}), reflect.TypeOf(sync.WaitGroup{}):
+	case reflect.TypeFor[time.Timer](), reflect.TypeFor[time.Ticker](), reflect.TypeFor[sync.WaitGroup]():
 		return fmt.Errorf("field of type %s introduces a timer, ticker or completion barrier", typ)
 	}
 	switch typ.Kind() {
 	case reflect.Struct:
-		for i := range typ.NumField() {
-			if err := runtimeResourceViolation(typ.Field(i).Type, seen); err != nil {
+		for field := range typ.Fields() {
+			if err := runtimeResourceViolation(field.Type, seen); err != nil {
 				return err
 			}
 		}
@@ -910,6 +910,7 @@ func TestHardCapacityAndDeterministicEvictionUnderUniqueAddressChurn(t *testing.
 	// therefore the newest address of every shard, and this is an assertion
 	// about which addresses survive, not only about how many.
 	run := func(t *testing.T) (expected, survivors map[int]string) {
+		t.Helper()
 		s := mustState(t, limits)
 		expected = make(map[int]string, capacity)
 		for i := range 64 {

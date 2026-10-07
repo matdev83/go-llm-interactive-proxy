@@ -46,8 +46,7 @@ func TestSessionClassificationBaseline_WireFactsCarryOnlyTheBoundedEvidenceCarri
 		reflect.TypeFor[largebody.WireTurnFacts](),
 	} {
 		carriers := 0
-		for i := range typ.NumField() {
-			field := typ.Field(i)
+		for field := range typ.Fields() {
 			if field.Type == evidenceType {
 				carriers++
 				require.Equal(t, "ClassificationEvidence", field.Name,

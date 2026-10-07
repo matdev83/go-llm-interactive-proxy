@@ -503,8 +503,7 @@ func (e *Executor) evaluateCandidate(
 		},
 	)
 	if admitPanicErr != nil {
-		var pe *safety.PanicError
-		if errors.As(admitPanicErr, &pe) {
+		if pe, ok := errors.AsType[*safety.PanicError](admitPanicErr); ok {
 			if e != nil && e.Log != nil {
 				attrs := diag.IsolatedCrashAttrs(ctx, pe, diag.CrashAttrOpts{AttrOpts: diag.AttrOpts{CallID: rf.traceID}})
 				attrs = diag.AppendIsolatedCrashStack(attrs, pe)
@@ -928,8 +927,7 @@ func (e *Executor) openAttemptTx(
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {
 		tx.abortLaunchPermit()
-		var pe *safety.PanicError
-		if errors.As(err, &pe) {
+		if pe, ok := errors.AsType[*safety.PanicError](err); ok {
 			err = mapBackendPanic(pe, false, c.Key)
 		}
 	}

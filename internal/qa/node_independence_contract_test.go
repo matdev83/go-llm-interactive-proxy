@@ -281,7 +281,7 @@ func TestQAFastPreflight_NodeIndependenceLaneContract(t *testing.T) {
 	}
 	// Every .PHONY target is classified in the archived design table, so the
 	// classification must be maintained alongside the .PHONY entry.
-	phony := strings.SplitN(makefile, "\n", 2)[0]
+	phony, _, _ := strings.Cut(makefile, "\n")
 	if !strings.HasPrefix(phony, ".PHONY:") || !strings.Contains(phony, nodeIndependenceClassification) {
 		t.Errorf(".PHONY must classify %q", nodeIndependenceClassification)
 	}

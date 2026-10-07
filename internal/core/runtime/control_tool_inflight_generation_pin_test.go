@@ -36,6 +36,7 @@ package runtime_test
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -351,9 +352,9 @@ func TestControlToolProjection_inFlightRequestKeepsAdmittedGenerationAcrossReloa
 // same log are the control provider's pre-activation eligibility lookups and are
 // deliberately not treated as the attempt's own projection.
 func lastProjectionStep(steps []string) string {
-	for i := len(steps) - 1; i >= 0; i-- {
-		if strings.HasPrefix(steps[i], "resolve_caps:") {
-			return steps[i]
+	for _, step := range slices.Backward(steps) {
+		if strings.HasPrefix(step, "resolve_caps:") {
+			return step
 		}
 	}
 	return ""

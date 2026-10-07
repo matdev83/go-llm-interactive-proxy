@@ -36,7 +36,7 @@ func TestRetailSupportAdvisoryPreNarrowingGroupBound(t *testing.T) {
 	var refs []metering.ObservationRef
 	var legs []CallLegUsageRecord
 	var cards []ModelCustomerTariff
-	for i := 0; i < economics.MaxValuationRefs; i++ {
+	for i := range economics.MaxValuationRefs {
 		id := fmt.Sprintf("b-%04d", i)
 		obs := phase10RetailObservation(t, call.CallID, id, "obs-"+id, metering.OriginLocal, metering.BoundaryBackendIngress, phase10RetailMeasure{key: key, quantity: "1"})
 		ref, err := obs.Ref("store-1")

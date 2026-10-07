@@ -99,6 +99,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1083,17 +1084,10 @@ func (o *driftViewObserver) failureStages() []string {
 func (o *driftViewObserver) finalStageReached() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	for _, stage := range o.stages {
-		if stage == conversationprojection.StageFinal {
-			return true
-		}
+	if slices.Contains(o.stages, conversationprojection.StageFinal) {
+		return true
 	}
-	for _, stage := range o.failures {
-		if stage == conversationprojection.StageFinal {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(o.failures, conversationprojection.StageFinal)
 }
 
 func (o *driftViewObserver) anchorFailurePolicies() []conversationprojection.AnchorMissingPolicy {

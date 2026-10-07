@@ -97,8 +97,7 @@ func TestRunSubmit_failClosed_panicSurfacesAsPanicError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var pe *safety.PanicError
-	if !errors.As(err, &pe) {
+	if _, ok := errors.AsType[*safety.PanicError](err); !ok {
 		t.Fatalf("expected *safety.PanicError in chain, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "panic") {
@@ -119,8 +118,7 @@ func TestRunSubmit_failClosed_validationError_isNotPanicError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var pe *safety.PanicError
-	if errors.As(err, &pe) {
+	if _, ok := errors.AsType[*safety.PanicError](err); ok {
 		t.Fatalf("ordinary hook error must not surface as *safety.PanicError, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "hook rejected input") {
@@ -187,8 +185,7 @@ func TestRunRequestPartHooks_failClosed_panicSurfacesAsPanicError(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var pe *safety.PanicError
-	if !errors.As(err, &pe) {
+	if _, ok := errors.AsType[*safety.PanicError](err); !ok {
 		t.Fatalf("expected *safety.PanicError, got %v", err)
 	}
 }
@@ -281,8 +278,7 @@ func TestRunResponsePartHooks_failClosed_panicSurfacesAsPanicError(t *testing.T)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var pe *safety.PanicError
-	if !errors.As(err, &pe) {
+	if _, ok := errors.AsType[*safety.PanicError](err); !ok {
 		t.Fatalf("expected *safety.PanicError, got %v", err)
 	}
 }
@@ -334,8 +330,7 @@ func TestApplyToolReactors_panic_failClosed(t *testing.T) {
 	if out.Err == nil {
 		t.Fatal("expected error")
 	}
-	var pe *safety.PanicError
-	if !errors.As(out.Err, &pe) {
+	if _, ok := errors.AsType[*safety.PanicError](out.Err); !ok {
 		t.Fatalf("expected *safety.PanicError, got %v", out.Err)
 	}
 }

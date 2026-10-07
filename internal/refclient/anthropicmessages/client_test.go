@@ -119,8 +119,7 @@ func TestCreateMessage_httpError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var api *anthropic.Error
-	if !errors.As(err, &api) {
+	if _, ok := errors.AsType[*anthropic.Error](err); !ok {
 		t.Fatalf("expected anthropic.Error, got %T: %v", err, err)
 	}
 }

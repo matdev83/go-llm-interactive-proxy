@@ -836,7 +836,7 @@ func TestEconomicCheckpointOrderBookkeepingStaysBounded(t *testing.T) {
 		// sparse output revision under revision-qualified keys before a full
 		// snapshot coalesces them all. Stale qualified order slots must not
 		// accumulate across cycles.
-		for cycle := 0; cycle < 3000; cycle++ {
+		for range 3000 {
 			input := r4SparseObservation(revision, r4InputMeasure("1"))
 			revision++
 			output := r4SparseObservation(revision, r4OutputMeasure("2"))

@@ -78,10 +78,7 @@ func algIndexOf(steps []string, prefix string) int {
 }
 
 func algIndexOfBetween(steps []string, prefix string, afterIdx, beforeIdx int) int {
-	start := afterIdx + 1
-	if start < 0 {
-		start = 0
-	}
+	start := max(afterIdx+1, 0)
 	end := len(steps)
 	if beforeIdx >= 0 && beforeIdx < end {
 		end = beforeIdx
@@ -95,10 +92,7 @@ func algIndexOfBetween(steps []string, prefix string, afterIdx, beforeIdx int) i
 }
 
 func algIndexOfExactBetween(steps []string, exact string, afterIdx, beforeIdx int) int {
-	start := afterIdx + 1
-	if start < 0 {
-		start = 0
-	}
+	start := max(afterIdx+1, 0)
 	end := len(steps)
 	if beforeIdx >= 0 && beforeIdx < end {
 		end = beforeIdx

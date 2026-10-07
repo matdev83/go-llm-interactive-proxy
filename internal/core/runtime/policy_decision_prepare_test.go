@@ -44,8 +44,7 @@ func TestPreparePreRequestDenialNoBackendAttempt(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected pre-request denial error")
 	}
-	var re *prerequest.RejectError
-	if !errors.As(err, &re) {
+	if _, ok := errors.AsType[*prerequest.RejectError](err); !ok {
 		t.Fatalf("expected prerequest.RejectError, got %T %v", err, err)
 	}
 	if opens.Load() != 0 {

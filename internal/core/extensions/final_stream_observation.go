@@ -261,8 +261,7 @@ func isolateFinalStreamErr(ctx context.Context, log *slog.Logger, obs StageMetri
 	if err == nil {
 		return
 	}
-	var pe *safety.PanicError
-	if errors.As(err, &pe) {
+	if _, ok := errors.AsType[*safety.PanicError](err); ok {
 		logFailOpenExtensionPanic(ctx, log, phase, id, err)
 	} else if log != nil {
 		log.WarnContext(ctx, phase+": observer error (isolated)", "factory", id, "error", err)

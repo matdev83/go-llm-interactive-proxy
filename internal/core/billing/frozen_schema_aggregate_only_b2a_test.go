@@ -266,7 +266,6 @@ func TestB2AAggregateOnlyAbsentZeroNullChildStaysComplete(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			obs := b2aObservationWith(t, "b2a-forms-"+tc.name, tc.measures)

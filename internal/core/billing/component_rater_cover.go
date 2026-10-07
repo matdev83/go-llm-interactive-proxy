@@ -16,6 +16,7 @@ package billing
 import (
 	"errors"
 	"math/big"
+	"slices"
 	"sort"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -212,8 +213,7 @@ func resolveCompleteCovers(program *schemaProgram, items []aggregateMeasure) com
 			verdict.state[id] = quantityUnavailable
 		}
 	}
-	for index := len(program.topo) - 1; index >= 0; index-- {
-		node := program.topo[index]
+	for _, node := range slices.Backward(program.topo) {
 		children := program.completeChildren[node]
 		if len(children) == 0 {
 			continue

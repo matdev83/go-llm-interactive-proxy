@@ -136,7 +136,6 @@ func TestN1CompletePartitionTransitiveSubsetOverlapRejected(t *testing.T) {
 		{name: "operator_E", rate: n1RateOperator},
 		{name: "customer_policy_R", rate: n1RateCustomer},
 	} {
-		seam := seam
 		t.Run(seam.name, func(t *testing.T) {
 			t.Parallel()
 			val, err := seam.rate(t, resolved, obs)
@@ -481,7 +480,6 @@ func TestN1ForkedPayableSubsetLeavesAllSuppressed(t *testing.T) {
 		{name: "forward_order", rels: forward},
 		{name: "reversed_order", rels: reversed},
 	} {
-		order := order
 		resolved := b1Resolve(t, b1Tariff(t, "n1-forked-"+order.name, []economics.RatingRule{
 			b1Rule(t, "n1-b-rate", partB, "1"),
 			b1Rule(t, "n1-c-rate", partC, "1"),
@@ -498,7 +496,6 @@ func TestN1ForkedPayableSubsetLeavesAllSuppressed(t *testing.T) {
 			{name: "operator_E", rate: n1RateOperator},
 			{name: "customer_policy_R", rate: n1RateCustomer},
 		} {
-			seam := seam
 			t.Run(order.name+"/"+seam.name, func(t *testing.T) {
 				t.Parallel()
 				val, err := seam.rate(t, resolved, obs)

@@ -323,8 +323,7 @@ func (b *pendingRouteCancelBarrier) unblock() { close(b.release) }
 func TestPendingRoute_cancelledCallerIsNotMaskedByTheDetachedContext(t *testing.T) {
 	t.Parallel()
 
-	callerCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	callerCtx := t.Context()
 	barrier := newPendingRouteCancelBarrier(callerCtx)
 	attempt := pendingDrainAttempt(t, pendingRouteResult)
 	observer := pendingOpenObserver(t, attempt)

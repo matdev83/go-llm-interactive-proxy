@@ -80,7 +80,7 @@ func TestAccountWindowIdentity_EncodingCompatibility(t *testing.T) {
 	}
 
 	random := rand.New(rand.NewSource(722))
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		values := make([]string, 6)
 		for j := range values {
 			data := make([]byte, random.Intn(300))

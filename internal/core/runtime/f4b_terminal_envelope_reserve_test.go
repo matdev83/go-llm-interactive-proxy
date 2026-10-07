@@ -76,7 +76,7 @@ func TestF4bTerminalEnvelopeReservesFinalLocalOriginForProviderOverflow(t *testi
 	sink := &refinement41ObservationSink{}
 	session, boundary := f4LocalBoundaryAttempt(sink)
 	f4ObserveProviderOutput(boundary, 80) // provider-output text tokens = 20
-	for i := 0; i < billing.MaxCallLegEvidenceObservations; i++ {
+	for i := range billing.MaxCallLegEvidenceObservations {
 		if !session.rememberUsageEvidenceOnceAs(f4bUsageEvent(i), billingEvidenceRoleStream) {
 			t.Fatalf("provider usage evidence %d was not retained", i)
 		}
@@ -131,11 +131,11 @@ func TestF4bTerminalEnvelopeReservesFinalLocalOriginForEconomicOverflow(t *testi
 func TestF4bTerminalEnvelopeRecordsLossWhenLocalOriginOverflowsReserve(t *testing.T) {
 	t.Parallel()
 	economic := make([]execbackend.EconomicEvidence, 0, 1020)
-	for i := uint64(0); i < 1020; i++ {
+	for i := range uint64(1020) {
 		economic = append(economic, f4bEconomicEvidence(i+1))
 	}
 	local := make([]metering.Observation, 0, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		observation := refinement41Observation(uint64(i+1), "20")
 		observation.SourceEventKey = fmt.Sprintf("local-overflow-%d", i)
 		observation.Origin = metering.OriginLocal
@@ -185,7 +185,7 @@ func TestF4bTerminalEnvelopeMarksDroppedLegacyOriginWithoutLocalInput(t *testing
 	sink := &refinement41ObservationSink{}
 	session, _ := f4LocalBoundaryAttempt(sink)
 	session.boundary = nil
-	for i := 0; i < billing.MaxCallLegEvidenceObservations; i++ {
+	for i := range billing.MaxCallLegEvidenceObservations {
 		if !session.rememberUsageEvidenceOnceAs(f4bUsageEvent(i), billingEvidenceRoleStream) {
 			t.Fatalf("legacy usage evidence %d was not retained", i)
 		}

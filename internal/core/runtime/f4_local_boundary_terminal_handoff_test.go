@@ -161,12 +161,7 @@ func f4IsCheckpointCapacityLossConflict(conflict billing.EvidenceConflict) bool 
 // f4HasCheckpointCapacityLossMarker reports whether the record carries the
 // runtime-owned reserved capture-loss marker for checkpoint-capacity loss.
 func f4HasCheckpointCapacityLossMarker(record billing.CallLegUsageRecord) bool {
-	for _, conflict := range record.EvidenceConflicts {
-		if f4IsCheckpointCapacityLossConflict(conflict) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(record.EvidenceConflicts, f4IsCheckpointCapacityLossConflict)
 }
 
 func f4Terminalize(t *testing.T, session *attemptSession, intent attemptTerminalIntent, cmd sdkterminal.Command, outcome billing.LegOutcome) (billing.CallLegUsageRecord, error) {

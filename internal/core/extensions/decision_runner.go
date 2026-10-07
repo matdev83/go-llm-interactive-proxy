@@ -196,8 +196,7 @@ func handleProviderFailure(ctx context.Context, log *slog.Logger, obs StageMetri
 	}
 	if mode == sdkhooks.FailOpen {
 		if log != nil {
-			var pe *safety.PanicError
-			if errors.As(err, &pe) {
+			if _, ok := errors.AsType[*safety.PanicError](err); ok {
 				logFailOpenExtensionPanic(ctx, log, cfg.PanicStage, providerID, err)
 			} else if cfg.FailureMsg != "" {
 				log.WarnContext(ctx, cfg.FailureMsg, cfg.ProviderAttr, providerID, "error", err)

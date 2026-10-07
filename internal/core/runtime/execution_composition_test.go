@@ -106,8 +106,7 @@ func TestExecutor_ExecutionCompositionSafety(t *testing.T) {
 				if !errors.Is(err, routing.ErrUnsafeExecutionComposition) {
 					t.Fatalf("expected ErrUnsafeExecutionComposition, got: %v", err)
 				}
-				var uErr *routing.UnsafeExecutionCompositionError
-				if !errors.As(err, &uErr) {
+				if _, ok := errors.AsType[*routing.UnsafeExecutionCompositionError](err); !ok {
 					t.Fatalf("expected UnsafeExecutionCompositionError, got: %T (%v)", err, err)
 				}
 			})

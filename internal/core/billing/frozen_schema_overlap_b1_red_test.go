@@ -203,7 +203,6 @@ func TestB1FrozenSchemaOverlapRejectedThroughCatalogRaterAndRetail(t *testing.T)
 		metering.RelationshipPartition,
 		metering.RelationshipAggregate,
 	} {
-		kind := kind
 		t.Run(string(kind), func(t *testing.T) {
 			t.Parallel()
 			b1RunOverlapRejection(t, kind)
@@ -402,7 +401,6 @@ func TestB1FrozenSchemaOverlapZeroAbsentNullNotPriced(t *testing.T) {
 		{name: "zero", measures: []metering.Measure{b1Measure(t, parent, "10"), b1Measure(t, child, "0")}},
 		{name: "null", measures: []metering.Measure{b1Measure(t, parent, "10"), b1UnavailableMeasure(child)}},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			obs := b1Observation(t, "b1-zero-"+tc.name, "b-leg-1", metering.OriginLocal, metering.BoundaryBackendIngress, metering.PerspectiveOperator, tc.measures...)
