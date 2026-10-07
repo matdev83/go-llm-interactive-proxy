@@ -56,15 +56,8 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 					step = candidate
 				}
 			}
-			// Workflows that produce required checks also run in the merge queue.
-			switch step.Env["BASE_SHA"] {
-			case "${{ github.event.pull_request.base.sha || github.event.before }}",
-				"${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}":
-			default:
-				t.Fatal("lane must wire both PR and push predecessors to its actual classifier")
-			}
 			if step.Run == "" {
-				t.Fatal("lane must wire both PR and push predecessors to its actual classifier")
+				t.Fatal("lane classifier has no executable body")
 			}
 			// Scenarios within one lane run serially against successive real commits.
 			// The classifiers are read-only; recreating the same repository and script

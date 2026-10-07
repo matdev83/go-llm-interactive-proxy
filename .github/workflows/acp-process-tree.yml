@@ -12,7 +12,6 @@ on:
       - "connectors/cursorcliacp/**"
       - "Makefile"
       - ".github/workflows/acp-process-tree.yml"
-      - "internal/archtest/acp_process_tree_ci_test.go"
   pull_request:
     paths:
       - ".github/actions/go-cache/**"
@@ -21,7 +20,6 @@ on:
       - "connectors/cursorcliacp/**"
       - "Makefile"
       - ".github/workflows/acp-process-tree.yml"
-      - "internal/archtest/acp_process_tree_ci_test.go"
   workflow_dispatch:
 
 permissions:
@@ -65,7 +63,7 @@ jobs:
                 relevant=true
                 break
                 ;;
-              connector-support/acp/**|connectors/cursorcliacp/**|internal/archtest/acp_process_tree_ci_test.go|.github/workflows/acp-process-tree.yml)
+              connector-support/acp/**|connectors/cursorcliacp/**|.github/workflows/acp-process-tree.yml)
                 relevant=true
                 break
                 ;;

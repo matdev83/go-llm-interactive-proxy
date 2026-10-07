@@ -162,9 +162,6 @@ else
 	@bash scripts/regex-hotpath-check.sh
 endif
 
-# Intentionally not listed in .PHONY: TestWindowsTaskReliability_TargetTableComplete
-# requires every .PHONY target to be classified in the frozen archived
-# windows-task-reliability design table (same precedent as lint-advisory).
 proto-check:
 ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/proto-check.ps1
@@ -225,7 +222,7 @@ BILLING_SCHEMA_TIMEOUT ?= 30m
 # BILLING_SCHEMA_TIMEOUT via `make test-billing-schema`; the wide local gate must
 # carry the same budget or it fails on cost, not on a defect. Only the -timeout
 # value is replaced: every other flag, package list, and test selection stays
-# exactly as pinned by internal/qa/ci_iteration_speed_contract_test.go.
+# unchanged.
 QA_TESTS_GO_TEST_FLAGS = $(filter-out -timeout=%,$(GO_TEST_FLAGS)) -timeout=$(BILLING_SCHEMA_TIMEOUT)
 
 .PHONY: test-billing-schema
@@ -243,10 +240,7 @@ endif
 # parity/conformance re-tag passes `make test` adds. `make test-unit` has the
 # same selection; this alias exists so the fast path is discoverable and
 # documented. Use `make test` (comprehensive) or `make qa` (wide) before
-# delivery. Intentionally not listed in .PHONY: TestWindowsTaskReliability_
-# TargetTableComplete requires every .PHONY target to be classified in the
-# frozen archived windows-task-reliability design table (same precedent as
-# lint-advisory).
+# delivery.
 test-quick: test-unit
 
 # Canonical repository-wide database dialect parity targets.
@@ -575,9 +569,6 @@ endif
 # correctness linters only (scripts/lint-all-modules.* pass
 # --disable=modernize,paralleltest,thelper); this target reports the full set
 # without treating repository-wide style debt as a release blocker.
-# Intentionally not listed in .PHONY: TestWindowsTaskReliability_WindowsRoutes
-# requires every .PHONY target to be classified in the frozen archived
-# windows-task-reliability design table, and no file shadows this target.
 lint-advisory:
 ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-all-modules.ps1 -Advisory

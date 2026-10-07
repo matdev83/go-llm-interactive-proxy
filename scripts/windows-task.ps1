@@ -27,7 +27,7 @@ if ($env:LIP_TEST_PACKAGES) {
 # wide gate must carry the same budget or it fails on cost rather than on a
 # defect. This mirrors QA_TESTS_GO_TEST_FLAGS in the Makefile exactly: only the
 # -timeout value is replaced, and every other flag, package list, and test
-# selection stays as pinned by internal/qa/ci_iteration_speed_contract_test.go.
+# selection stays unchanged.
 # Without it the same suite would pass on POSIX and fail on Windows purely on
 # host speed, which is not a portability signal.
 function Get-QaTestsGoTestFlags {
