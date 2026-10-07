@@ -1,0 +1,87 @@
+name: Auto-update auto-merge PRs
+
+# Repositories owned by a personal account have no merge queue. With "require
+# branches to be up to date" on, this workflow does the queue's job for pull
+# requests whose auto-merge is enabled: it brings the oldest one that is behind
+# main up to date, lets its required checks run, and auto-merge lands it. The
+# resulting push to main starts the next one. One PR is in flight at a time, so
+# CI is not spent on branches that the next merge would make stale again.
+#
+# Branch updates made with GITHUB_TOKEN do not start workflows, so the required
+# checks would never run on the updated commit. AUTO_UPDATE_TOKEN must be a
+# fine-grained token for this repository with Contents and Pull requests
+# read/write. No pull request code is checked out or executed here.
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    types: [auto_merge_enabled]
+  # Fallback when an event is missed or an in-flight PR finished without a merge.
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-update-prs
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update next auto-merge PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Update the oldest behind PR unless one is in flight
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_UPDATE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::warning::AUTO_UPDATE_TOKEN is not set; auto-merge PRs are not kept up to date."
+            exit 0
+          fi
+          owner=${GH_REPO%%/*}
+          # Same-repository, non-draft PRs into main with auto-merge on, oldest first.
+          mapfile -t prs < <(gh pr list --base main --state open --limit 100 \
+            --json number,isDraft,autoMergeRequest,headRepositoryOwner,createdAt \
+            --jq "sort_by(.createdAt) | .[] | select(.autoMergeRequest != null and (.isDraft | not) and .headRepositoryOwner.login == \"$owner\") | .number")
+          next=""
+          for pr in "${prs[@]}"; do
+            state=UNKNOWN
+            # GitHub computes mergeability lazily; UNKNOWN settles within seconds.
+            for _ in 1 2 3 4 5; do
+              state=$(gh pr view "$pr" --json mergeStateStatus --jq .mergeStateStatus)
+              [[ "$state" != UNKNOWN ]] && break
+              sleep 3
+            done
+            buckets=$(gh pr checks "$pr" --required --json bucket --jq '[.[].bucket] | unique | join(" ")' 2>/dev/null || true)
+            echo "#$pr: state=$state required-checks=[${buckets}]"
+            case "$state" in
+              BEHIND)
+                [[ -n "$next" ]] || next=$pr
+                ;;
+              DIRTY)
+                echo "#$pr has merge conflicts; it needs its author."
+                ;;
+              *)
+                # Up to date and either green (auto-merge is landing it) or
+                # still running: that PR is in flight, so update nothing else.
+                if [[ "$state" == CLEAN || " $buckets " == *" pending "* ]]; then
+                  echo "#$pr is in flight; waiting for it."
+                  exit 0
+                fi
+                ;;
+            esac
+          done
+          if [[ -z "$next" ]]; then
+            echo "No auto-merge PR is behind main."
+            exit 0
+          fi
+          head=$(gh pr view "$next" --json headRefOid --jq .headRefOid)
+          echo "Updating #$next ($head) with main."
+          gh api -X PUT "repos/$GH_REPO/pulls/$next/update-branch" -f expected_head_sha="$head" --jq .message
