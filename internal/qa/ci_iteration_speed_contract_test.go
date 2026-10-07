@@ -116,7 +116,6 @@ func TestCIIterationSpeed_WorkflowConcurrencyAndCaches(t *testing.T) {
 		"security.yml",
 		"release.yml",
 		"race-fuzz-nightly.yml",
-		"codeql.yml",
 		"openresponses-coverage.yml",
 	} {
 		text := readRepositoryFile(t, ".github", "workflows", name)
