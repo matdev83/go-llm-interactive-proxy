@@ -91,6 +91,44 @@ lip_dev_tmpdir() {
 	fi
 }
 
+# The limits above are per command; sessions sharing this host still stack.
+# Heavy commands (build, test, vet, install) take one of LIP_GO_SLOTS
+# host-wide slots (default 2) and wait for a free one, so concurrent agents
+# queue instead of slowing each other into timeouts and memory kills. Nested
+# commands inherit the parent's slot. After LIP_GO_SLOT_WAIT seconds
+# (default 900) a waiting command runs anyway, so a test that starts go with a
+# scrubbed environment cannot deadlock behind its own parent.
+lip_go_slot_run() {
+	[[ -z ${LIP_GO_SLOT_HELD:-} ]] || return 0
+	local index=0 command_name
+	case "${1:-}" in -C|--C) index=2 ;; -C=*|--C=*) index=1 ;; esac
+	local args=("$@")
+	command_name=${args[index]:-}
+	case "$command_name" in build|test|vet|install) ;; *) return 0 ;; esac
+	local slots=${LIP_GO_SLOTS:-2} wait=${LIP_GO_SLOT_WAIT:-900}
+	[[ $slots =~ ^[1-9][0-9]*$ ]] || slots=2
+	[[ $wait =~ ^[0-9]+$ ]] || wait=900
+	local dir=${LIP_GO_SLOT_DIR:-$HOME/.cache/lip-go-slots} slot status announced=false
+	local deadline=$((SECONDS + wait)) real_go=${GO_DEV_GUARD_REAL_GO:-/usr/local/bin/go}
+	mkdir -p "$dir"
+	while ((SECONDS < deadline)); do
+		for ((slot = 0; slot < slots; slot++)); do
+			# flock -o keeps the lock in flock itself, so a leaked test
+			# subprocess cannot hold the slot after go exits.
+			status=0
+			LIP_GO_SLOT_HELD=$slot flock -n -o -E 211 "$dir/slot$slot" "$real_go" "$@" || status=$?
+			((status == 211)) || exit "$status"
+		done
+		if [[ $announced == false ]]; then
+			echo "go guard: $slots heavy Go commands are already running on this host; waiting for a slot (LIP_GO_SLOTS=$slots)." >&2
+			announced=true
+		fi
+		sleep 2
+	done
+	echo "go guard: no Go slot freed within ${wait}s; running without one." >&2
+	export LIP_GO_SLOT_HELD=none
+}
+
 # Keep this installed script standalone. Resource defaults apply only locally
 # on the Linux VM; race policy above also applies when CI markers are present.
 if [[ ${OS:-} != Windows_NT && $(uname -s) == Linux && -z ${CI:-} && -z ${GITHUB_ACTIONS:-} ]]; then
@@ -113,6 +151,7 @@ if [[ ${OS:-} != Windows_NT && $(uname -s) == Linux && -z ${CI:-} && -z ${GITHUB
 		if (( current_nice < 10 )); then
 			renice --priority 10 --pid "$$" >/dev/null
 		fi
+		lip_go_slot_run "$@"
 	fi
 fi
 exec "${GO_DEV_GUARD_REAL_GO:-/usr/local/bin/go}" "$@"
