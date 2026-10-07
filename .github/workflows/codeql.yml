@@ -1,8 +1,7 @@
 name: CodeQL
 
 on:
-  push:
-    branches: [main]
+  # main is analysed weekly, not per push: PRs opt in with the `codeql` label.
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, labeled, unlabeled]

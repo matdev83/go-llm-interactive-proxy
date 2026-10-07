@@ -91,6 +91,15 @@ file_matches() {
     kiro)
       is_kiro_spec_path "$file" || is_agent_policy_path "$file"
       ;;
+    proto)
+      # Protobuf contract gate inputs: the api/ tree, the pinned generator
+      # plugins (module files), the gate script, and this workflow.
+      case "$file" in
+        api/*|go.mod|go.sum|scripts/proto-check.sh|.github/workflows/ci.yml)
+          return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
     os_sensitive)
       # Paths whose behaviour differs per OS or per filesystem. Only these (or
       # the daily schedule / full-ci label) justify Windows and macOS legs.
@@ -166,12 +175,13 @@ classify_diff() {
   local test_cost=false
   local billing_schema=false
   local os_sensitive=false
+  local proto=false
   local file diff_file
 
   # Events without a base SHA (initial pushes or manual dispatches) run
   # every scope rather than risking a false bypass.
   if [[ -z "$base" || "$base" =~ ^0{40}$ ]]; then
-    printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\nbilling_schema=true\nos_sensitive=true\n'
+    printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\nbilling_schema=true\nos_sensitive=true\nproto=true\n'
     return 0
   fi
 
@@ -190,16 +200,17 @@ classify_diff() {
     file_matches test_cost "$file" && test_cost=true
     file_matches billing_schema "$file" && billing_schema=true
     file_matches os_sensitive "$file" && os_sensitive=true
+    file_matches proto "$file" && proto=true
   done < "$diff_file"
   rm -f "$diff_file"
 
-  for value in "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive"; do
+  for value in "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive" "$proto"; do
     case "$value" in
       true|false) ;;
       *) echo "invalid CI scope value: $value" >&2; return 1 ;;
     esac
   done
-  printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\nbilling_schema=%s\nos_sensitive=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive"
+  printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\nbilling_schema=%s\nos_sensitive=%s\nproto=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive" "$proto"
 }
 
 self_test() {
@@ -245,6 +256,12 @@ self_test() {
   done
   for relevant in internal/infra/configsource/source.go cmd/lipstd/main.go go.mod; do
     file_matches os_sensitive "$relevant" || { echo "os_sensitive scope missed $relevant" >&2; return 1; }
+  done
+  for relevant in api/backendplugin/v1/plugin.proto api/buf.yaml go.mod scripts/proto-check.sh; do
+    file_matches proto "$relevant" || { echo "proto scope missed $relevant" >&2; return 1; }
+  done
+  for unrelated in internal/core/runtime/exec.go pkg/lipapi/request.go docs/README.md AGENTS.md; do
+    file_matches proto "$unrelated" && { echo "proto scope included $unrelated" >&2; return 1; }
   done
   for unrelated in internal/core/runtime/exec.go internal/plugins/features/x/y.go docs/README.md AGENTS.md; do
     file_matches os_sensitive "$unrelated" && { echo "os_sensitive scope included $unrelated" >&2; return 1; }
