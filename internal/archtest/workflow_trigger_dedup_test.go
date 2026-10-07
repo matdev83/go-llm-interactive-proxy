@@ -3,6 +3,7 @@ package archtest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -111,5 +112,51 @@ func TestWorkflow_scheduledOnlyLanesHaveNoPRTrigger(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The billing race sweeps cost 35-58 minutes, about half of the nightly, so
+// they run weekly: the daily cron must not select the billing lane, the weekly
+// cron must select only it, and manual dispatch keeps every lane.
+func TestWorkflow_raceFuzzBillingLaneIsWeekly(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "race-fuzz-nightly.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		On struct {
+			Schedule []struct {
+				Cron string `yaml:"cron"`
+			} `yaml:"schedule"`
+		} `yaml:"on"`
+		Jobs map[string]struct {
+			Strategy struct {
+				Matrix struct {
+					Lane string `yaml:"lane"`
+				} `yaml:"matrix"`
+			} `yaml:"strategy"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	crons := map[string]bool{}
+	for _, s := range doc.On.Schedule {
+		crons[s.Cron] = true
+	}
+	const daily, weekly = "17 4 * * *", "47 5 * * 1"
+	if len(crons) != 2 || !crons[daily] || !crons[weekly] {
+		t.Fatalf("schedules = %v, want exactly daily %q and weekly %q", crons, daily, weekly)
+	}
+	lane := doc.Jobs["race-fuzz"].Strategy.Matrix.Lane
+	for _, want := range []string{
+		"github.event.schedule == '" + weekly + "' && '[\"billing\"]'",
+		"github.event.schedule == '" + daily + "' && '[\"broad\",\"support\",\"runtime\",\"architecture\"]'",
+		"'[\"broad\",\"billing\",\"support\",\"runtime\",\"architecture\"]'",
+	} {
+		if !strings.Contains(lane, want) {
+			t.Fatalf("matrix lane expression missing %q:\n%s", want, lane)
+		}
 	}
 }

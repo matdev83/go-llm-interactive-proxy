@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,26 @@ import (
 type recordingWriter struct {
 	statuses []int
 	flushed  int
+
+	// first, when non-nil, is closed on the first WriteHeader so a test can make
+	// fn wait for the keepalive instead of racing a short sleep against the timer.
+	first     chan struct{}
+	closeOnce sync.Once
+}
+
+func newSignalingWriter() *recordingWriter {
+	return &recordingWriter{first: make(chan struct{})}
+}
+
+// awaitKeepalive blocks until the writer saw its first status, so the keepalive
+// path is exercised deterministically even on a loaded or race-instrumented run.
+func (w *recordingWriter) awaitKeepalive() error {
+	select {
+	case <-w.first:
+		return nil
+	case <-time.After(30 * time.Second):
+		return errors.New("keepalive status was never written")
+	}
 }
 
 func (w *recordingWriter) Header() http.Header { return http.Header{} }
@@ -22,6 +43,11 @@ func (w *recordingWriter) Write(b []byte) (int, error) {
 
 func (w *recordingWriter) WriteHeader(statusCode int) {
 	w.statuses = append(w.statuses, statusCode)
+	w.closeOnce.Do(func() {
+		if w.first != nil {
+			close(w.first)
+		}
+	})
 }
 
 func (w *recordingWriter) Flush() {
@@ -30,13 +56,12 @@ func (w *recordingWriter) Flush() {
 
 func TestWait_sendsInformationalKeepaliveWithoutChangingResult(t *testing.T) {
 	t.Parallel()
-	w := &recordingWriter{}
+	w := newSignalingWriter()
 	got, err := holdalive.Wait(context.Background(), w, holdalive.Config{
 		Enabled:  true,
 		Interval: time.Millisecond,
 	}, func(context.Context) (string, error) {
-		time.Sleep(5 * time.Millisecond)
-		return "done", nil
+		return "done", w.awaitKeepalive()
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,13 +79,15 @@ func TestWait_sendsInformationalKeepaliveWithoutChangingResult(t *testing.T) {
 
 func TestWait_returnsExecuteErrorAfterInformationalKeepalive(t *testing.T) {
 	t.Parallel()
-	w := &recordingWriter{}
+	w := newSignalingWriter()
 	boom := errors.New("boom")
 	_, err := holdalive.Wait(context.Background(), w, holdalive.Config{
 		Enabled:  true,
 		Interval: time.Millisecond,
 	}, func(context.Context) (string, error) {
-		time.Sleep(5 * time.Millisecond)
+		if err := w.awaitKeepalive(); err != nil {
+			return "", err
+		}
 		return "", boom
 	})
 	if !errors.Is(err, boom) {
