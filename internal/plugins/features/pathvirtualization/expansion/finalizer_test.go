@@ -1530,6 +1530,61 @@ func TestExpansionFinalizerFailsClosedWhenAnUnusableRootCannotResolveAnAlias(t *
 	}
 }
 
+// TestExpansionFinalizerUnusableRootPassesADocumentWithNoMappableAlias states
+// requirement 4.7 on the shapes the unusable-root branch can read: when the project
+// root yields no mapping, a selected call whose document is unreadable WITHOUT
+// carrying the reserved marker, is not an object, holds no selected leaf, or carries
+// no arguments at all must still pass through as root_unusable. The refusal
+// requirement 4.4 demands is owed only when the reserved namespace is actually
+// present, so the whole-payload marker scan of an unreadable document must not widen
+// into "refuse every unreadable call".
+func TestExpansionFinalizerUnusableRootPassesADocumentWithNoMappableAlias(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		args string
+	}{
+		{
+			// No structure to walk, no marker to protect: the payload cannot be
+			// refused just because it cannot be read.
+			name: "unparseable_without_the_marker",
+			args: `{"file_path":"/home/dev/elsewhere/a.go`,
+		},
+		{
+			name: "payload_is_not_an_object",
+			args: `["/home/dev/elsewhere/a.go"]`,
+		},
+		{
+			name: "object_holds_no_selected_leaf",
+			args: `{"other":"value"}`,
+		},
+		{
+			name: "arguments_absent",
+			args: ``,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fin := newFinalizer(t, expansionResolver(t, expansionToolName, "/file_path"))
+			res, err := fin.Finalize(context.Background(), expansionCall(expansionToolName, tc.args),
+				lipapi.ToolDef{Name: expansionToolName}, nil, expansionMeta(""))
+			if err != nil {
+				t.Fatalf("Finalize returned a Go error: %v", err)
+			}
+			if res.Action != toolcall.ActionPass {
+				t.Fatalf("requirement 4.7 - action=%v want pass (reason %q)", res.Action, res.ReasonCode)
+			}
+			if res.ArgsJSON != nil {
+				t.Fatalf("no branch here may publish a document: %q", res.ArgsJSON)
+			}
+			if expansionReason(t, res.ReasonCode) != expansion.ReasonRootUnusable {
+				t.Fatalf("reason=%q want %q", res.ReasonCode, expansion.ReasonRootUnusable)
+			}
+		})
+	}
+}
+
 // quote renders one JSON string literal for the table above.
 func quote(s string) string {
 	b, err := json.Marshal(s)
