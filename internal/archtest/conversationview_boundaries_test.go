@@ -1,6 +1,8 @@
 package archtest
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"os"
@@ -26,7 +28,6 @@ func TestConversationViewCoreImportsExcludeProvidersAndFrontends(t *testing.T) {
 		{Substr: "/internal/plugins/frontends", ErrMsg: "conversationprojection must not import frontend plugins"},
 		{Substr: "/internal/plugins/backends", ErrMsg: "conversationprojection must not import backend plugins"},
 		{Substr: "uptrace/bun", ErrMsg: "conversationprojection core must not import Bun"},
-		{Substr: "database/sql", ErrMsg: "conversationprojection core must not import database/sql"},
 		{Substr: "/internal/infra", ErrMsg: "conversationprojection core must not import infra"},
 	})
 	assertDepsExcludeForbidden(t, []string{"./internal/infra/conversationview/..."}, []forbiddenDep{
@@ -37,6 +38,39 @@ func TestConversationViewCoreImportsExcludeProvidersAndFrontends(t *testing.T) {
 		{Substr: "/internal/plugins/frontends", ErrMsg: "infra conversationview must not import frontend plugins"},
 		{Substr: "/internal/plugins/backends", ErrMsg: "infra conversationview must not import backend plugins"},
 	})
+	// assertDepsExcludeForbidden skips standard-library packages, so a rule
+	// against database/sql can never fire there; enforce that boundary on the
+	// core zone's direct imports instead. The infra adapter owns persistence and
+	// may import database/sql.
+	assertPackageDirectImportsExclude(t,
+		[]string{"./internal/core/conversationprojection/..."},
+		map[string]string{"database/sql": "conversationprojection core must not import database/sql"},
+	)
+}
+
+// assertPackageDirectImportsExclude checks the direct imports of every package
+// matching pattern, including standard-library imports that
+// assertDepsExcludeForbidden cannot see because it skips pkg.Standard packages.
+func assertPackageDirectImportsExclude(t *testing.T, patterns []string, forbidden map[string]string) {
+	t.Helper()
+	for _, pattern := range patterns {
+		out, err := cachedGoList(t, "-json", "-test=false", pattern)
+		if err != nil {
+			t.Fatalf("go list %s: %v", pattern, err)
+		}
+		dec := json.NewDecoder(bytes.NewReader(out))
+		for dec.More() {
+			var pkg goListPackage
+			if err := dec.Decode(&pkg); err != nil {
+				t.Fatalf("decode %s: %v", pattern, err)
+			}
+			for _, imp := range pkg.Imports {
+				if msg, ok := forbidden[imp]; ok {
+					t.Fatalf("%s: %s imports %s", msg, pkg.ImportPath, imp)
+				}
+			}
+		}
+	}
 }
 
 // TestConversationViewCoreHasNoPromptCacheKey proves PromptCacheKey / provider cache policy

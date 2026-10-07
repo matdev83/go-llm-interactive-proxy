@@ -161,13 +161,13 @@ func TestTheOversizeObservationNeverChangesTheDecision(t *testing.T) {
 }
 
 // TestANilFinalizerReportsNoOversizeCondition keeps the nil receiver honest: the
-// inactive pass decides nothing, so it has nothing to observe either.
+// inactive pass decides nothing, so it has nothing to observe either, even for a call
+// past the bound the active pass declares. The result it publishes is the whole
+// statement: pass through, no document, and the no-selectors reason.
 func TestANilFinalizerReportsNoOversizeCondition(t *testing.T) {
 	t.Parallel()
-	var reports []expansion.Report
+
 	var nilPass *expansion.Finalizer
-	// The nil pass records nothing at all, which is the existing rule; the assertion
-	// is that neither the observation nor a reporter can change that into a record.
 	result, err := nilPass.Finalize(t.Context(), overflowingCall(1<<20), overflowTool, nil, toolcall.Meta{})
 	if err != nil {
 		t.Fatalf("Finalize: %v", err)
@@ -175,7 +175,10 @@ func TestANilFinalizerReportsNoOversizeCondition(t *testing.T) {
 	if result.Action != toolcall.ActionPass {
 		t.Fatalf("action = %v, want ActionPass from an inactive pass", result.Action)
 	}
-	if len(reports) != 0 {
-		t.Fatalf("an inactive pass recorded %d reports", len(reports))
+	if result.ArgsJSON != nil {
+		t.Fatalf("an inactive pass published a document: %q", result.ArgsJSON)
+	}
+	if result.ReasonCode != "no_selectors" {
+		t.Fatalf("reason = %q, want the inactive reason %q", result.ReasonCode, "no_selectors")
 	}
 }
