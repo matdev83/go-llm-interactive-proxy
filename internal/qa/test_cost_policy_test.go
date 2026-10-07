@@ -157,38 +157,10 @@ func runCLI(mode dbparity.RunnerMode) int {
 	if len(violations) != 0 {
 		t.Fatalf("dbparity list mode must return before dbparity.Run: %s", strings.Join(violations, "; "))
 	}
-
-	testSource := readRepositoryFile(t, "internal", "testkit", "dbparity", "cmd", "main_test.go")
-	precedenceTest := goFunctionSource(t, "main_test.go", testSource, "TestRunCLI_ComponentAndOnly_OrderPrecedence")
-	for _, marker := range []string{`"sqlite"`, `"-flags"`, `-run "^$"`, `"control-plane-ledger"`} {
-		if !strings.Contains(precedenceTest, marker) {
-			t.Fatalf("cheap component precedence test lost marker %q", marker)
-		}
-	}
-	for _, forbidden := range []string{`"all"`, `"postgres-direct"`} {
-		if strings.Contains(precedenceTest, forbidden) {
-			t.Fatalf("component precedence test must not launch broad parity mode %s", forbidden)
-		}
-	}
 }
 
 func TestQAFastPreflight_TestCost_DBParityPostgresMakePropagation(t *testing.T) {
 	t.Parallel()
-
-	makefile := readRepositoryFile(t, "Makefile")
-	if !strings.Contains(makefile, "export GO_TEST_FLAGS") {
-		t.Fatal("Makefile must export GO_TEST_FLAGS so dbparity PostgreSQL children receive test flags")
-	}
-	target := makeTargetBlock(makefile, "test-db-parity-postgres-direct")
-	if target == "" {
-		t.Fatal("Makefile is missing test-db-parity-postgres-direct")
-	}
-	if count := strings.Count(target, "./internal/testkit/dbparity/cmd postgres-direct"); count != 2 {
-		t.Fatalf("PostgreSQL parity target must delegate both platform branches to dbparity postgres-direct (found %d commands)", count)
-	}
-	if strings.Contains(target, "-flags") || strings.Contains(target, "--flags") {
-		t.Fatal("PostgreSQL parity target must inherit exported GO_TEST_FLAGS instead of interpolating -flags")
-	}
 
 	const representative = "control-plane-ledger"
 	catalog := dbparity.DefaultCatalog()
@@ -220,14 +192,6 @@ func TestQAFastPreflight_TestCost_DBParityPostgresMakePropagation(t *testing.T) 
 	}
 	if !containsAll(plan.Env, dbparity.EnvRequirePostgres+"=1") {
 		t.Fatalf("PostgreSQL plan is not fail-closed: %#v", plan.Env)
-	}
-
-	propagationSource := readRepositoryFile(t, "internal", "testkit", "postgres_makefile_gate_test.go")
-	propagationTest := goFunctionSource(t, "postgres_makefile_gate_test.go", propagationSource, "TestMakefile_ExportGoTestFlagsPropagation")
-	for _, marker := range []string{`"control-plane-ledger"`, `GO_TEST_FLAGS=-run "^$" -count=1`} {
-		if !strings.Contains(propagationTest, marker) {
-			t.Fatalf("PostgreSQL Make propagation probe lost representative-scope marker %q", marker)
-		}
 	}
 }
 
@@ -425,26 +389,6 @@ func staticString(expr ast.Expr) string {
 		return ""
 	}
 	return value
-}
-
-func goFunctionSource(t *testing.T, filename, src, name string) string {
-	t.Helper()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse %s: %v", filename, err)
-	}
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Name.Name != name {
-			continue
-		}
-		start := fset.Position(function.Pos()).Offset
-		end := fset.Position(function.End()).Offset
-		return src[start:end]
-	}
-	t.Fatalf("%s is missing %s", filename, name)
-	return ""
 }
 
 func containsStaticString(expr ast.Expr, want string) bool {

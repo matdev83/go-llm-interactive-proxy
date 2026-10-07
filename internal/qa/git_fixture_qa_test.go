@@ -9,6 +9,20 @@ import (
 	"testing"
 )
 
+// Workflow fragments are executed against Git fixtures by the scope tests.
+type ciWorkflow struct {
+	Jobs map[string]ciJobConfig `yaml:"jobs"`
+}
+
+type ciJobConfig struct {
+	Steps []ciStepSpec `yaml:"steps"`
+}
+
+type ciStepSpec struct {
+	ID  string `yaml:"id"`
+	Run string `yaml:"run"`
+}
+
 // qaGitEnvPins are Git environment variables that bind a subprocess to a
 // specific repository location, index, or object store. Classifier fixtures
 // must not inherit them from the caller: a stray GIT_DIR or GIT_WORK_TREE lets

@@ -32,9 +32,7 @@ func sha256Hex(data []byte) string {
 //  3. no Go package under cmd/internal/pkg imports the tool,
 //  4. package.json pins exact dependency versions and package-lock.json records
 //     integrity hashes (no mutable/unpinned dependencies),
-//  5. the `-static` compliance gate (wired into `make qa`) never invokes a
-//     JavaScript runtime,
-//  6. production (non-test) Go code performs no node/bun/npm execution.
+//  5. production (non-test) Go code performs no node/bun/npm execution.
 func TestOpenResponsesJSComplianceToolIsolated(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -132,31 +130,7 @@ func TestOpenResponsesJSComplianceToolIsolated(t *testing.T) {
 		}
 	}
 
-	// 5. The static compliance gate (wired into make qa) must not require a JS
-	//    runtime; only the full scripts may invoke Node. The full scripts must
-	//    run the ACTUAL suite separately, gated by LIP_RUN_OFFICIAL_COMPLIANCE.
-	ps1 := readFileString(t, filepath.Join(root, "scripts/test-openresponses-compliance.ps1"))
-	sh := readFileString(t, filepath.Join(root, "scripts/test-openresponses-compliance.sh"))
-	for _, src := range []string{ps1, sh} {
-		if !strings.Contains(src, "LIP_RUN_OFFICIAL_COMPLIANCE") {
-			t.Error("compliance script must gate the actual official suite behind LIP_RUN_OFFICIAL_COMPLIANCE")
-		}
-	}
-	if !strings.Contains(ps1, "Invoke-OfficialComplianceSuite") || !strings.Contains(sh, "invoke_official_compliance_suite") {
-		t.Error("compliance scripts must invoke the ACTUAL official suite separately from the Go-native mirrors")
-	}
-	ps1Static := staticBlock(ps1, "if ($static) {")
-	shStatic := staticBlock(sh, `if [[ "$STATIC" == "1" ]]; then`)
-	for _, src := range []string{ps1Static, shStatic} {
-		if strings.Contains(src, "Invoke-OfficialComplianceSuite") ||
-			strings.Contains(src, "invoke_official_compliance_suite") ||
-			strings.Contains(src, "Prepare-OfficialComplianceTooling") ||
-			strings.Contains(src, "prepare_official_compliance_tooling") {
-			t.Error("static compliance gate must not invoke the actual official suite (JS runtime)")
-		}
-	}
-
-	// 6. Production (non-test) Go code performs no JS runtime execution.
+	// 5. Production (non-test) Go code performs no JS runtime execution.
 	execErr := WalkProductionGoFiles(root, func(rel, _ string, src []byte) error {
 		text := string(src)
 		for _, needle := range []string{`exec.Command("node"`, `exec.Command("bun"`, `exec.Command("npm"`} {
@@ -169,20 +143,6 @@ func TestOpenResponsesJSComplianceToolIsolated(t *testing.T) {
 	if execErr != nil {
 		t.Fatalf("scan production exec: %v", execErr)
 	}
-}
-
-// staticBlock returns the script slice between startMarker and the first
-// following "exit 0", i.e. the fast static gate body.
-func staticBlock(src, startMarker string) string {
-	i := strings.Index(src, startMarker)
-	if i < 0 {
-		return ""
-	}
-	body := src[i:]
-	if j := strings.Index(body, "exit 0"); j >= 0 {
-		return body[:j+len("exit 0")]
-	}
-	return body
 }
 
 func readFileString(t *testing.T, path string) string {

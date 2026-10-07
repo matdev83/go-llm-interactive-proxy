@@ -10,6 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const nodeIndependenceWorkflow = "node-independence.yml"
+
 // The No-Node lane costs about 7 minutes. It guards one property: the root build
 // must never need Node. Module/packaging inputs and the guard's own files always
 // run it; edits to the Makefile, scripts and tools run it only when the changed
