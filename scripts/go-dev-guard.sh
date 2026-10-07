@@ -74,6 +74,23 @@ if [[ "$blocked_host" == true ]]; then
 		;;
 	esac
 fi
+# /tmp is tmpfs on agent-dev: RAM-backed (charged to the 6 GiB limit, and killed
+# runs leave go-build work dirs behind) and not ext4, which the config-source
+# tests require. Keep temporary files on ext4 and prune orphaned work dirs.
+# Keep in sync with dev-cpu-defaults.sh.
+lip_dev_tmpdir() {
+	if [[ -z ${TMPDIR:-} || $(stat -f -c %T "$TMPDIR" 2>/dev/null) != ext2/ext3 ]]; then
+		TMPDIR=${LIP_DEV_TMPDIR:-$HOME/.cache/lip-tmp}
+		mkdir -p "$TMPDIR"
+		export TMPDIR
+	fi
+	local stamp=$TMPDIR/.go-build-pruned
+	if [[ ! -e $stamp || -n $(find "$stamp" -mmin +60 2>/dev/null) ]]; then
+		touch "$stamp"
+		find "$TMPDIR" -mindepth 1 -maxdepth 1 -type d -name 'go-build*' -mmin +360 -exec rm -rf {} + 2>/dev/null || true
+	fi
+}
+
 # Keep this installed script standalone. Resource defaults apply only locally
 # on the Linux VM; race policy above also applies when CI markers are present.
 if [[ ${OS:-} != Windows_NT && $(uname -s) == Linux && -z ${CI:-} && -z ${GITHUB_ACTIONS:-} ]]; then
@@ -82,6 +99,7 @@ if [[ ${OS:-} != Windows_NT && $(uname -s) == Linux && -z ${CI:-} && -z ${GITHUB
 		[[ ${host%%.*} == agent-dev ]] && local_vm=true
 	done
 	if [[ $local_vm == true ]]; then
+		lip_dev_tmpdir
 		: "${GOMAXPROCS:=2}"
 		export GOMAXPROCS
 		# Preserve persisted and quoted flags verbatim; explicit -p wins.
