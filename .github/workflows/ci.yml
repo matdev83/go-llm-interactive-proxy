@@ -71,7 +71,7 @@ jobs:
 
   repo-hygiene:
     name: Repo hygiene
-    needs: [changes, preflight, db-parity, billing-schema, suite, lint]
+    needs: [changes, preflight, db-parity, billing-schema, suite, owner-gate, lint]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -93,15 +93,16 @@ jobs:
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.code != 'true'
         run: echo "Repo hygiene manifest check bypassed"
-      - name: Require scope, preflight, database parity, billing certification, Go suite and lint success
+      - name: Require scope, preflight, database parity, billing certification, Go suite, owner-callback gate and lint success
         env:
           SCOPE_RESULT: ${{ needs.changes.result }}
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           PARITY_RESULT: ${{ needs.db-parity.result }}
           BILLING_RESULT: ${{ needs.billing-schema.result }}
           SUITE_RESULT: ${{ needs.suite.result }}
+          OWNER_GATE_RESULT: ${{ needs.owner-gate.result }}
           LINT_RESULT: ${{ needs.lint.result }}
-        run: test "$SCOPE_RESULT" = success && test "$PREFLIGHT_RESULT" = success && test "$PARITY_RESULT" = success && test "$BILLING_RESULT" = success && test "$SUITE_RESULT" = success && test "$LINT_RESULT" = success
+        run: test "$SCOPE_RESULT" = success && test "$PREFLIGHT_RESULT" = success && test "$PARITY_RESULT" = success && test "$BILLING_RESULT" = success && test "$SUITE_RESULT" = success && test "$OWNER_GATE_RESULT" = success && test "$LINT_RESULT" = success
 
   preflight:
     name: Repository preflight
@@ -379,13 +380,22 @@ jobs:
           lane: ci-suite
 
       # QA runs internal/archtest; everything else in the root module runs here.
+      # The owner-callback escape gate type-checks the whole module for two
+      # operating systems (~2 min on its own) and runs in the parallel
+      # owner-gate job instead, so it does not set this job's wall time.
       - name: Complete root suite with precommit tags
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         shell: bash
         run: |
           set -euo pipefail
           mapfile -t packages < <(go list -tags=precommit ./... | grep -vE '/internal/archtest(/|$)')
-          go test -tags=precommit -timeout=25m "${packages[@]}"
+          # go keeps only the last -skip, and the cache action may have put the
+          # quarantine list in GOFLAGS; merge so neither is lost.
+          skip='TestRuntimebundle_NoCompleteOwnerCallbackEscapes'
+          if [[ "${GOFLAGS:-}" =~ -skip=\^\(([^\)]*)\)\$ ]]; then
+            skip="${BASH_REMATCH[1]}|${skip}"
+          fi
+          go test -tags=precommit -timeout=25m -skip "^(${skip})\$" "${packages[@]}"
 
       - name: Save bounded ci-suite Go cache
         if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -397,6 +407,49 @@ jobs:
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
         run: echo "Go suite bypassed, no test-relevant changes detected."
+
+  owner-gate:
+    name: Owner callback gate (Linux)
+    needs: changes
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "CI scope detection failed; refusing to bypass the owner-callback gate." >&2
+          exit 1
+
+      - name: Check out repository
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Read-only consumer of the suite's lane: the suite job is its only producer.
+      - name: Restore bounded ci-suite Go cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: ci-suite
+
+      - name: Owner callback escape gate
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        shell: bash
+        run: go test -tags=precommit -timeout=25m -run '^TestRuntimebundle_NoCompleteOwnerCallbackEscapes$' ./internal/infra/runtimebundle/
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
+        run: echo "Owner callback gate bypassed, no test-relevant changes detected."
 
   lint:
     name: Lint (Linux)
