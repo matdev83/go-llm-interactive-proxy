@@ -33,6 +33,7 @@ func TestQAFastPreflight_MainPushUsesActualDiff(t *testing.T) {
 		name, path, before  string
 		code, goScope, cost bool
 		billing             bool
+		osSensitive         bool
 		invalid             bool
 	}{
 		{name: "production", path: "internal/example.go", code: true, goScope: true},
@@ -41,8 +42,16 @@ func TestQAFastPreflight_MainPushUsesActualDiff(t *testing.T) {
 		{name: "billing", path: "internal/core/billing/component_rater.go", code: true, goScope: true, billing: true},
 		{name: "shared SDK", path: "pkg/lipsdk/metering/component_key.go", code: true, goScope: true, billing: true},
 		{name: "independent oracle", path: "internal/testkit/billsem/solver.go", code: true, goScope: true, billing: true},
-		{name: "CI policy", path: ".github/workflows/ci.yml", code: true, goScope: true, billing: true},
-		{name: "initial push", path: "docs/example.md", before: strings.Repeat("0", 40), code: true, goScope: true, cost: true, billing: true},
+		// ci.yml reaches the billing certification only when the change concerns
+		// billing (the scenario name becomes the changed line); it always reaches
+		// the OS legs because it defines them.
+		{name: "CI policy", path: ".github/workflows/ci.yml", code: true, goScope: true, osSensitive: true},
+		{name: "CI policy billing job", path: ".github/workflows/ci.yml", code: true, goScope: true, billing: true, osSensitive: true},
+		// A Makefile edit is not an OS-behaviour change and reaches billing only
+		// when it touches billing targets.
+		{name: "makefile unrelated target", path: "Makefile", code: true, goScope: true},
+		{name: "makefile billing target", path: "Makefile", code: true, goScope: true, billing: true},
+		{name: "initial push", path: "docs/example.md", before: strings.Repeat("0", 40), code: true, goScope: true, cost: true, billing: true, osSensitive: true},
 		{name: "invalid predecessor", path: "docs/example.md", before: "missing-revision", invalid: true},
 	}
 	for _, tc := range scenarios {
@@ -76,7 +85,7 @@ func TestQAFastPreflight_MainPushUsesActualDiff(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for key, want := range map[string]bool{"code": tc.code, "test": tc.code, "go": tc.goScope, "test_cost": tc.cost, "billing_schema": tc.billing} {
+			for key, want := range map[string]bool{"code": tc.code, "test": tc.code, "go": tc.goScope, "test_cost": tc.cost, "billing_schema": tc.billing, "os_sensitive": tc.osSensitive} {
 				value := "false"
 				if want {
 					value = "true"
