@@ -2028,6 +2028,10 @@ func TestTheCompositionGuardMatchesEitherRegistrationIdentity(t *testing.T) {
 		{name: "by_instance_id", instanceID: toolcallrepair.ID, factory: ""},
 		{name: "by_factory_kind", instanceID: "acme-repair", factory: toolcallrepair.ID},
 		{name: "case_insensitive_factory", instanceID: "acme-repair", factory: strings.ToUpper(toolcallrepair.ID)},
+		// A padded FactoryKind is trimmed by the SDK accessor, so the
+		// discriminating whitespace case pads the instance id with an empty
+		// factory: only this guard's own TrimSpace can match it.
+		{name: "space_padded_instance_id", instanceID: "  " + toolcallrepair.ID + "  ", factory: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -2052,6 +2056,7 @@ func TestTheCompositionGuardMatchesEitherRegistrationIdentity(t *testing.T) {
 		{id: featureID, factory: ""},
 		{id: "acme-virtualization", factory: featureID},
 		{id: "acme-virtualization", factory: strings.ToUpper(featureID)},
+		{id: "  " + featureID + "  ", factory: ""},
 	} {
 		regs := []lipsdk.Registration{
 			{

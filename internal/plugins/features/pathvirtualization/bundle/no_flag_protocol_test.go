@@ -103,7 +103,11 @@ func TestTheFeatureHasNoProcessFlag(t *testing.T) {
 // composition seam would not see it.
 func TestTheFeatureTreeHasNoProcessFlag(t *testing.T) {
 	t.Parallel()
-	root := filepath.Dir(".")
+	// The test runs with the bundle package directory as its working directory,
+	// so the parent is the feature root whose whole production tree this guard
+	// covers. filepath.Dir(".") would stay in the bundle package and check only
+	// its own sources while claiming the whole tree.
+	root := ".."
 	checked := 0
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
