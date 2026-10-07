@@ -46,7 +46,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - Tests/conformance/regressions: `golang-testing`; testify: `golang-stretchr-testify`; benchmarks: `golang-benchmark`.
 - Streaming/concurrency/cancellation: `golang-concurrency`, `golang-context`.
 - Style/naming/safety/lint: `golang-code-style`, `golang-naming`, `golang-safety`, `golang-lint`.
-- Simplification/refactor-only: `golang-simplify`; SOLID audit: `golang-solid-principle-review`; strict review: `golang-thermonuclear-code-review`.
+- Local behavior-preserving cleanup: `golang-simplify`; SOLID, change-cost, or interface-design review: `golang-solid-principle-review`; radical simplification, strict review, or maintainability audit: `golang-thermonuclear-code-review`.
 - Modern Go/data structures: `golang-modernize`, `golang-data-structures`.
 - Error/security/observability/database/CLI/gRPC/performance/dependencies/documentation/CI/troubleshooting: load the matching focused `golang-*` skill from `.agents/catalog.json`.
 - Library selection: `golang-popular-libraries`; samber APIs: load the matching `golang-samber-*` skill.
