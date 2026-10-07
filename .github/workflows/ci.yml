@@ -144,7 +144,18 @@ jobs:
 
       - name: Install buf
         if: needs.changes.result == 'success' && needs.changes.outputs.proto == 'true' && github.event_name == 'pull_request'
-        run: go install github.com/bufbuild/buf/cmd/buf@v1.66.0
+        # buf pulls ~100 modules from proxy.golang.org; a single transient proxy error
+        # (e.g. "stream error ... INTERNAL_ERROR") otherwise fails the required check
+        # before any gate has run. Retry the download only; real build errors still fail.
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if go install github.com/bufbuild/buf/cmd/buf@v1.66.0; then exit 0; fi
+            echo "go install buf failed (attempt $attempt/3)" >&2
+            sleep $((attempt * 15))
+          done
+          exit 1
 
       - name: Protobuf contract gate
         if: needs.changes.result == 'success' && needs.changes.outputs.proto == 'true' && github.event_name == 'pull_request'
