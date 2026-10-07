@@ -34,6 +34,11 @@
     "job": "suite",
     "workflow": "CI"
   },
+  "ci-suite-heavy": {
+    "build_mib": 2048,
+    "job": "suite",
+    "workflow": "CI"
+  },
   "ci-unit": {
     "build_mib": 2048,
     "job": "test",
