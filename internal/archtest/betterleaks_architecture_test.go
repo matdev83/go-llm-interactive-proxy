@@ -299,7 +299,7 @@ func scanBetterLeaksArchitectureFile(rel, source string) ([]RuleFinding, error) 
 						if !ok {
 							continue
 						}
-						name := strings.SplitN(value, ",", 2)[0]
+						name, _, _ := strings.Cut(value, ",")
 						if isAllowSignatureKey(name) {
 							add("betterleaks_allow_signature_surface", field.Tag.Pos(), "allow-signature configuration tag is not exposed")
 						}

@@ -66,7 +66,7 @@ func TestObservationEconomicRelayLinkedStatementCandidateBudgetFailsClosed(t *te
 
 	const candidateCount = 4
 	candidates := make([]metering.Observation, 0, candidateCount)
-	for i := 0; i < candidateCount; i++ {
+	for i := range candidateCount {
 		candidate := bridgeStatementObservation(t, fmt.Sprintf("line-budget-%d", i), "b-budget", "bridge-store", uint64(i+1))
 		candidate.Correlation.ProviderRequestID = "request-other"
 		require.NoError(t, candidate.Validate())
@@ -119,7 +119,7 @@ func appendSameBLegHistory(ctx context.Context, store *journalstore.DurableStore
 	for offset := 0; offset < count; offset += chunk {
 		size := min(count-offset, chunk)
 		batch := make([]metering.Observation, 0, size)
-		for i := 0; i < size; i++ {
+		for i := range size {
 			index := start + offset + i
 			observation := bridgeRuntimeObservation(fmt.Sprintf("same-bleg-%06d", index), uint64(index+1))
 			observation.StreamID = "bridge-same-bleg-stream"

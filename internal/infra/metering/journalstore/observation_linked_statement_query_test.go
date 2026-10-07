@@ -38,7 +38,7 @@ func TestListObservationsCorrelationBLegIsSelective(t *testing.T) {
 	ctx := context.Background()
 	target := r10StatementObservation("sqlite-test", "stmt-target", "b-target", 1)
 	require.NoError(t, store.AppendObservation(ctx, target))
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		other := r10StatementObservation("sqlite-test", fmt.Sprintf("stmt-other-%02d", i), fmt.Sprintf("b-other-%02d", i), 1)
 		require.NoError(t, store.AppendObservation(ctx, other))
 	}

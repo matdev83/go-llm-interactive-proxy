@@ -145,8 +145,7 @@ func (e *JevError) Outcome() featurestate.RemoteOutcome {
 // kind when err did not come from this adapter. It lets a caller classify a
 // failure without reading error text (requirements 6.7, 7.5).
 func JevFailureKindOf(err error) JevFailure {
-	var failure *JevError
-	if errors.As(err, &failure) {
+	if failure, ok := errors.AsType[*JevError](err); ok {
 		return failure.Kind
 	}
 	return ""

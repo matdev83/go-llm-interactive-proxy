@@ -210,8 +210,7 @@ func TestNDJSONStreamBase_decodeErrorUsesLabel(t *testing.T) {
 	if !strings.Contains(err.Error(), "test: decode inbound line") {
 		t.Fatalf("got %v", err)
 	}
-	var se *json.SyntaxError
-	if !errors.As(err, &se) {
+	if _, ok := errors.AsType[*json.SyntaxError](err); !ok {
 		t.Fatalf("expected *json.SyntaxError in chain, got %v", err)
 	}
 	if !lipapi.IsRecoverablePreOutput(err) {

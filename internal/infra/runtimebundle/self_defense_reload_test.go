@@ -91,12 +91,12 @@ func sdReloadConfig(t *testing.T, mutate func(*config.Config)) *config.Config {
 			},
 			SelfDefense: config.SelfDefenseConfig{
 				Adaptive: config.SelfDefenseAdaptiveConfig{
-					AuthFailures:      intPtr(5),
+					AuthFailures:      new(5),
 					Window:            "1m",
 					InitialQuarantine: sdReloadInitial.String(),
 					MaxQuarantine:     "2h",
 					StateTTL:          "24h",
-					MaxEntries:        intPtr(1024),
+					MaxEntries:        new(1024),
 				},
 			},
 		},
@@ -302,7 +302,7 @@ func TestSelfDefenseOmittedDefaultsOnAndExplicitFalseDisablesPerGeneration(t *te
 
 	base := sdReloadConfig(t, nil)
 	ps := sdReloadHost(t, base)
-	disabled := sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Enabled = boolPtr(false) })
+	disabled := sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Enabled = new(false) })
 	if err := config.Validate(disabled); err != nil {
 		t.Fatalf("disabled candidate invalid: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestSelfDefensePolicyOnlyReloadKeepsProcessStateAndEscalatesSameEntry(t *te
 
 	base := sdReloadConfig(t, nil)
 	ps := sdReloadHost(t, base)
-	reloaded := sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Adaptive.AuthFailures = intPtr(3) })
+	reloaded := sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Adaptive.AuthFailures = new(3) })
 	if err := config.Validate(reloaded); err != nil {
 		t.Fatalf("reloaded candidate invalid: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestSelfDefenseInFlightRequestKeepsAdmittedGenerationPolicyAcrossPublicatio
 	ps := sdReloadHost(t, base)
 	exempt := sdReloadClone(base, func(c *config.Config) {
 		c.Access.SelfDefense.Adaptive.ExemptCIDRs = []string{"203.0.113.30/32"}
-		c.Access.SelfDefense.Adaptive.AuthFailures = intPtr(3)
+		c.Access.SelfDefense.Adaptive.AuthFailures = new(3)
 	})
 	if err := config.Validate(exempt); err != nil {
 		t.Fatalf("exempt candidate invalid: %v", err)
@@ -542,7 +542,7 @@ func TestSelfDefenseCapacityAndTTLCandidatesAreRestartRequiredAndRejectAtomicall
 	}{
 		{
 			name:       "capacity only",
-			candidate:  sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Adaptive.MaxEntries = intPtr(4096) }),
+			candidate:  sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Adaptive.MaxEntries = new(4096) }),
 			wantFields: []string{"access.self_defense.adaptive.max_entries"},
 		},
 		{
@@ -554,7 +554,7 @@ func TestSelfDefenseCapacityAndTTLCandidatesAreRestartRequiredAndRejectAtomicall
 			name: "reloadable policy mixed with capacity",
 			candidate: sdReloadClone(base, func(c *config.Config) {
 				c.Access.SelfDefense.Adaptive.ExemptCIDRs = []string{"192.0.2.0/24"}
-				c.Access.SelfDefense.Adaptive.MaxEntries = intPtr(4096)
+				c.Access.SelfDefense.Adaptive.MaxEntries = new(4096)
 			}),
 			wantFields: []string{"access.self_defense.adaptive.max_entries"},
 		},
@@ -599,8 +599,7 @@ func TestSelfDefenseCapacityAndTTLCandidatesAreRestartRequiredAndRejectAtomicall
 		if err == nil {
 			t.Fatalf("%s: candidate publication must be rejected", tc.name)
 		}
-		var restart *configreload.RestartRequiredError
-		if !errors.As(err, &restart) {
+		if _, ok := errors.AsType[*configreload.RestartRequiredError](err); !ok {
 			t.Fatalf("%s: publication error = %v, want the restart-required rejection to surface unchanged", tc.name, err)
 		}
 		if got := mgr.Active().ID(); got != 1 {
@@ -679,8 +678,7 @@ func TestSelfDefenseInvalidCandidateLeavesLastGoodEnforcingItsOriginalPolicy(t *
 		if !strings.Contains(err.Error(), tc.wantPath) {
 			t.Fatalf("%s: error = %v, want the offending self-defense field %q", tc.name, err, tc.wantPath)
 		}
-		var restart *configreload.RestartRequiredError
-		if errors.As(err, &restart) {
+		if _, ok := errors.AsType[*configreload.RestartRequiredError](err); ok {
 			t.Fatalf("%s: an invalid candidate must not be reported as restart-required: %v", tc.name, err)
 		}
 		if got := mgr.Active().ID(); got != 1 {
@@ -702,7 +700,7 @@ func TestSelfDefenseInvalidCandidateLeavesLastGoodEnforcingItsOriginalPolicy(t *
 		t.Fatal("the surviving generation must still enforce its original policy on the surviving state")
 	}
 
-	recovered := sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Adaptive.AuthFailures = intPtr(4) })
+	recovered := sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Adaptive.AuthFailures = new(4) })
 	if err := config.Validate(recovered); err != nil {
 		t.Fatalf("recovery candidate invalid: %v", err)
 	}
@@ -737,7 +735,7 @@ func TestSelfDefenseGeoIPHardDenyPrecedesSelfDefenseInEveryPublishedGeneration(t
 	if ps.GeoIP != nil {
 		t.Fatal("a CIDR-only fixed policy must not open a GeoIP country database")
 	}
-	reloaded := sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Adaptive.AuthFailures = intPtr(3) })
+	reloaded := sdReloadClone(base, func(c *config.Config) { c.Access.SelfDefense.Adaptive.AuthFailures = new(3) })
 	if err := config.Validate(reloaded); err != nil {
 		t.Fatalf("reloaded candidate invalid: %v", err)
 	}

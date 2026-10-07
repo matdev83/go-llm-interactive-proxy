@@ -70,8 +70,7 @@ func TestClassifyPreOutputError_NilAndCausePreserved(t *testing.T) {
 	}
 	// HTTP 4xx keeps its status identity for diagnostics.
 	hse := classifyPreOutputError(&httpStatusError{Op: "session/prompt", Status: 401, Detail: "invalid key"})
-	var typed *httpStatusError
-	if !errors.As(hse, &typed) {
+	if _, ok := errors.AsType[*httpStatusError](hse); !ok {
 		t.Fatalf("terminal HTTP error lost its typed status: %v", hse)
 	}
 }

@@ -356,14 +356,12 @@ func genericCoreBranchIdentity(value string) bool {
 // genericCoreMarkerSegment reports whether any slash-separated segment of an
 // import path names a concrete coding-client family or the remote vendor.
 func genericCoreMarkerSegment(importPath string) bool {
-	for _, segment := range strings.Split(strings.ToLower(importPath), "/") {
+	for segment := range strings.SplitSeq(strings.ToLower(importPath), "/") {
 		if genericCoreVendorName(segment) {
 			return true
 		}
-		for _, marker := range genericCoreClientFamilyMarkers {
-			if segment == marker {
-				return true
-			}
+		if slices.Contains(genericCoreClientFamilyMarkers, segment) {
+			return true
 		}
 	}
 	return false

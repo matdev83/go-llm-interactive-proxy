@@ -237,8 +237,7 @@ func (i *instance) Execute(stream backendplugin.ExecuteStream) error {
 		cl := i.newCompatClient(token)
 		es, err := cl.Open(ctx, call, m, flavor)
 		if err != nil {
-			var httpErr *openaicompat.HTTPError
-			if errors.As(err, &httpErr) {
+			if httpErr, ok := errors.AsType[*openaicompat.HTTPError](err); ok {
 				if httpErr.Status == http.StatusForbidden {
 					return nil, fmt.Errorf("xai-oauth: entitlement access forbidden (403): %s", httpErr.Message)
 				}

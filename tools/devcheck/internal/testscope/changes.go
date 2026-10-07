@@ -48,7 +48,7 @@ func changedPaths(ctx context.Context, root, base string) ([]string, string, err
 			paths = append(paths, working...)
 			continue
 		}
-		for _, name := range strings.Split(string(out), "\x00") {
+		for name := range strings.SplitSeq(string(out), "\x00") {
 			if name != "" {
 				paths = append(paths, name)
 			}
@@ -60,7 +60,7 @@ func changedPaths(ctx context.Context, root, base string) ([]string, string, err
 
 func statusPaths(out []byte) ([]string, error) {
 	var paths []string
-	for _, record := range strings.Split(string(out), "\x00") {
+	for record := range strings.SplitSeq(string(out), "\x00") {
 		if record == "" {
 			continue
 		}

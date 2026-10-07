@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/billing"
@@ -55,12 +56,8 @@ func (t *lifecycleTracker) snapshot() lifecycleSnapshot {
 		closes: map[string]int{},
 		order:  append([]string(nil), t.order...),
 	}
-	for k, v := range t.starts {
-		out.starts[k] = v
-	}
-	for k, v := range t.closes {
-		out.closes[k] = v
-	}
+	maps.Copy(out.starts, t.starts)
+	maps.Copy(out.closes, t.closes)
 	return out
 }
 
@@ -167,7 +164,7 @@ func (w *workerResource) Submit(job string) {
 // WaitProcessed blocks until n results arrive and returns the count.
 func (w *workerResource) WaitProcessed(t interface{ Fatalf(string, ...any) }, n int) int {
 	got := 0
-	for i := 0; i < n; i++ {
+	for range n {
 		w.mu.Lock()
 		results := w.results
 		w.mu.Unlock()

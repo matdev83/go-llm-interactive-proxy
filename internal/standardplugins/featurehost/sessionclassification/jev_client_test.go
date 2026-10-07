@@ -1185,7 +1185,7 @@ func assertNoCredentialLeak(t *testing.T, err error) {
 	if err == nil {
 		return
 	}
-	for inspected := 0; inspected < 8; inspected++ {
+	for range 8 {
 		if strings.Contains(err.Error(), jevTestToken) {
 			t.Fatalf("error leaked the credential: %v", err)
 		}

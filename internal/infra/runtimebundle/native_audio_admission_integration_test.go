@@ -46,7 +46,6 @@ func TestF1RuntimeBundleNativeAudioV2Admission(t *testing.T) {
 	const controlID = "control-arbitrary-instance"
 
 	for _, routeOverride := range []bool{false, true} {
-		routeOverride := routeOverride
 		name := "default-pricing"
 		if routeOverride {
 			name = "route-specific-pricing"

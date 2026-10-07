@@ -113,7 +113,7 @@ func TestSourceBorrowOperationsRetainHandleUntilCompletion(t *testing.T) {
 			if err := <-done; err != nil {
 				t.Fatalf("admitted operation lost handle: %v", err)
 			}
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				if err := owner.Close(context.Background()); !errors.Is(err, injected) || !IsSourceCleanupError(err) {
 					t.Fatalf("cached close error: %v", err)
 				}

@@ -343,12 +343,7 @@ func sessionClassificationStringLiterals(file *ast.File) []*ast.BasicLit {
 // of the import path carries a vendor marker. The path is the right half of the
 // import rule; sessionClassificationImportFindings also inspects the local alias.
 func sessionClassificationVendorImportPath(importPath string) bool {
-	for _, segment := range strings.Split(strings.ToLower(importPath), "/") {
-		if sessionClassificationVendorName(segment) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(strings.Split(strings.ToLower(importPath), "/"), sessionClassificationVendorName)
 }
 
 // sessionClassificationVendorName reports whether name carries a vendor marker. The

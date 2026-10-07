@@ -22,7 +22,7 @@ func TestListObservationsCorrelationBLegOrderedIndexAvoidsTempBTree(t *testing.T
 	ctx := context.Background()
 
 	// Unrelated provider-account history: same account, distinct B-legs.
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		unrelated := r10StatementObservation("sqlite-test", fmt.Sprintf("unrelated-%03d", i), fmt.Sprintf("b-unrelated-%03d", i), 1)
 		require.NoError(t, store.AppendObservation(ctx, unrelated))
 	}

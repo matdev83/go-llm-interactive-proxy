@@ -125,7 +125,7 @@ func parseExt4MountInfo(data []byte, mountID uint64, devMajor, devMinor uint32) 
 	matched := 0
 	matchedType := ""
 	targetSeen := false
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if line == "" {
 			continue
 		}

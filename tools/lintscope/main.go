@@ -95,7 +95,7 @@ func changedPaths(ctx context.Context, root, mode string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, name := range strings.Split(string(out), "\x00") {
+		for name := range strings.SplitSeq(string(out), "\x00") {
 			if name != "" {
 				paths = append(paths, filepath.ToSlash(name))
 			}

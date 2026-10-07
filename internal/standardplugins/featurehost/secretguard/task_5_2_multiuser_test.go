@@ -23,7 +23,6 @@ func TestTask52MultiUserComposition_resolvesAcceptedCredentialFromActualIngress(
 
 	const credential = "opaque-composed-request-credential-task-5-2-2026"
 	for _, betterLeaksEnabled := range []bool{false, true} {
-		betterLeaksEnabled := betterLeaksEnabled
 		t.Run(map[bool]string{false: "betterleaks_off", true: "betterleaks_on"}[betterLeaksEnabled], func(t *testing.T) {
 			t.Parallel()
 

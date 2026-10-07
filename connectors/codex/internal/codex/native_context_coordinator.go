@@ -27,8 +27,7 @@ func (e *nativeContextAccountError) Error() string { return "native context acco
 func (e *nativeContextAccountError) Unwrap() error { return e.cause }
 
 func nativeContextStatus(err error) int {
-	var accountErr *nativeContextAccountError
-	if errors.As(err, &accountErr) {
+	if accountErr, ok := errors.AsType[*nativeContextAccountError](err); ok {
 		return accountErr.status
 	}
 	return compactionStatus(err)
