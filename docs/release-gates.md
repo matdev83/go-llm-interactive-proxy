@@ -94,7 +94,7 @@ Native fuzz loads extra seeds from **`testdata/fuzz/FuzzFunctionName/`** next to
 ## Single entry point
 
 - `make release-gates` — conformance package tests (with **`-tags=integration`** for full matrix/parity), then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally on Linux/macOS or rely on nightly CI (`bash scripts/race-check.sh --strict` in `.github/workflows/race-fuzz-nightly.yml`; Windows skips race via `scripts/race-check.ps1`).
-- Full local QA remains `make qa` (quality checks + full tagged test pass with `-tags=precommit,integration` + lint + vuln + static release gates). PR CI runs the cross-platform unit matrix and dedicated `db-parity` job in `ci.yml` (ephemeral direct PostgreSQL) along with architecture and hygiene gates in `qa.yml`. Race and Tier-1 fuzz run on the nightly workflow (and via `workflow_dispatch`).
+- Full local QA remains `make qa` (quality checks + full tagged test pass with `-tags=precommit,integration` + lint + vuln + static release gates). PR CI runs the cross-platform unit matrix and dedicated `db-parity` job in `ci.yml` (ephemeral direct PostgreSQL) along with architecture and hygiene gates in `qa.yml`. Race and Tier-1 fuzz run on the nightly workflow (and via `workflow_dispatch`). The race detector's `billing` lane (35–58 min) runs weekly (Mondays); every other lane runs nightly, and `workflow_dispatch` runs all lanes.
 
 ## Dual-plane economics and concurrency (feature gates)
 
