@@ -40,13 +40,15 @@ type listedPackage struct {
 }
 
 func main() {
-	mode := flag.String("mode", "changed", "changed or staged local work")
+	mode := flag.String("mode", "changed", "changed or staged local work, or base for a CI branch diff")
+	base := flag.String("base", "", "comparison commit for -mode=base")
+	direct := flag.Bool("direct", false, "lint only the changed packages, without consumers or the shared-input full fallback")
 	root := flag.String("root", ".", "repository root")
 	format := flag.String("format", "json", "json or lines for shell adapters")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	plan, err := buildLintPlan(ctx, *root, *mode)
+	plan, err := buildLintPlan(ctx, *root, *mode, *base, *direct)
 	if err == nil {
 		switch *format {
 		case "json":
@@ -82,9 +84,14 @@ func commandOutput(ctx context.Context, dir, name string, args ...string) ([]byt
 	return out, nil
 }
 
-func changedPaths(ctx context.Context, root, mode string) ([]string, error) {
+func changedPaths(ctx context.Context, root, mode, base string) ([]string, error) {
 	commands := [][]string{{"diff", "--cached", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD"}}
-	if mode == "changed" {
+	if mode == "base" {
+		if base == "" || strings.HasPrefix(base, "-") {
+			return nil, fmt.Errorf("-mode=base needs a -base commit, got %q", base)
+		}
+		commands = [][]string{{"diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD", base + "...HEAD", "--"}}
+	} else if mode == "changed" {
 		commands = append(commands, []string{"diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD"}, []string{"ls-files", "--others", "--exclude-standard", "-z"})
 	} else if mode != "staged" {
 		return nil, fmt.Errorf("invalid scope mode %q", mode)
@@ -130,12 +137,12 @@ func isSkillPath(name string) bool {
 	return false
 }
 
-func buildLintPlan(ctx context.Context, root, mode string) (lintPlan, error) {
+func buildLintPlan(ctx context.Context, root, mode, base string, direct bool) (lintPlan, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return lintPlan{}, err
 	}
-	paths, err := changedPaths(ctx, root, mode)
+	paths, err := changedPaths(ctx, root, mode, base)
 	if err != nil {
 		return lintPlan{}, err
 	}
@@ -146,7 +153,7 @@ func buildLintPlan(ctx context.Context, root, mode string) (lintPlan, error) {
 	}
 	byModule := map[string][]string{}
 	for _, name := range paths {
-		if requiresFullLint(name) {
+		if !direct && requiresFullLint(name) {
 			return lintPlan{Full: true}, nil
 		}
 		if !strings.HasSuffix(name, ".go") || isSkillPath(name) {
@@ -209,23 +216,46 @@ func buildLintPlan(ctx context.Context, root, mode string) (lintPlan, error) {
 			}
 			seeds = append(seeds, seed)
 		}
+		if direct {
+			// A deleted package has nothing left to lint; CI lints its consumers.
+			selected := directPackages(graph, seeds)
+			if len(selected) > 0 {
+				plan.Modules = append(plan.Modules, moduleScope{Directory: module, Packages: relativePatterns(selected, modulePath)})
+			}
+			continue
+		}
 		selected := affectedPackages(graph, seeds)
 		// Unresolved/deleted package selection must never silently omit evidence.
 		if len(selected) == 0 {
 			return lintPlan{Full: true}, nil
 		}
-		var patterns []string
-		for _, name := range selected {
-			rel := strings.TrimPrefix(name, modulePath)
-			if rel == "" {
-				patterns = append(patterns, ".")
-			} else {
-				patterns = append(patterns, "."+rel)
-			}
-		}
-		plan.Modules = append(plan.Modules, moduleScope{Directory: module, Packages: patterns})
+		plan.Modules = append(plan.Modules, moduleScope{Directory: module, Packages: relativePatterns(selected, modulePath)})
 	}
 	return plan, nil
+}
+
+func relativePatterns(selected []string, modulePath string) []string {
+	var patterns []string
+	for _, name := range selected {
+		rel := strings.TrimPrefix(name, modulePath)
+		if rel == "" {
+			patterns = append(patterns, ".")
+		} else {
+			patterns = append(patterns, "."+rel)
+		}
+	}
+	return patterns
+}
+
+func directPackages(graph []listedPackage, seeds []string) []string {
+	var selected []string
+	for _, pkg := range graph {
+		if slices.Contains(seeds, pkg.ImportPath) {
+			selected = append(selected, pkg.ImportPath)
+		}
+	}
+	slices.Sort(selected)
+	return selected
 }
 
 func affectedPackages(graph []listedPackage, seeds []string) []string {
