@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/connectors/codex/internal/catalog"
@@ -340,9 +341,9 @@ func validCheckpoint(checkpoint CheckpointView, profile CompactionModelProfile, 
 }
 
 func latestUserTail(history NativeHistory) int {
-	for i := len(history.Boundaries) - 1; i >= 0; i-- {
-		if history.Boundaries[i].UserTurnStart {
-			return history.Boundaries[i].ItemIndex
+	for _, boundary := range slices.Backward(history.Boundaries) {
+		if boundary.UserTurnStart {
+			return boundary.ItemIndex
 		}
 	}
 	return -1

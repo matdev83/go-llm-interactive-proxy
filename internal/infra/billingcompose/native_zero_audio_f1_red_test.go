@@ -293,7 +293,6 @@ func TestF1ExplicitNativeSchemaAudioSettlesV2(t *testing.T) {
 		{name: "positive", raw: `{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"prompt_tokens_details":{"audio_tokens":3},"completion_tokens_details":{"audio_tokens":4}}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			c, pricing, policy := f1SeedSchemaCatalog(t)

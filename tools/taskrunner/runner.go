@@ -240,7 +240,7 @@ func childEnvironment(req Request) ([]string, error) {
 		env = append(env, os.Environ()...)
 	}
 	for _, override := range req.Env {
-		key := strings.SplitN(override, "=", 2)[0]
+		key, _, _ := strings.Cut(override, "=")
 		found := false
 		for i, current := range env {
 			if strings.HasPrefix(current, key+"=") {
@@ -342,8 +342,7 @@ func durationClass(elapsed, timeout time.Duration) string {
 }
 
 func exitCode(err error) int {
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		return exitErr.ExitCode()
 	}
 	return 0

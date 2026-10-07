@@ -449,7 +449,7 @@ func TestAcceptanceBoundedUniqueAddressChurnThroughTheRealStack(t *testing.T) {
 		}
 	}
 	cfg := acceptanceConfig(t, func(c *config.Config) {
-		c.Access.SelfDefense.Adaptive.MaxEntries = intPtr(acceptanceChurnCapacity)
+		c.Access.SelfDefense.Adaptive.MaxEntries = new(acceptanceChurnCapacity)
 	})
 	stack := newAcceptanceStack(t, cfg)
 	capacity := stack.maxEntry

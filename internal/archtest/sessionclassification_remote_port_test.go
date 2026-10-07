@@ -157,8 +157,8 @@ func sessionClassificationRemotePortSignatureFindings(port reflect.Type) []strin
 	want := reflect.TypeFor[func(context.Context, sessionclassification.RemoteInput) (sessionclassification.RemoteDecision, error)]()
 	if port.NumMethod() != 1 {
 		names := make([]string, 0, port.NumMethod())
-		for i := range port.NumMethod() {
-			names = append(names, port.Method(i).Name)
+		for method := range port.Methods() {
+			names = append(names, method.Name)
 		}
 		return []string{fmt.Sprintf(
 			"the remote port declares %d methods %v, want exactly the Decide port", port.NumMethod(), names)}
@@ -418,8 +418,7 @@ func sessionClassificationRemotePortFindings(
 		return nil
 	}
 	var findings []string
-	for i := range typ.NumField() {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		fieldPath := path + "." + field.Name
 		fieldType := field.Type
 		switch fieldType.Kind() {

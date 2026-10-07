@@ -124,7 +124,7 @@ func exerciseHostCloseSource(t *testing.T, admitted bool, load closeSourceLoader
 	if _, err := v.Borrow(); err == nil {
 		t.Fatal("final source cleanup was not armed after final borrow release")
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		err := host.Close(context.Background())
 		if wantError == nil && err != nil {
 			t.Fatalf("Close retry %d returned cleanup error: %v", i, err)

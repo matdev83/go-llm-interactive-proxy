@@ -390,7 +390,7 @@ func runSupportAdvisorySettlementParity(t *testing.T, open func(t *testing.T) *D
 		relationships := make([]metering.ComponentRelationship, 0, 18)
 		measures := make([]f356Measure, 0, 19)
 		measures = append(measures, f356M(parent, "100"))
-		for i := 0; i < 18; i++ {
+		for i := range 18 {
 			child := f356Key(fmt.Sprintf("vendor:advice_%s_child_%02d", scenario, i))
 			relationships = append(relationships, metering.ComponentRelationship{Kind: metering.RelationshipSubset, Parent: parent, Child: child})
 			rules = append(rules, f356LinearRule(t, fmt.Sprintf("advice-%s-child-%02d", scenario, i), child, "1"))

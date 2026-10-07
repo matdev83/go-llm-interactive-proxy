@@ -35,15 +35,13 @@ func classifyPreOutputError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var hse *httpStatusError
-	if errors.As(err, &hse) {
+	if hse, ok := errors.AsType[*httpStatusError](err); ok {
 		if hse.Status >= 500 || hse.Status == http.StatusTooManyRequests {
 			return lipapi.RecoverablePreOutputError(err)
 		}
 		return err
 	}
-	var rpcErr *RPCError
-	if errors.As(err, &rpcErr) {
+	if _, ok := errors.AsType[*RPCError](err); ok {
 		return err
 	}
 	return lipapi.RecoverablePreOutputError(err)

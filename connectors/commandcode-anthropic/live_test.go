@@ -83,8 +83,7 @@ func TestLive_CommandCodeAnthropic(t *testing.T) {
 
 	es, err := cl.Open(ctx, call, "claude-haiku-4-5-20251001")
 	if err != nil {
-		var he *anthropic.HTTPError
-		if errors.As(err, &he) {
+		if he, ok := errors.AsType[*anthropic.HTTPError](err); ok {
 			t.Logf("Live CommandCode Anthropic endpoint responded with expected HTTP error: status=%d type=%q message=%q", he.StatusCode, he.Type, he.Message)
 		} else {
 			t.Fatalf("Live Open failed with unexpected error: %v", err)

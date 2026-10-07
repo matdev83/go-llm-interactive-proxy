@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -132,10 +133,8 @@ func commandFor(task, scope string, jobs int, fresh bool) ([]string, error) {
 		if p != "." && !strings.HasPrefix(p, "./") {
 			return nil, fmt.Errorf("package %q must be relative to MODULE", p)
 		}
-		for _, component := range strings.Split(strings.ReplaceAll(p, "\\", "/"), "/") {
-			if component == ".." {
-				return nil, fmt.Errorf("package %q escapes the selected module", p)
-			}
+		if slices.Contains(strings.Split(strings.ReplaceAll(p, "\\", "/"), "/"), "..") {
+			return nil, fmt.Errorf("package %q escapes the selected module", p)
 		}
 	}
 	var command []string

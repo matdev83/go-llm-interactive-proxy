@@ -307,7 +307,7 @@ func TestPrometheusCollectorKeepsLabelCardinalityInsideTheClosedProduct(t *testi
 
 	collector, registry := newObservedCollector(t)
 	const sessions = 512
-	for i := 0; i < sessions; i++ {
+	for i := range sessions {
 		sessionID := "sess-cardinality-" + strings.Repeat("z", i%17) + "-" + time.Duration(i).String()
 		classifier, err := featureclassification.NewClassifier(
 			featureclassification.Config{Mode: featureclassification.ModeHeuristic},
@@ -469,20 +469,16 @@ func TestPrometheusCollectorEmitsOneTransitionForConcurrentFirstPositive(t *test
 	results := make([]session.Classification, 2)
 	failures := make([]error, 2)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		results[0], failures[0] = classifier.Classify(ctx, in)
-	}()
+	})
 
 	// The first turn is now durably blocked inside Promote, so no positive
 	// exists yet.
 	<-store.promoted
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		results[1], failures[1] = classifier.Classify(ctx, in)
-	}()
+	})
 	// Wait until the racing turn has also read the durable state. That proves it
 	// observed the still-unknown session instead of an established positive.
 	waitForStoreLoads(t, store, 2)
@@ -606,10 +602,10 @@ func TestPrometheusCollectorIsSafeUnderConcurrentObservation(t *testing.T) {
 	const workers = 16
 	const perWorker = 64
 	done := make(chan struct{})
-	for worker := 0; worker < workers; worker++ {
+	for range workers {
 		go func() {
 			defer func() { done <- struct{}{} }()
-			for i := 0; i < perWorker; i++ {
+			for i := range perWorker {
 				collector.ObserveEvaluation(featureclassification.EvaluationObservation{
 					Mode:    featureclassification.ModeHeuristic,
 					Outcome: featureclassification.EvaluationUnknown,
@@ -625,7 +621,7 @@ func TestPrometheusCollectorIsSafeUnderConcurrentObservation(t *testing.T) {
 			}
 		}()
 	}
-	for worker := 0; worker < workers; worker++ {
+	for range workers {
 		<-done
 	}
 	if _, err := registry.Gather(); err != nil {

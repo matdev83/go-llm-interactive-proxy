@@ -477,10 +477,8 @@ func algAllowedFeatureImports() []string {
 // makes the test sound for the question this ratchet asks - could this import
 // reach a second policy owner? - instead of a list that could rot.
 func algFeatureImportAllowed(path string, allowed []string) bool {
-	for _, permitted := range allowed {
-		if path == permitted {
-			return true
-		}
+	if slices.Contains(allowed, path) {
+		return true
 	}
 	first, _, _ := strings.Cut(path, "/")
 	return !strings.Contains(first, ".")

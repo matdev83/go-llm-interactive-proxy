@@ -1159,30 +1159,30 @@ func parseDescLabels(rendered string) (fqName string, constLabels, variableLabel
 
 func descFieldQuoted(rendered, field string) string {
 	marker := field + `: "`
-	start := strings.Index(rendered, marker)
-	if start < 0 {
+	_, after, ok := strings.Cut(rendered, marker)
+	if !ok {
 		return ""
 	}
-	rest := rendered[start+len(marker):]
-	end := strings.Index(rest, `"`)
-	if end < 0 {
+	rest := after
+	before0, _, ok0 := strings.Cut(rest, `"`)
+	if !ok0 {
 		return ""
 	}
-	return rest[:end]
+	return before0
 }
 
 func descLabelNames(rendered, field string) []string {
 	marker := field + ": {"
-	start := strings.Index(rendered, marker)
-	if start < 0 {
+	_, after, ok := strings.Cut(rendered, marker)
+	if !ok {
 		return nil
 	}
-	rest := rendered[start+len(marker):]
-	end := strings.Index(rest, "}")
-	if end < 0 {
+	rest := after
+	before0, _, ok0 := strings.Cut(rest, "}")
+	if !ok0 {
 		return nil
 	}
-	body := strings.TrimSpace(rest[:end])
+	body := strings.TrimSpace(before0)
 	if body == "" {
 		return nil
 	}

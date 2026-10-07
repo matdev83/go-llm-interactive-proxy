@@ -78,8 +78,7 @@ func isSQLiteBusy(name dialect.Name, err error) bool {
 	if err == nil || name != dialect.SQLite {
 		return false
 	}
-	var sqliteErr *sqlite.Error
-	if errors.As(err, &sqliteErr) {
+	if sqliteErr, ok := errors.AsType[*sqlite.Error](err); ok {
 		code := sqliteErr.Code() & 0xff
 		return code == 5 || code == 6
 	}

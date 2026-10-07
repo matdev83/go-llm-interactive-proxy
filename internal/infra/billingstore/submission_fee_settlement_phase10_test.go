@@ -774,7 +774,7 @@ func TestSQLiteV2SubmissionFeeOverrunReplayAfterConnectionRecreation(t *testing.
 func TestSQLiteV2SubmissionFeeConcurrentFirstClaimReplayStable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	for iteration := 0; iteration < 5; iteration++ {
+	for iteration := range 5 {
 		storeID := fmt.Sprintf("submission-v2-concurrent-%d", iteration)
 		dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate", filepath.ToSlash(filepath.Join(t.TempDir(), storeID+".db")))
 		open := func() [2]*DurableStore {

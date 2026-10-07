@@ -22,7 +22,6 @@ func TestSnapshotCatalogPutPricingWithSupportAdvisoryPublishesDefaultAndRouteMat
 		{name: "legacy default with advisory route", advisoryDefault: false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -197,7 +196,6 @@ func TestSnapshotCatalogPutPricingWithSupportAdvisoryRejectsInvalidMaterialAtomi
 		{name: "malformed schemas", version: economics.SupportAdvisoryVersionV1, schemas: []metering.ComponentSchema{{ID: " ", Version: "1"}}, wantErr: economics.ErrInvalidTariffSnapshot},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			catalog := NewSnapshotCatalog()

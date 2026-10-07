@@ -22,13 +22,13 @@ func TestSessionClassificationStateAndEvaluationShapesDoNotRetainContent(t *test
 		name   string
 		typeOf reflect.Type
 	}{
-		{name: "Config", typeOf: reflect.TypeOf(sessionclassification.Config{})},
-		{name: "HeuristicConfig", typeOf: reflect.TypeOf(sessionclassification.HeuristicConfig{})},
-		{name: "RemoteConfig", typeOf: reflect.TypeOf(sessionclassification.RemoteConfig{})},
-		{name: "LocalDecision", typeOf: reflect.TypeOf(sessionclassification.LocalDecision{})},
-		{name: "agentfacts.Match", typeOf: reflect.TypeOf(agentfacts.Match{})},
-		{name: "sessionclassification.Evidence", typeOf: reflect.TypeOf(sdkclassification.Evidence{})},
-		{name: "session.Classification", typeOf: reflect.TypeOf(session.Classification{})},
+		{name: "Config", typeOf: reflect.TypeFor[sessionclassification.Config]()},
+		{name: "HeuristicConfig", typeOf: reflect.TypeFor[sessionclassification.HeuristicConfig]()},
+		{name: "RemoteConfig", typeOf: reflect.TypeFor[sessionclassification.RemoteConfig]()},
+		{name: "LocalDecision", typeOf: reflect.TypeFor[sessionclassification.LocalDecision]()},
+		{name: "agentfacts.Match", typeOf: reflect.TypeFor[agentfacts.Match]()},
+		{name: "sessionclassification.Evidence", typeOf: reflect.TypeFor[sdkclassification.Evidence]()},
+		{name: "session.Classification", typeOf: reflect.TypeFor[session.Classification]()},
 	}
 	for _, tc := range types {
 		t.Run(tc.name, func(t *testing.T) {
@@ -45,11 +45,11 @@ func TestSessionClassificationStateAndEvaluationShapesDoNotRetainContent(t *test
 	}{
 		{name: "Promotes", typeOf: reflect.TypeOf(false)},
 		{name: "Preserves", typeOf: reflect.TypeOf(false)},
-		{name: "Source", typeOf: reflect.TypeOf(session.ClassificationSource(""))},
-		{name: "EvidenceCode", typeOf: reflect.TypeOf(session.EvidenceCode(""))},
-		{name: "ClientFamily", typeOf: reflect.TypeOf(agentfacts.Family(""))},
+		{name: "Source", typeOf: reflect.TypeFor[session.ClassificationSource]()},
+		{name: "EvidenceCode", typeOf: reflect.TypeFor[session.EvidenceCode]()},
+		{name: "ClientFamily", typeOf: reflect.TypeFor[agentfacts.Family]()},
 	}
-	decisionType := reflect.TypeOf(sessionclassification.LocalDecision{})
+	decisionType := reflect.TypeFor[sessionclassification.LocalDecision]()
 	if decisionType.NumField() != len(wantDecisionFields) {
 		t.Fatalf("LocalDecision has %d fields, want %d bounded scalar fields", decisionType.NumField(), len(wantDecisionFields))
 	}
@@ -60,7 +60,7 @@ func TestSessionClassificationStateAndEvaluationShapesDoNotRetainContent(t *test
 		}
 	}
 
-	categoryType := reflect.TypeOf(sdkclassification.ToolCategorySet(0))
+	categoryType := reflect.TypeFor[sdkclassification.ToolCategorySet]()
 	if categoryType.Kind() != reflect.Uint16 || categoryType.Size() != 2 {
 		t.Fatalf("ToolCategorySet = %s (%d bytes), want fixed uint16 bitset", categoryType, categoryType.Size())
 	}
@@ -82,7 +82,7 @@ func TestSessionClassificationRetentionGuardRejectsContentShapedFixture(t *testi
 	}
 
 	violations := sessionClassificationRetentionViolations(
-		reflect.TypeOf(contentShapedFixture{}), "synthetic", make(map[reflect.Type]bool),
+		reflect.TypeFor[contentShapedFixture](), "synthetic", make(map[reflect.Type]bool),
 	)
 	joined := strings.Join(violations, ", ")
 	for _, field := range []string{"Messages", "Prompt", "ToolArguments", "WorkspacePath", "RawHeaders"} {
@@ -112,8 +112,7 @@ func sessionClassificationRetentionViolations(typ reflect.Type, path string, vis
 	defer delete(visited, typ)
 
 	var violations []string
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		fieldPath := path + "." + field.Name
 		if sessionClassificationRetentionFieldName(field.Name) {
 			violations = append(violations, fieldPath+" has a content-bearing name")

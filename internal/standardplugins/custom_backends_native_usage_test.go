@@ -29,7 +29,6 @@ func TestUsesOpenAINativeUsageMapper(t *testing.T) {
 		{name: "empty", kind: "", want: false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := UsesOpenAINativeUsageMapper(tt.kind); got != tt.want {

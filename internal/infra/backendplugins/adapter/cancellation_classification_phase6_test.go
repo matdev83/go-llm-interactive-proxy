@@ -76,8 +76,7 @@ func TestPhase6_LegacyCancel_ClassifiedAsCanceledNotTransportDeath(t *testing.T)
 		t.Fatal("intentional legacy cancellation must NOT invalidate connector generation")
 	}
 
-	var ce *adapter.ClassifiedError
-	if errors.As(recvErr, &ce) {
+	if ce, ok := errors.AsType[*adapter.ClassifiedError](recvErr); ok {
 		if ce.Retryable {
 			t.Fatalf("classified error has Retryable=true on canceled stream: %+v", ce)
 		}

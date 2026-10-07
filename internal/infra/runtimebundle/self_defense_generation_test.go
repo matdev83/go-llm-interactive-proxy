@@ -130,7 +130,7 @@ func TestGenerationProjectsOneCredentialProbeFromTheAuthChainSlice(t *testing.T)
 func TestDisabledGenerationOmitsSelfDefenseAndItsObservation(t *testing.T) {
 	t.Parallel()
 
-	cfg := selfDefenseConfigWith(func(sd *config.SelfDefenseConfig) { sd.Enabled = boolPtr(false) })
+	cfg := selfDefenseConfigWith(func(sd *config.SelfDefenseConfig) { sd.Enabled = new(false) })
 	ps, input := selfDefenseGenerationInput(t, cfg)
 	if got := input.Security.SelfDefense; !reflect.DeepEqual(got, httpcontract.SelfDefenseSecurityInput{}) {
 		t.Fatalf("self-defense projection = %+v, want the zero projection for an explicitly disabled generation", got)

@@ -512,7 +512,7 @@ func (c *Coordinator) cachePositive(key featurestate.Key, record featurestate.Re
 }
 
 func (c *Coordinator) evictIdleLocked(now time.Time) {
-	for scanned := 0; scanned < coordinatorIdleEvictionBudget; scanned++ {
+	for range coordinatorIdleEvictionBudget {
 		element := c.cacheLRU.Back()
 		if element == nil {
 			return

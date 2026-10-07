@@ -33,8 +33,6 @@ func selfDefenseProbeAddrs(n int) []netip.Addr {
 	return out
 }
 
-func intPtr(v int) *int                  { return &v }
-func boolPtr(v bool) *bool               { return &v }
 func durationStr(d time.Duration) string { return d.String() }
 
 func selfDefenseConfigWith(mutate func(*config.SelfDefenseConfig)) *config.Config {
@@ -71,7 +69,7 @@ func TestProcessServices_OwnsOneAdaptiveStateSizedByStartupLimits(t *testing.T) 
 
 	const maxEntries = 1024
 	ps := newSelfDefenseProcessServices(t, selfDefenseConfigWith(func(sd *config.SelfDefenseConfig) {
-		sd.Adaptive.MaxEntries = intPtr(maxEntries)
+		sd.Adaptive.MaxEntries = new(maxEntries)
 		sd.Adaptive.StateTTL = durationStr(time.Minute)
 	}))
 	if ps.IngressDefense == nil {
@@ -123,8 +121,8 @@ func TestProcessServices_DisabledStartStillOwnsALightweightState(t *testing.T) {
 		mutate func(*config.SelfDefenseConfig)
 	}{
 		{name: "omitted self_defense config", mutate: nil},
-		{name: "explicitly disabled", mutate: func(sd *config.SelfDefenseConfig) { sd.Enabled = boolPtr(false) }},
-		{name: "impossible paths only disabled", mutate: func(sd *config.SelfDefenseConfig) { sd.ImpossiblePaths = boolPtr(false) }},
+		{name: "explicitly disabled", mutate: func(sd *config.SelfDefenseConfig) { sd.Enabled = new(false) }},
+		{name: "impossible paths only disabled", mutate: func(sd *config.SelfDefenseConfig) { sd.ImpossiblePaths = new(false) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -153,7 +151,7 @@ func TestProcessServices_OneStateInstanceIsReusedAcrossGenerationReloads(t *test
 	t.Parallel()
 
 	ps := newSelfDefenseProcessServices(t, selfDefenseConfigWith(func(sd *config.SelfDefenseConfig) {
-		sd.Adaptive.AuthFailures = intPtr(9)
+		sd.Adaptive.AuthFailures = new(9)
 	}))
 	first := selfDefensePolicyConfig(3)
 	second := selfDefensePolicyConfig(4)
@@ -248,7 +246,7 @@ func TestProcessServices_InvalidSelfDefenseConfigRollsBackProcessStartup(t *test
 		t.Fatal(err)
 	}
 	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
-		Cfg:           selfDefenseConfigWith(func(sd *config.SelfDefenseConfig) { sd.Adaptive.AuthFailures = intPtr(1) }),
+		Cfg:           selfDefenseConfigWith(func(sd *config.SelfDefenseConfig) { sd.Adaptive.AuthFailures = new(1) }),
 		Log:           testkit.DiscardLogger(),
 		Opts:          &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()},
 		BackgroundAux: sched,
@@ -280,7 +278,7 @@ func TestProcessServices_InvalidSelfDefenseConfigRollsBackProcessStartup(t *test
 // candidate compilation accepts it and the process state must survive.
 func selfDefensePolicyConfig(authFailures int) *config.Config {
 	cfg := processServicesTestConfig()
-	cfg.Access.SelfDefense.Adaptive.AuthFailures = intPtr(authFailures)
+	cfg.Access.SelfDefense.Adaptive.AuthFailures = new(authFailures)
 	return cfg
 }
 

@@ -75,8 +75,7 @@ func TestLoadEffective_LegacyAliasPlusMalformedTrailingContentFailsFast(t *testi
 	if err == nil {
 		t.Fatal("expected LoadEffective to fail fast on malformed trailing content, got nil error (tail silently discarded)")
 	}
-	var loadErr *config.LoadError
-	if !errors.As(err, &loadErr) {
+	if _, ok := errors.AsType[*config.LoadError](err); !ok {
 		t.Fatalf("expected *config.LoadError, got %T: %v", err, err)
 	}
 }
@@ -95,8 +94,7 @@ func TestLoadEffective_LegacyAliasPlusSecondDocumentFailsFast(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected LoadEffective to fail fast on a second document, got nil error (second doc silently discarded)")
 	}
-	var loadErr *config.LoadError
-	if !errors.As(err, &loadErr) {
+	if _, ok := errors.AsType[*config.LoadError](err); !ok {
 		t.Fatalf("expected *config.LoadError, got %T: %v", err, err)
 	}
 }

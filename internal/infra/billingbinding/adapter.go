@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -623,9 +624,9 @@ func (a *Adapter) Close() error {
 // closeOwnedReverse closes owned resources in reverse order, joining errors.
 func closeOwnedReverse(ctx context.Context, owned []sdkbilling.OwnedResource) error {
 	var out error
-	for i := len(owned) - 1; i >= 0; i-- {
-		if err := owned[i].Close(ctx); err != nil {
-			out = errors.Join(out, fmt.Errorf("%w: close %q: %v", ErrLifecycle, owned[i].ID, err))
+	for _, o := range slices.Backward(owned) {
+		if err := o.Close(ctx); err != nil {
+			out = errors.Join(out, fmt.Errorf("%w: close %q: %v", ErrLifecycle, o.ID, err))
 		}
 	}
 	return out

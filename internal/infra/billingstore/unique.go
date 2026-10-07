@@ -13,15 +13,13 @@ func isUniqueViolation(err error) bool {
 	if err == nil {
 		return false
 	}
-	var sqliteErr *sqlite.Error
-	if errors.As(err, &sqliteErr) {
+	if sqliteErr, ok := errors.AsType[*sqlite.Error](err); ok {
 		switch sqliteErr.Code() {
 		case sqlite3.SQLITE_CONSTRAINT_UNIQUE, sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
 			return true
 		}
 	}
-	var pgErr pgdriver.Error
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[pgdriver.Error](err); ok {
 		return pgErr.Field('C') == "23505"
 	}
 	return false

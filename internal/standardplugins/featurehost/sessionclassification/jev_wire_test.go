@@ -47,8 +47,8 @@ func TestJevStateCoversEveryRemoteInputField(t *testing.T) {
 			got, want, slices.Sorted(maps.Keys(jevStateMembers)))
 	}
 	encoded := jevStateJSONKeys()
-	for i := range contractFields.NumField() {
-		name := contractFields.Field(i).Name
+	for field := range contractFields.Fields() {
+		name := field.Name
 		member, ok := jevStateMembers[name]
 		if !ok {
 			t.Errorf("remote input field %q has no derived state member", name)
