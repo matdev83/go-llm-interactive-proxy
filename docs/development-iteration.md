@@ -41,7 +41,9 @@ repository-wide suites through reverse dependencies, which made a
 reverse-dependency scope cost as much as the full suite. Config-source
 certification runs only when a config-source path is staged. CI's `Go suite (Linux)` and `Lint (Linux)` jobs run the complete
 tagged root suite and lint on every PR, and the required `Repo hygiene` check
-fails when either does. `LIP_PRECOMMIT_FULL=1 git commit` (or
+fails when either does. The module-wide owner-callback escape gate
+(`TestRuntimebundle_NoCompleteOwnerCallbackEscapes`, ~2 min) runs in its own
+parallel `Owner callback gate (Linux)` job instead of inside the suite. `LIP_PRECOMMIT_FULL=1 git commit` (or
 `make precommit-full`) runs the old complete local gate. `scripts/hooks/pre-push`
 re-checks release cleanliness and change size.
 
