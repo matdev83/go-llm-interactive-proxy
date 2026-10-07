@@ -36,7 +36,7 @@ func main() {
 }
 
 func run() error {
-	task := flag.String("task", "doctor", "test, build, lint, or doctor")
+	task := flag.String("task", "doctor", "test, build, lint, doctor, or quarantine")
 	module := flag.String("module", ".", "repository-relative Go module directory")
 	packages := flag.String("packages", "", "explicit space-separated package patterns, e.g. ./pkg/lipapi")
 	jobs := flag.Int("jobs", min(4, runtime.GOMAXPROCS(0)), "Go package and analyzer concurrency")
@@ -54,6 +54,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	quarantine, err := loadQuarantine(root)
+	if err != nil {
+		return err
+	}
+	if *task == "quarantine" {
+		if err := checkQuarantine(root, quarantine); err != nil {
+			return err
+		}
+		fmt.Println(skipPattern(quarantine))
+		return nil
+	}
 	if *scope == "changed" {
 		if err := validateChangedScope(*task, *module, *packages); err != nil {
 			return err
@@ -66,7 +77,7 @@ func run() error {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "planning_elapsed=%.3fs\n", time.Since(start).Seconds())
-		return runTestPlan(root, plan, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly}, os.Stdout, os.Stderr)
+		return runTestPlan(root, plan, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, quarantine: quarantine}, os.Stdout, os.Stderr)
 	}
 	if *scope != "explicit" || *base != "" || *planOnly || *full {
 		return errors.New("base/plan/full require -scope=changed; scope must be explicit or changed")
@@ -82,6 +93,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	command = withQuarantine(command, quarantine)
 	// Do not substitute staticcheck for the mandatory multi-linter gate, or
 	// report success when the requested analyzer is absent.
 	if _, err := exec.LookPath(command[0]); err != nil {

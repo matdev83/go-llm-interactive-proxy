@@ -14,15 +14,17 @@ tmpfs does not provide those semantics, so a tmpfs `TMPDIR` makes them fail with
 packages. Those failures are environmental: they appear whether or not the staged
 change touches config sources, and they read convincingly like a regression.
 
-This host mounts `/tmp` as tmpfs, which is the default when `TMPDIR` is unset, so
-the traps are the default path and any path that resolves to tmpfs. Point `TMPDIR`
-at ext4 storage instead:
+This host mounts `/tmp` as tmpfs, which is the default when `TMPDIR` is unset.
+tmpfs is also RAM charged to the container's memory limit, and interrupted Go
+runs leave multi-GB `go-build*` work directories behind in it.
 
-```sh
-# Find ext4 storage available on this host.
-findmnt --noheadings --output FSTYPE --target /home
-export TMPDIR=/path/on/ext4
-```
+On `agent-dev` this is handled automatically: the installed `go` guard and
+`scripts/dev-cpu-defaults.sh` (sourced by the hooks and quality scripts) move a
+tmpfs or unset `TMPDIR` to `$HOME/.cache/lip-tmp` on ext4 (override with
+`LIP_DEV_TMPDIR`), and at most hourly prune `go-build*` directories older than six
+hours there. Re-install the guard after it changes:
+`install -m 755 scripts/go-dev-guard.sh "$HOME/.local/bin/go"`. Other hosts with a
+tmpfs `/tmp` still need `export TMPDIR=/path/on/ext4`.
 
 `scripts/require-ext4-tmpdir.sh` is the single source of truth for the check. The
 pre-commit quality gate runs it before the expensive suites, so a wrong `TMPDIR`

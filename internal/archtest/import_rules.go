@@ -213,6 +213,11 @@ var ForbiddenImports = []ForbiddenImportRule{
 		Reason:        "internal/core must not depend on concrete feature plugins",
 	},
 	{
+		SourcePattern: "internal/core",
+		TargetPattern: "/internal/standardplugins/",
+		Reason:        "core must not import the standard plugin composition tree, which hosts concrete feature adapters and their vendor wire code",
+	},
+	{
 		SourcePattern: "internal/core/config",
 		TargetPattern: "/internal/plugins/features/",
 		Reason:        "core config must not depend on concrete feature plugins",

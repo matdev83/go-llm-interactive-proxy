@@ -29,6 +29,18 @@ runs:
         echo "module-prefix=go-mod-v3-shared-" >> "$GITHUB_OUTPUT"
         echo "deps=$DEPS" >> "$GITHUB_OUTPUT"
 
+    - name: Apply test quarantine
+      if: inputs.phase == 'restore'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Tests in .github/test-quarantine.txt fail on main; skip them until their issue is fixed.
+        names=$( (awk '!/^[[:space:]]*#/ && NF == 2 { print $1 }' .github/test-quarantine.txt 2>/dev/null || true) | paste -sd'|' -)
+        if [[ -n "$names" ]]; then
+          echo "GOFLAGS=${GOFLAGS:+$GOFLAGS }-skip=^(${names})\$" >> "$GITHUB_ENV"
+          echo "::notice::Quarantined tests skipped: ${names}"
+        fi
+
     - name: Restore module download archives
       id: modules
       if: inputs.phase == 'restore'

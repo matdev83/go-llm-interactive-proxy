@@ -25,7 +25,7 @@
     "workflow": "CI"
   },
   "ci-unit": {
-    "build_mib": 1024,
+    "build_mib": 2048,
     "job": "test",
     "workflow": "CI"
   },

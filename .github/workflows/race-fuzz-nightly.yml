@@ -11,7 +11,8 @@ on:
         default: ""
         type: string
   schedule:
-    - cron: "17 4 * * *" # 04:17 UTC daily
+    - cron: "17 4 * * *" # 04:17 UTC daily: every lane except billing
+    - cron: "47 5 * * 1" # 05:47 UTC Mondays: the billing lane only
 
 permissions:
   contents: read
@@ -29,7 +30,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [broad, billing, support, runtime, architecture]
+        # The billing sweeps take 35-58 minutes under the race detector, about
+        # half of the whole nightly, so they run weekly. Billing paths also get
+        # the non-race exhaustive schema certification in ci.yml on every PR that
+        # touches them. Manual dispatch runs every lane.
+        lane: ${{ fromJSON(github.event.schedule == '47 5 * * 1' && '["billing"]' || github.event.schedule == '17 4 * * *' && '["broad","support","runtime","architecture"]' || '["broad","billing","support","runtime","architecture"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

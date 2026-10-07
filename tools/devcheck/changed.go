@@ -15,6 +15,7 @@ import (
 type testPlanOptions struct {
 	jobs, repeat int
 	fresh, dry   bool
+	quarantine   []quarantineEntry
 }
 
 func validateChangedScope(task, module, packages string) error {
@@ -83,6 +84,7 @@ func runTestModule(root string, module testscope.Module, opts testPlanOptions, i
 	if err != nil {
 		return err
 	}
+	command = withQuarantine(command, opts.quarantine)
 	if _, err := fmt.Fprintf(diagnostics, "[%d/%d] module=%q command=%q\n", iteration, opts.repeat, module.Directory, command); err != nil {
 		return err
 	}

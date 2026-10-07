@@ -34,6 +34,7 @@ jobs:
       test_cost: ${{ steps.filter.outputs.test_cost }}
       billing_schema: ${{ steps.filter.outputs.billing_schema }}
       os_sensitive: ${{ steps.filter.outputs.os_sensitive }}
+      proto: ${{ steps.filter.outputs.proto }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -137,12 +138,27 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: go run ./tools/changesize --base "$BASE_SHA" --head HEAD
 
-      - name: Install buf
+      - name: Validate test quarantine
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
-        run: go install github.com/bufbuild/buf/cmd/buf@v1.66.0
+        run: go run ./tools/devcheck -task=quarantine
+
+      - name: Install buf
+        if: needs.changes.result == 'success' && needs.changes.outputs.proto == 'true' && github.event_name == 'pull_request'
+        # buf pulls ~100 modules from proxy.golang.org; a single transient proxy error
+        # (e.g. "stream error ... INTERNAL_ERROR") otherwise fails the required check
+        # before any gate has run. Retry the download only; real build errors still fail.
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if go install github.com/bufbuild/buf/cmd/buf@v1.66.0; then exit 0; fi
+            echo "go install buf failed (attempt $attempt/3)" >&2
+            sleep $((attempt * 15))
+          done
+          exit 1
 
       - name: Protobuf contract gate
-        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        if: needs.changes.result == 'success' && needs.changes.outputs.proto == 'true' && github.event_name == 'pull_request'
         shell: bash
         run: bash scripts/proto-check.sh
 
@@ -264,6 +280,14 @@ jobs:
       - name: Certify pinned source lifetime on ext4
         if: needs.changes.result == 'success' && env.RUN_CERT == 'true' && matrix.os == 'ubuntu-latest'
         shell: bash
+        env:
+          # The fault checks run with -race on GitHub, which builds a second,
+          # race-instrumented copy of the whole dependency tree (~1.5 GB). In the
+          # shared cache it was the newest data, so the ci-unit snapshot bound
+          # discarded the non-race test objects and every later run recompiled
+          # cmd/lipstd from scratch (Fast unit tests 60s -> 130-180s). A throwaway
+          # cache keeps those objects out of the published snapshot.
+          GOCACHE: ${{ runner.temp }}/go-build-cert
         run: |
           set -euo pipefail
           bash scripts/test-configsource-fault-check.sh
@@ -292,7 +316,10 @@ jobs:
 
       - name: Build release binary
         if: needs.changes.result == 'success' && env.RUN_LEG == 'true'
-        run: go build -trimpath ./cmd/lipstd
+        # No -trimpath: it keys separate compiler objects (a second ~1.1 GB set), which
+        # overflowed the ci-unit snapshot and forced every PR to recompile cmd/lipstd's
+        # whole dependency tree (~2 min). Release artifacts keep -trimpath via .goreleaser.yaml.
+        run: go build ./cmd/lipstd
 
       # Publish successful per-OS unit/build snapshots for the next main or PR run.
       - name: Save bounded ci-unit Go cache

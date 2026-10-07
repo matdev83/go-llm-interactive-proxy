@@ -15,14 +15,23 @@ printf '%s\n' "$@" > "$GUARD_TEST_CALLS"
 resource_nice=
 if [[ $(uname -s) == Linux ]]; then resource_nice=$(ps -o ni= -p "$$" | tr -d ' '); fi
 printf '%s\n' "${GOMAXPROCS:-}" "${GOFLAGS:-}" "$resource_nice" > "$GUARD_TEST_RESOURCES"
+printf '%s\n' "${TMPDIR:-}" > "$GUARD_TEST_TMPDIR"
 printf 'fake toolchain output\n'
 exit "${GUARD_TEST_EXIT:-0}"
 STUB
-chmod +x "$fixture/bin/hostname" "$fixture/bin/real-go"
+# Filesystem type is faked so the result does not depend on the runner's /tmp.
+cat > "$fixture/bin/stat" <<'STUB'
+#!/usr/bin/env bash
+case "${!#}" in "$GUARD_TEST_EXT4"*) printf 'ext2/ext3\n' ;; *) printf 'tmpfs\n' ;; esac
+STUB
+chmod +x "$fixture/bin/hostname" "$fixture/bin/real-go" "$fixture/bin/stat"
 export PATH="$fixture/bin:$PATH"
 export GO_DEV_GUARD_REAL_GO="$fixture/bin/real-go"
 export GUARD_TEST_CALLS="$fixture/calls"
 export GUARD_TEST_RESOURCES="$fixture/resources"
+export GUARD_TEST_TMPDIR="$fixture/tmpdir"
+export GUARD_TEST_EXT4="$fixture/ext4"
+export LIP_DEV_TMPDIR="$GUARD_TEST_EXT4/lip-tmp"
 export GUARD_TEST_HOST=agent-dev HOSTNAME=agent-dev
 export XDG_CONFIG_HOME="$fixture/config"
 unset GOFLAGS GOENV GOMAXPROCS COMPUTERNAME CI GITHUB_ACTIONS LIP_ALLOW_RACE_ON_DEV
@@ -109,5 +118,26 @@ if [[ $(uname -s) == Linux ]]; then
 	GOMAXPROCS=4 LIP_TEST_PACKAGES=3 LIP_TEST_PARALLEL=5 bash -c 'source "$1/dev-cpu-defaults.sh"; printf "%s\n" "$GOMAXPROCS" "$LIP_TEST_PACKAGES" "$LIP_TEST_PARALLEL"' _ "$script_dir" > "$fixture/gate-resources"
 	printf '4\n3\n5\n' > "$fixture/expected-resources"
 	cmp "$fixture/expected-resources" "$fixture/gate-resources"
+	# A tmpfs or unset TMPDIR moves to ext4; an ext4 TMPDIR is kept; CI is untouched.
+	env -u TMPDIR bash "$script_dir/go-dev-guard.sh" test ./... >/dev/null
+	[[ $(cat "$GUARD_TEST_TMPDIR") == "$LIP_DEV_TMPDIR" && -d $LIP_DEV_TMPDIR ]]
+	TMPDIR="$fixture/ram" bash "$script_dir/go-dev-guard.sh" test ./... >/dev/null
+	[[ $(cat "$GUARD_TEST_TMPDIR") == "$LIP_DEV_TMPDIR" ]]
+	mkdir -p "$GUARD_TEST_EXT4/own"
+	TMPDIR="$GUARD_TEST_EXT4/own" bash "$script_dir/go-dev-guard.sh" test ./... >/dev/null
+	[[ $(cat "$GUARD_TEST_TMPDIR") == "$GUARD_TEST_EXT4/own" ]]
+	TMPDIR="$fixture/ram" CI=true bash "$script_dir/go-dev-guard.sh" test ./... >/dev/null
+	[[ $(cat "$GUARD_TEST_TMPDIR") == "$fixture/ram" ]]
+	TMPDIR="$fixture/ram" bash -c 'source "$1/dev-cpu-defaults.sh"; printf "%s\n" "$TMPDIR"' _ "$script_dir" > "$fixture/gate-tmpdir"
+	[[ $(cat "$fixture/gate-tmpdir") == "$LIP_DEV_TMPDIR" ]]
+	# Orphaned work dirs older than six hours are pruned at most hourly; live ones stay.
+	mkdir -p "$LIP_DEV_TMPDIR/go-build-old" "$LIP_DEV_TMPDIR/go-build-live" "$LIP_DEV_TMPDIR/keep-old"
+	touch -d '7 hours ago' "$LIP_DEV_TMPDIR/go-build-old" "$LIP_DEV_TMPDIR/keep-old"
+	rm -f "$LIP_DEV_TMPDIR/.go-build-pruned"
+	env -u TMPDIR bash "$script_dir/go-dev-guard.sh" test ./... >/dev/null
+	[[ ! -e $LIP_DEV_TMPDIR/go-build-old && -d $LIP_DEV_TMPDIR/go-build-live && -d $LIP_DEV_TMPDIR/keep-old ]]
+	mkdir -p "$LIP_DEV_TMPDIR/go-build-old" && touch -d '7 hours ago' "$LIP_DEV_TMPDIR/go-build-old"
+	env -u TMPDIR bash "$script_dir/go-dev-guard.sh" test ./... >/dev/null
+	[[ -d $LIP_DEV_TMPDIR/go-build-old ]]
 fi
-echo 'PASS: Go development race guard blocks before toolchain execution; normal/CI delegation preserved.'
+echo 'PASS: Go development race guard blocks before toolchain execution; normal/CI delegation preserved; agent-dev TMPDIR stays on ext4.'

@@ -67,6 +67,20 @@ is_documentation_path() {
   esac
 }
 
+# Some shared files (Makefile, ci.yml) say nothing about a lane by name: a one-line
+# edit to them must not fire an expensive lane. They count only when the added or
+# removed lines mention the lane's subject. The Makefile .PHONY mega-line lists every
+# target, so it is excluded like in scripts/makefile-scope.sh.
+diff_mentions() {
+  local base="$1" head="$2" pattern="$3"
+  shift 3
+  git diff --unified=0 "$base" "$head" -- "$@" \
+    | grep -E '^[+-]' \
+    | grep -vE '^(---|\+\+\+)' \
+    | grep -vE '^[+-]\.PHONY:' \
+    | grep -iE "$pattern" >/dev/null
+}
+
 file_matches() {
   local scope="$1"
   local file="$2"
@@ -91,13 +105,22 @@ file_matches() {
     kiro)
       is_kiro_spec_path "$file" || is_agent_policy_path "$file"
       ;;
+    proto)
+      # Protobuf contract gate inputs: the api/ tree, the pinned generator
+      # plugins (module files), the gate script, and this workflow.
+      case "$file" in
+        api/*|go.mod|go.sum|scripts/proto-check.sh|.github/workflows/ci.yml)
+          return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
     os_sensitive)
       # Paths whose behaviour differs per OS or per filesystem. Only these (or
       # the daily schedule / full-ci label) justify Windows and macOS legs.
       case "$file" in
         cmd/*|connectors/*|connector-support/*|tools/taskrunner/*|\
         internal/infra/configsource/*|internal/infra/runtimehost/*|internal/infra/backendplugins/*|\
-        go.mod|go.sum|go.work|go.work.sum|Makefile|\
+        go.mod|go.sum|go.work|go.work.sum|\
         scripts/configsource-*|scripts/require-ext4-tmpdir.sh|scripts/check-merge-receiver-branch.*|\
         scripts/test-configsource-*|scripts/test-go-dev-guard.sh|scripts/test-require-ext4-tmpdir.sh|scripts/test-check-merge-receiver-branch.sh|\
         scripts/ci-go-cache.py|.github/actions/go-cache/*|.github/workflows/ci.yml)
@@ -134,8 +157,8 @@ file_matches() {
       ;;
     billing_schema)
       case "$file" in
-        internal/core/billing/*|internal/infra/billing*/*|internal/testkit/billsem/*|pkg/lipsdk/metering/*|pkg/lipsdk/economics/*|pkg/lipsdk/billing/*|pkg/lipsdk/scope/*|go.mod|go.sum|go.work|go.work.sum|Makefile|\
-        .github/workflows/ci.yml|.github/actions/go-cache/*|scripts/ci-go-cache.py|scripts/ci-scope.sh|scripts/test-billing-*)
+        internal/core/billing/*|internal/infra/billing*/*|internal/testkit/billsem/*|pkg/lipsdk/metering/*|pkg/lipsdk/economics/*|pkg/lipsdk/billing/*|pkg/lipsdk/scope/*|go.mod|go.sum|go.work|go.work.sum|\
+        .github/actions/go-cache/*|scripts/ci-go-cache.py|scripts/ci-scope.sh|scripts/test-billing-*)
           return 0 ;;
         *) return 1 ;;
       esac
@@ -166,12 +189,13 @@ classify_diff() {
   local test_cost=false
   local billing_schema=false
   local os_sensitive=false
+  local proto=false
   local file diff_file
 
   # Events without a base SHA (initial pushes or manual dispatches) run
   # every scope rather than risking a false bypass.
   if [[ -z "$base" || "$base" =~ ^0{40}$ ]]; then
-    printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\nbilling_schema=true\nos_sensitive=true\n'
+    printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\nbilling_schema=true\nos_sensitive=true\nproto=true\n'
     return 0
   fi
 
@@ -190,16 +214,24 @@ classify_diff() {
     file_matches test_cost "$file" && test_cost=true
     file_matches billing_schema "$file" && billing_schema=true
     file_matches os_sensitive "$file" && os_sensitive=true
+    file_matches proto "$file" && proto=true
   done < "$diff_file"
   rm -f "$diff_file"
 
-  for value in "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive"; do
+  # Makefile and ci.yml reach the billing certification only when the change
+  # itself concerns billing (its targets or its CI job).
+  if [[ "$billing_schema" == false ]] \
+    && diff_mentions "$base" "$head" 'billing' Makefile .github/workflows/ci.yml; then
+    billing_schema=true
+  fi
+
+  for value in "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive" "$proto"; do
     case "$value" in
       true|false) ;;
       *) echo "invalid CI scope value: $value" >&2; return 1 ;;
     esac
   done
-  printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\nbilling_schema=%s\nos_sensitive=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive"
+  printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\nbilling_schema=%s\nos_sensitive=%s\nproto=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive" "$proto"
 }
 
 self_test() {
@@ -243,8 +275,20 @@ self_test() {
   for relevant in .agents/skills/x/scripts/run.sh .agents/skills/x/check.go; do
     file_matches code "$relevant" || { echo "code scope missed $relevant" >&2; return 1; }
   done
+  for unrelated in Makefile scripts/helper.sh tools/devcheck/main.go; do
+    file_matches os_sensitive "$unrelated" && { echo "os_sensitive scope included $unrelated" >&2; return 1; }
+  done
+  for unrelated in Makefile .github/workflows/ci.yml; do
+    file_matches billing_schema "$unrelated" && { echo "billing_schema matched $unrelated by name" >&2; return 1; }
+  done
   for relevant in internal/infra/configsource/source.go cmd/lipstd/main.go go.mod; do
     file_matches os_sensitive "$relevant" || { echo "os_sensitive scope missed $relevant" >&2; return 1; }
+  done
+  for relevant in api/backendplugin/v1/plugin.proto api/buf.yaml go.mod scripts/proto-check.sh; do
+    file_matches proto "$relevant" || { echo "proto scope missed $relevant" >&2; return 1; }
+  done
+  for unrelated in internal/core/runtime/exec.go pkg/lipapi/request.go docs/README.md AGENTS.md; do
+    file_matches proto "$unrelated" && { echo "proto scope included $unrelated" >&2; return 1; }
   done
   for unrelated in internal/core/runtime/exec.go internal/plugins/features/x/y.go docs/README.md AGENTS.md; do
     file_matches os_sensitive "$unrelated" && { echo "os_sensitive scope included $unrelated" >&2; return 1; }
@@ -358,6 +402,44 @@ self_test() {
       return 1
     }
   done
+  rm -rf "$tmp"
+  trap - RETURN
+
+  # Content-judged files: a Makefile or ci.yml edit fires the billing certification
+  # only when the changed lines mention billing.
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' RETURN
+  git -C "$tmp" init -q
+  mkdir -p "$tmp/.github/workflows"
+  printf '.PHONY: help\nhelp:\n\t@echo usage\n' > "$tmp/Makefile"
+  printf 'jobs:\n  test:\n    name: t\n' > "$tmp/.github/workflows/ci.yml"
+  git -C "$tmp" add -A
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm base
+  base="$(git -C "$tmp" rev-parse HEAD)"
+  printf 'lint:\n\t@echo lint\n' >> "$tmp/Makefile"
+  git -C "$tmp" add -A
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm unrelated-makefile
+  makefile_head="$(git -C "$tmp" rev-parse HEAD)"
+  output="$(cd "$tmp" && bash "$script_path" --outputs "$base" "$makefile_head")"
+  grep -qx 'billing_schema=false' <<< "$output" || { echo "unrelated Makefile edit fired billing: $output" >&2; return 1; }
+  grep -qx 'os_sensitive=false' <<< "$output" || { echo "Makefile edit fired os_sensitive: $output" >&2; return 1; }
+  printf '    timeout-minutes: 5\n' >> "$tmp/.github/workflows/ci.yml"
+  git -C "$tmp" add -A
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm unrelated-ci
+  unrelated_head="$(git -C "$tmp" rev-parse HEAD)"
+  output="$(cd "$tmp" && bash "$script_path" --outputs "$makefile_head" "$unrelated_head")"
+  grep -qx 'billing_schema=false' <<< "$output" || { echo "unrelated ci.yml edit fired billing: $output" >&2; return 1; }
+  printf 'test-billing-schema:\n\t@echo billing\n' >> "$tmp/Makefile"
+  git -C "$tmp" add -A
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm makefile-billing
+  output="$(cd "$tmp" && bash "$script_path" --outputs "$unrelated_head" HEAD)"
+  grep -qx 'billing_schema=true' <<< "$output" || { echo "billing Makefile target did not fire billing: $output" >&2; return 1; }
+  billing_head="$(git -C "$tmp" rev-parse HEAD)"
+  printf '  billing-schema:\n    name: Billing schema certification\n' >> "$tmp/.github/workflows/ci.yml"
+  git -C "$tmp" add -A
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm ci-billing
+  output="$(cd "$tmp" && bash "$script_path" --outputs "$billing_head" HEAD)"
+  grep -qx 'billing_schema=true' <<< "$output" || { echo "billing ci.yml job edit did not fire billing: $output" >&2; return 1; }
   rm -rf "$tmp"
   trap - RETURN
 
