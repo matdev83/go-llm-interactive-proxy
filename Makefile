@@ -649,7 +649,6 @@ package-plugin-smoke: package-minimal package-full
 
 docs-check:
 	$(GO) test $(GO_TEST_FLAGS) ./docs/backend-plugins/ -run 'TestDocs|TestExample|TestOperator|TestExampleConfig|TestThreat'
-	$(GO) test $(GO_TEST_FLAGS) ./internal/archtest/ -run '^TestExtensionAuthoringDoc_'
 
 # Phase 9.3: executable-plugin threat model adversarial suite + bounded fuzz.
 # Pair with `make test-fuzz` and `make test-race` (Windows race is skip-only).

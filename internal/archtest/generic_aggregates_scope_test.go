@@ -46,8 +46,8 @@ var archForbiddenFeatureTokens = []string{
 	"interleaved",
 	"sessionpolicy",
 	// Task 12.1 owns this entry (tasks.md 383, 410); its recorded precondition
-	// still holds. Inert today (TestGenericAggregatesContainNoPerFeatureFields)
-	// and not dead text (TestSessionClassificationTokenRejectsGuardedAggregateFields).
+	// still holds. Inert today: TestGenericAggregatesContainNoPerFeatureFields
+	// sweeps the real aggregates and finds none of them carrying the token.
 	"sessionclassification",
 }
 
