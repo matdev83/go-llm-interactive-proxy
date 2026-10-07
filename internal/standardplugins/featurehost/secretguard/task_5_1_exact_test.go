@@ -30,7 +30,6 @@ func TestTask51_ComposeLocalDiscoverySwitchKeepsBetterLeaksIndependent(t *testin
 		{name: "both_disabled", local: "false", betterLeaks: "false", wantLocal: false, wantBetter: false, panicEnv: true},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

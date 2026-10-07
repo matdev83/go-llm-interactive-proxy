@@ -209,7 +209,7 @@ func TestEconomicDetailValuationStreamSubjectFieldsCoverSubjectRef(t *testing.T)
 	}
 	typ := reflect.TypeFor[metering.SubjectRef]()
 	for field := range typ.Fields() {
-		tag := strings.Split(field.Tag.Get("json"), ",")[0]
+		tag, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if tag == "" || tag == "-" {
 			continue
 		}

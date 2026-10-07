@@ -261,8 +261,7 @@ func (r *attemptRunner) Run(ctx context.Context, in attemptInput) (out attemptOu
 		_, endStage = r.beginStage(ctx, configreload.StageClassify)
 		_, err := r.classify(activeEff, eff)
 		if err != nil {
-			var rr *configreload.RestartRequiredError
-			if errors.As(err, &rr) {
+			if rr, ok := errors.AsType[*configreload.RestartRequiredError](err); ok {
 				out = restartRequiredOutcome(&res, configreload.StageClassify, rr)
 				endStage(string(res.Category))
 				return out
@@ -287,8 +286,7 @@ func (r *attemptRunner) Run(ctx context.Context, in attemptInput) (out attemptOu
 	stageCtx, endStage = r.beginStage(ctx, configreload.StageCompile)
 	plane, compileErr := r.compileIsolated(stageCtx, eff.Config, liveKinds)
 	if compileErr != nil {
-		var rr *configreload.RestartRequiredError
-		if errors.As(compileErr, &rr) {
+		if rr, ok := errors.AsType[*configreload.RestartRequiredError](compileErr); ok {
 			out = restartRequiredOutcome(&res, configreload.StageCompile, rr)
 			endStage(string(res.Category))
 			return out

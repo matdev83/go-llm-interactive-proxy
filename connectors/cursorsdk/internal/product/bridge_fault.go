@@ -77,8 +77,7 @@ func wrapStartError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var bf *BridgeFault
-	if errors.As(err, &bf) {
+	if _, ok := errors.AsType[*BridgeFault](err); ok {
 		return err
 	}
 	if errors.Is(err, os.ErrNotExist) || isNotExistMessage(err.Error()) {

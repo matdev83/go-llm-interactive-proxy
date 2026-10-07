@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -443,8 +444,7 @@ func (l *ResourceLedger) stopReverse(ctx context.Context, match func(*ledgerEntr
 	ctx = ctxOrBackground(ctx)
 	entries := l.copyEntries()
 	var out error
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := entries[i]
+	for _, e := range slices.Backward(entries) {
 		if match != nil && !match(e) {
 			continue
 		}

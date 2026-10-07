@@ -512,7 +512,7 @@ func hotPathClassificationGoroutines() (int, []string) {
 		buffer = make([]byte, 2*len(buffer))
 	}
 	var owned []string
-	for _, trace := range strings.Split(string(buffer), "\n\n") {
+	for trace := range strings.SplitSeq(string(buffer), "\n\n") {
 		if trace == "" {
 			continue
 		}

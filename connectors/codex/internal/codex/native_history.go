@@ -503,8 +503,7 @@ func nativeHistoryErrorForBuild(err error) error {
 	if err == nil {
 		return nil
 	}
-	var typed *nativeHistoryBuildError
-	if errors.As(err, &typed) {
+	if typed, ok := errors.AsType[*nativeHistoryBuildError](err); ok {
 		return nativeHistoryError(typed.category)
 	}
 	return nativeHistoryError("malformed_item")

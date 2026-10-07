@@ -347,7 +347,7 @@ func TestConfiguredInstance_Execute_DefaultModelVsExplicitModel(t *testing.T) {
 		p := r.URL.Path
 		parts := strings.Split(p, "/models/")
 		if len(parts) > 1 {
-			m := strings.Split(parts[1], ":")[0]
+			m, _, _ := strings.Cut(parts[1], ":")
 			gotModel.Store(&m)
 		}
 		w.Header().Set("Content-Type", "application/json")

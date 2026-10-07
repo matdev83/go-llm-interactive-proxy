@@ -347,11 +347,8 @@ func (s *MemoryStore) cleanupIdleLocked(now time.Time) {
 	if len(s.slots) == 0 {
 		return
 	}
-	scans := idleCleanupScanBudget
-	if len(s.slots) < scans {
-		scans = len(s.slots)
-	}
-	for i := 0; i < scans; i++ {
+	scans := min(len(s.slots), idleCleanupScanBudget)
+	for range scans {
 		index := s.cleanupCursor
 		s.cleanupCursor++
 		if s.cleanupCursor == len(s.slots) {

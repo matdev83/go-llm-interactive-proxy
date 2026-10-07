@@ -49,7 +49,7 @@ func publishedClassifier(t *testing.T, planes lipfeature.FrozenPlaneSet) sdkclas
 
 func classificationPrefixList(count int) string {
 	prefixes := make([]string, 0, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		prefixes = append(prefixes, `"agent-`+string(rune('a'+i%26))+`-"`)
 	}
 	return "heuristic:\n  ignored_user_agent_prefixes: [" + strings.Join(prefixes, ", ") + "]\n"

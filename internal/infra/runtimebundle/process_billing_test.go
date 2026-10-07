@@ -3,6 +3,7 @@ package runtimebundle
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -194,8 +195,8 @@ func TestBuildProcessBillingRuntimeOwnsResourcesAcrossGenerationLifetime(t *test
 	if starts != 1 || stops != 0 || closes != 0 {
 		t.Fatalf("lifecycle after process construction = starts:%d stops:%d closes:%d", starts, stops, closes)
 	}
-	for i := len(closers) - 1; i >= 0; i-- {
-		if err := closers[i](); err != nil {
+	for _, closer := range slices.Backward(closers) {
+		if err := closer(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -234,8 +235,8 @@ func TestBuildProcessBillingRuntimeAllowsIndependentRetailWithoutSupplierWorker(
 	var closers []func() error
 	owner := &processResourceOwner{register: func(close func() error) { closers = append(closers, close) }}
 	t.Cleanup(func() {
-		for i := len(closers) - 1; i >= 0; i-- {
-			if err := closers[i](); err != nil {
+		for _, closer := range slices.Backward(closers) {
+			if err := closer(); err != nil {
 				t.Errorf("cleanup process resource: %v", err)
 			}
 		}

@@ -532,9 +532,7 @@ func TestConcurrentPromotionsNeverRewriteAnEstablishedPositive(t *testing.T) {
 				}(i)
 			}
 			for range staleCompletions {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					<-start
 					_, err := coordinator.CompleteRemote(ctx, orphanClaim, featurestate.RemoteCompletion{
 						Proposal: convergenceRemoteProposal("remote.stale_replay"),
@@ -544,7 +542,7 @@ func TestConcurrentPromotionsNeverRewriteAnEstablishedPositive(t *testing.T) {
 						acceptedStale++
 					}
 					mu.Unlock()
-				}()
+				})
 			}
 			for i := range freshClaims {
 				wg.Add(1)

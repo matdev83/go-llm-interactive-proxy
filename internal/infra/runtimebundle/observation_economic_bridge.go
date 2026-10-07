@@ -400,11 +400,7 @@ func (r *observationEconomicRelay) appendLinkedStatementEvidence(ctx context.Con
 			return fmt.Errorf("%w: examined %d verified statement candidates for B-leg %q (budget %d)",
 				errObservationEconomicStatementCandidateBudget, examined, blegID, budget)
 		}
-		if left < observationEconomicEvidenceLimit {
-			query.Limit = left
-		} else {
-			query.Limit = observationEconomicEvidenceLimit
-		}
+		query.Limit = min(left, observationEconomicEvidenceLimit)
 		page, err := r.journal.ListObservations(ctx, query)
 		if err != nil {
 			return fmt.Errorf("runtimebundle: load linked statement evidence: %w", err)
