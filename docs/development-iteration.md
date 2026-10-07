@@ -32,13 +32,22 @@ is reported once with the remedy instead of surfacing later as scattered test
 failures. `scripts/configsource-certify.sh` delegates to the same script rather
 than repeating the logic.
 
-### Commit and push run the full gate
+### Commit runs an affected-scope gate; CI runs the full suite
 
-`scripts/hooks/pre-commit` and `scripts/hooks/pre-push` both invoke the quality
-gate, which includes the complete root-module test suite. Budget minutes, not
-seconds, and run them as a background command with no tool timeout: a harness
-timeout that kills the gate mid-run leaves the commit unapplied and the index
-still staged, which reads as a hook failure when it is only a truncation.
+`scripts/hooks/pre-commit` builds, vets and tests the packages the uncommitted
+change affects (`devcheck -scope=changed`, reverse dependencies included) and
+lints the staged packages. Config-source certification runs only when a
+config-source path is staged. When a shared input changes (Makefile, `scripts/`,
+`.github/`, `go.mod`, `pkg/`, ...) the hook skips the local suite or lint and
+says so. CI's `Go suite (Linux)` and `Lint (Linux)` jobs run the complete
+tagged root suite and lint on every PR, and the required `Repo hygiene` check
+fails when either does. `LIP_PRECOMMIT_FULL=1 git commit` (or
+`make precommit-full`) runs the old complete local gate. `scripts/hooks/pre-push`
+re-checks release cleanliness and change size.
+
+A large affected set still takes minutes, so run commits as a background command
+with no tool timeout: a harness timeout that kills the gate mid-run leaves the
+commit unapplied and the index still staged.
 
 When a gate fails, fix the cause. `--no-verify` also skips secret scanning.
 

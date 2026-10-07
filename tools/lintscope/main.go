@@ -40,13 +40,14 @@ type listedPackage struct {
 }
 
 func main() {
-	mode := flag.String("mode", "changed", "changed or staged local work")
+	mode := flag.String("mode", "changed", "changed or staged local work, or base for a CI branch diff")
+	base := flag.String("base", "", "comparison commit for -mode=base")
 	root := flag.String("root", ".", "repository root")
 	format := flag.String("format", "json", "json or lines for shell adapters")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	plan, err := buildLintPlan(ctx, *root, *mode)
+	plan, err := buildLintPlan(ctx, *root, *mode, *base)
 	if err == nil {
 		switch *format {
 		case "json":
@@ -82,9 +83,14 @@ func commandOutput(ctx context.Context, dir, name string, args ...string) ([]byt
 	return out, nil
 }
 
-func changedPaths(ctx context.Context, root, mode string) ([]string, error) {
+func changedPaths(ctx context.Context, root, mode, base string) ([]string, error) {
 	commands := [][]string{{"diff", "--cached", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD"}}
-	if mode == "changed" {
+	if mode == "base" {
+		if base == "" || strings.HasPrefix(base, "-") {
+			return nil, fmt.Errorf("-mode=base needs a -base commit, got %q", base)
+		}
+		commands = [][]string{{"diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD", base + "...HEAD", "--"}}
+	} else if mode == "changed" {
 		commands = append(commands, []string{"diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD"}, []string{"ls-files", "--others", "--exclude-standard", "-z"})
 	} else if mode != "staged" {
 		return nil, fmt.Errorf("invalid scope mode %q", mode)
@@ -130,12 +136,12 @@ func isSkillPath(name string) bool {
 	return false
 }
 
-func buildLintPlan(ctx context.Context, root, mode string) (lintPlan, error) {
+func buildLintPlan(ctx context.Context, root, mode, base string) (lintPlan, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return lintPlan{}, err
 	}
-	paths, err := changedPaths(ctx, root, mode)
+	paths, err := changedPaths(ctx, root, mode, base)
 	if err != nil {
 		return lintPlan{}, err
 	}

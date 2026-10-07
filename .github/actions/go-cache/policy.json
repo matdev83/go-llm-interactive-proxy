@@ -24,6 +24,16 @@
     "job": "db-parity",
     "workflow": "CI"
   },
+  "ci-lint": {
+    "build_mib": 1536,
+    "job": "lint",
+    "workflow": "CI"
+  },
+  "ci-suite": {
+    "build_mib": 3072,
+    "job": "suite",
+    "workflow": "CI"
+  },
   "ci-unit": {
     "build_mib": 1536,
     "job": "test",

@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGED=0
 CHANGED=0
+BASE=""
 ADVISORY=0
 
 while [[ $# -gt 0 ]]; do
@@ -17,12 +18,16 @@ while [[ $# -gt 0 ]]; do
       CHANGED=1
       shift
       ;;
+    --base)
+      BASE="${2:?--base needs a commit}"
+      shift 2
+      ;;
     --advisory)
       ADVISORY=1
       shift
       ;;
     *)
-      echo "usage: $0 [--staged|--changed] [--advisory]" >&2
+      echo "usage: $0 [--staged|--changed|--base <commit>] [--advisory]" >&2
       exit 2
       ;;
   esac
@@ -42,10 +47,11 @@ declare -A MODULE_SET=()
 
 declare -A MODULE_PACKAGES=()
 FULL=0
-if (( STAGED || CHANGED )); then
+if (( STAGED || CHANGED )) || [[ -n "$BASE" ]]; then
   mode=changed
   if (( STAGED )); then mode=staged; fi
-  plan="$(go -C "$ROOT" run -buildvcs=false ./tools/lintscope -mode "$mode" -format=lines)"
+  if [[ -n "$BASE" ]]; then mode=base; fi
+  plan="$(go -C "$ROOT" run -buildvcs=false ./tools/lintscope -mode "$mode" -base "$BASE" -format=lines)"
   if [[ "$plan" == "FULL" ]]; then
     FULL=1
   elif [[ -n "$plan" ]]; then

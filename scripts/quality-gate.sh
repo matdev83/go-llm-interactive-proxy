@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Pre-commit quality gate: fast checks by default; full lint/vulnerability scans
-# are opt-in via LIP_PRECOMMIT_FULL=1 or `make precommit-full`.
+# Pre-commit quality gate. The default is fast: build, vet and tests of the
+# packages the change affects, plus scoped lint. CI (ci.yml "Go suite" and
+# "Lint") runs the complete tagged suite and lint on every PR, so the hook does
+# not repeat them. LIP_PRECOMMIT_FULL=1 or `make precommit-full` restores the
+# complete local gate: whole root suite, certification, full lint, govulncheck.
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/dev-cpu-defaults.sh"
@@ -45,23 +48,56 @@ if grep -Eq '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
 	echo ""
 fi
 
-echo "Running quality checks..."
-# The following cached root test owns compilation, curated vet, and the
-# architecture package; avoid repeating those expensive Go phases in the hook.
-LIP_SKIP_GO_COMPILE_CHECKS=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh"
+if [[ "${LIP_PRECOMMIT_FULL:-}" != "1" ]]; then
+	echo "Running quality checks on staged packages..."
+	# Lint runs once, scoped, at the end of this gate.
+	LIP_SKIP_LINT=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh"
 
-echo ""
-echo "Running complete root test suite with precommit tags (Go cache enabled)..."
-env LIP_TEST_PRECOMMIT=1 bash "$SCRIPT_DIR/test-staged.sh"
+	echo ""
+	# Hook-local Git pins must not bind temporary-repository fixtures to the
+	# caller, so the tests run in a subshell without them.
+	(
+		mapfile -t git_local_env < <(git rev-parse --local-env-vars)
+		for name in "${git_local_env[@]}"; do
+			unset "$name"
+		done
+		plan="$(go run -buildvcs=false ./tools/devcheck -task=test -scope=changed -base=HEAD -plan 2>&1)"
+		if grep -q '^full_default_tests_reason=' <<< "$plan"; then
+			grep '^full_default_tests_reason=' <<< "$plan"
+			echo "Skipping local tests: a shared input changed, so the complete suite is due and CI runs it."
+			echo "Run it locally with: LIP_PRECOMMIT_FULL=1 git commit, or make dev-test-changed DEV_FULL=1."
+		else
+			echo "Testing packages affected by the uncommitted change (CI runs the complete suite)..."
+			go run -buildvcs=false ./tools/devcheck -task=test -scope=changed -base=HEAD
+		fi
+	)
 
-if [[ "$(go env GOOS)" == "linux" ]]; then
+	if [[ "$(go env GOOS)" == "linux" ]] && grep -qE '^(internal/infra/(configsource|runtimehost)/|scripts/(test-)?configsource-)' <<< "$staged_files"; then
+		echo ""
+		echo "Running ext4 source-lifetime certification (config-source change staged)..."
+		bash "$SCRIPT_DIR/configsource-certify.sh"
+		bash "$SCRIPT_DIR/test-configsource-fault-check.sh"
+		bash "$SCRIPT_DIR/configsource-fault-check.sh"
+	fi
+else
+	echo "Running quality checks..."
+	# The following cached root test owns compilation, curated vet, and the
+	# architecture package; avoid repeating those expensive Go phases in the hook.
+	LIP_SKIP_GO_COMPILE_CHECKS=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh"
+
 	echo ""
-	echo "Running mandatory ext4 source-lifetime certification..."
-	bash "$SCRIPT_DIR/configsource-certify.sh"
-	echo ""
-	echo "Running mandatory source-ownership fault lifecycle tests..."
-	bash "$SCRIPT_DIR/test-configsource-fault-check.sh"
-	bash "$SCRIPT_DIR/configsource-fault-check.sh"
+	echo "Running complete root test suite with precommit tags (Go cache enabled)..."
+	env LIP_TEST_PRECOMMIT=1 bash "$SCRIPT_DIR/test-staged.sh"
+
+	if [[ "$(go env GOOS)" == "linux" ]]; then
+		echo ""
+		echo "Running mandatory ext4 source-lifetime certification..."
+		bash "$SCRIPT_DIR/configsource-certify.sh"
+		echo ""
+		echo "Running mandatory source-ownership fault lifecycle tests..."
+		bash "$SCRIPT_DIR/test-configsource-fault-check.sh"
+		bash "$SCRIPT_DIR/configsource-fault-check.sh"
+	fi
 fi
 
 # The race detector is owned by remote CI: nightly race/fuzz
@@ -85,8 +121,14 @@ if [[ "${LIP_SKIP_LINT:-}" != "1" ]]; then
 		echo "Running complete multi-module linter across all modules (precommit-full)..."
 		bash "$SCRIPT_DIR/lint-all-modules.sh"
 	else
-		echo "Running multi-module linter on staged modules..."
-		bash "$SCRIPT_DIR/lint-all-modules.sh" --staged
+		lint_plan="$(go run -buildvcs=false ./tools/lintscope -mode staged -format=lines)"
+		if [[ "$lint_plan" == "FULL" ]]; then
+			echo "Skipping local lint: a shared lint input changed, so every module is due and CI lints them."
+			echo "Run it locally with: make lint"
+		else
+			echo "Running multi-module linter on staged modules..."
+			bash "$SCRIPT_DIR/lint-all-modules.sh" --staged
+		fi
 	fi
 else
 	echo ""
