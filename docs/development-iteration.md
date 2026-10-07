@@ -6,6 +6,40 @@ tests, builds, linting, cache lifecycle, and the automated cost watchdog.
 
 ## Use during development
 
+### Config-source tests require an ext4 TMPDIR
+
+The config-source integrity tests assert atomic rename and inode-reuse behaviour.
+tmpfs does not provide those semantics, so a tmpfs `TMPDIR` makes them fail with
+`source-integrity-failed` or `source_non_atomic_update` across several unrelated
+packages. Those failures are environmental: they appear whether or not the staged
+change touches config sources, and they read convincingly like a regression.
+
+This host mounts `/tmp` as tmpfs, which is the default when `TMPDIR` is unset, so
+the traps are the default path and any path that resolves to tmpfs. Point `TMPDIR`
+at ext4 storage instead:
+
+```sh
+# Find ext4 storage available on this host.
+findmnt --noheadings --output FSTYPE --target /home
+export TMPDIR=/path/on/ext4
+```
+
+`scripts/require-ext4-tmpdir.sh` is the single source of truth for the check. The
+pre-commit quality gate runs it before the expensive suites, so a wrong `TMPDIR`
+is reported once with the remedy instead of surfacing later as scattered test
+failures. `scripts/configsource-certify.sh` delegates to the same script rather
+than repeating the logic.
+
+### Commit and push run the full gate
+
+`scripts/hooks/pre-commit` and `scripts/hooks/pre-push` both invoke the quality
+gate, which includes the complete root-module test suite. Budget minutes, not
+seconds, and run them as a background command with no tool timeout: a harness
+timeout that kills the gate mid-run leaves the commit unapplied and the index
+still staged, which reads as a hook failure when it is only a truncation.
+
+When a gate fails, fix the cause. `--no-verify` also skips secret scanning.
+
 ### Development-host race guard
 
 Race verification runs in remote GitHub CI, not on interactive development

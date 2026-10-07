@@ -31,6 +31,13 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Fail fast on the one environmental precondition that makes the suites below
+# report misleading failures. On a tmpfs TMPDIR the config-source integrity tests
+# fail with 'source-integrity-failed' / 'source_non_atomic_update' across several
+# unrelated packages, which reads as a regression in the staged change. Checking
+# here costs milliseconds and names the real cause once.
+bash "$SCRIPT_DIR/require-ext4-tmpdir.sh"
+
 if grep -Eq '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
 	echo "Checking all independent Go module metadata..."
 	bash "$SCRIPT_DIR/tidy-all-modules.sh" --check
