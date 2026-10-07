@@ -16,6 +16,7 @@ resource_nice=
 if [[ $(uname -s) == Linux ]]; then resource_nice=$(ps -o ni= -p "$$" | tr -d ' '); fi
 printf '%s\n' "${GOMAXPROCS:-}" "${GOFLAGS:-}" "$resource_nice" > "$GUARD_TEST_RESOURCES"
 printf '%s\n' "${TMPDIR:-}" > "$GUARD_TEST_TMPDIR"
+printf '%s\n' "${LIP_GO_SLOT_HELD:-}" > "$GUARD_TEST_SLOT"
 printf 'fake toolchain output\n'
 exit "${GUARD_TEST_EXIT:-0}"
 STUB
@@ -30,11 +31,13 @@ export GO_DEV_GUARD_REAL_GO="$fixture/bin/real-go"
 export GUARD_TEST_CALLS="$fixture/calls"
 export GUARD_TEST_RESOURCES="$fixture/resources"
 export GUARD_TEST_TMPDIR="$fixture/tmpdir"
+export GUARD_TEST_SLOT="$fixture/slot"
+export LIP_GO_SLOT_DIR="$fixture/slots"
 export GUARD_TEST_EXT4="$fixture/ext4"
 export LIP_DEV_TMPDIR="$GUARD_TEST_EXT4/lip-tmp"
 export GUARD_TEST_HOST=agent-dev HOSTNAME=agent-dev
 export XDG_CONFIG_HOME="$fixture/config"
-unset GOFLAGS GOENV GOMAXPROCS COMPUTERNAME CI GITHUB_ACTIONS LIP_ALLOW_RACE_ON_DEV
+unset GOFLAGS GOENV GOMAXPROCS COMPUTERNAME CI GITHUB_ACTIONS LIP_ALLOW_RACE_ON_DEV LIP_GO_SLOTS LIP_GO_SLOT_WAIT LIP_GO_SLOT_HELD
 
 blocked() {
 	rm -f "$GUARD_TEST_CALLS"
@@ -139,5 +142,32 @@ if [[ $(uname -s) == Linux ]]; then
 	mkdir -p "$LIP_DEV_TMPDIR/go-build-old" && touch -d '7 hours ago' "$LIP_DEV_TMPDIR/go-build-old"
 	env -u TMPDIR bash "$script_dir/go-dev-guard.sh" test ./... >/dev/null
 	[[ -d $LIP_DEV_TMPDIR/go-build-old ]]
+	# Heavy commands take a host-wide slot; the slot is visible to children.
+	allowed test ./...
+	[[ $(cat "$GUARD_TEST_SLOT") == 0 ]]
+	status=0
+	GUARD_TEST_EXIT=17 bash "$script_dir/go-dev-guard.sh" test ./... > /dev/null || status=$?
+	[[ "$status" == 17 ]]
+	# With every slot busy, heavy commands wait; light and nested ones do not.
+	flock -n -o "$LIP_GO_SLOT_DIR/slot0" bash -c 'touch "$1"; sleep 30' _ "$fixture/held" &
+	holder=$!
+	for _ in $(seq 100); do [[ -e $fixture/held ]] && break; sleep 0.1; done
+	[[ -e $fixture/held ]]
+	LIP_GO_SLOTS=1 allowed env GOPATH
+	LIP_GO_SLOTS=1 LIP_GO_SLOT_HELD=7 allowed test ./...
+	[[ $(cat "$GUARD_TEST_SLOT") == 7 ]]
+	LIP_GO_SLOTS=2 allowed vet ./...
+	[[ $(cat "$GUARD_TEST_SLOT") == 1 ]]
+	LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=1 bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err"
+	grep -q 'waiting for a slot' "$fixture/err" && grep -q 'running without one' "$fixture/err"
+	[[ $(cat "$GUARD_TEST_SLOT") == none ]]
+	kill "$holder"; wait "$holder" 2>/dev/null || true
+	# A freed slot is taken without the timeout fallback.
+	flock -n -o "$LIP_GO_SLOT_DIR/slot0" sleep 1 &
+	holder=$!
+	sleep 0.3
+	LIP_GO_SLOTS=1 bash "$script_dir/go-dev-guard.sh" -C . test ./... > "$fixture/out" 2> "$fixture/err"
+	wait "$holder" 2>/dev/null || true
+	[[ $(cat "$GUARD_TEST_SLOT") == 0 ]] && ! grep -q 'running without one' "$fixture/err"
 fi
-echo 'PASS: Go development race guard blocks before toolchain execution; normal/CI delegation preserved; agent-dev TMPDIR stays on ext4.'
+echo 'PASS: Go development race guard blocks before toolchain execution; normal/CI delegation preserved; agent-dev TMPDIR stays on ext4; heavy commands share host-wide slots.'
