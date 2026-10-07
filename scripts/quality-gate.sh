@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Pre-commit quality gate: fast checks by default; full lint/vulnerability scans
-# are opt-in via LIP_PRECOMMIT_FULL=1 or `make precommit-full`.
+# Pre-commit quality gate. The default is fast: build, vet, tests and lint of
+# the staged packages only. CI (ci.yml "Go suite" and
+# "Lint") runs the complete tagged suite and lint on every PR, so the hook does
+# not repeat them. LIP_PRECOMMIT_FULL=1 or `make precommit-full` restores the
+# complete local gate: whole root suite, certification, full lint, govulncheck.
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/dev-cpu-defaults.sh"
@@ -45,23 +48,74 @@ if grep -Eq '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
 	echo ""
 fi
 
-echo "Running quality checks..."
-# The following cached root test owns compilation, curated vet, and the
-# architecture package; avoid repeating those expensive Go phases in the hook.
-LIP_SKIP_GO_COMPILE_CHECKS=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh"
+if [[ "${LIP_PRECOMMIT_FULL:-}" != "1" ]]; then
+	echo "Running quality checks on staged packages..."
+	# Lint runs once, scoped, at the end of this gate.
+	LIP_SKIP_LINT=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh"
 
-echo ""
-echo "Running complete root test suite with precommit tags (Go cache enabled)..."
-env LIP_TEST_PRECOMMIT=1 bash "$SCRIPT_DIR/test-staged.sh"
+	echo ""
+	# Test only the packages whose files are staged. Nearly every package
+	# reaches the repository-wide suites (archtest, qa, runtime, runtimebundle)
+	# through reverse dependencies, so a reverse-dependency scope costs about
+	# as much as the full suite; CI's Go suite owns those consumers.
+	declare -A test_packages=()
+	while IFS= read -r file; do
+		[[ "$file" == *.go && -f "$file" ]] || continue
+		dir=$(dirname "$file")
+		module=$dir
+		while [[ "$module" != "." && ! -f "$module/go.mod" ]]; do
+			module=$(dirname "$module")
+		done
+		if [[ "$module" == "." ]]; then
+			package="./$dir"
+		else
+			package=".${dir#"$module"}"
+		fi
+		test_packages["$module"]+=" ${package%/.}"
+	done <<< "$staged_files"
+	if [[ ${#test_packages[@]} -eq 0 ]]; then
+		echo "No staged Go packages to test."
+	fi
+	# Hook-local Git pins must not bind temporary-repository fixtures to the
+	# caller, so the tests run in a subshell without them.
+	(
+		mapfile -t git_local_env < <(git rev-parse --local-env-vars)
+		for name in "${git_local_env[@]}"; do
+			unset "$name"
+		done
+		for module in "${!test_packages[@]}"; do
+			packages=$(tr ' ' '\n' <<< "${test_packages[$module]}" | sed '/^$/d' | sort -u | tr '\n' ' ')
+			echo "Testing staged packages in module $module (CI runs the complete suite): $packages"
+			go run -buildvcs=false ./tools/devcheck -task=test -module="$module" -packages="$packages"
+		done
+	)
 
-if [[ "$(go env GOOS)" == "linux" ]]; then
+	if [[ "$(go env GOOS)" == "linux" ]] && grep -qE '^(internal/infra/(configsource|runtimehost)/|scripts/(test-)?configsource-)' <<< "$staged_files"; then
+		echo ""
+		echo "Running ext4 source-lifetime certification (config-source change staged)..."
+		bash "$SCRIPT_DIR/configsource-certify.sh"
+		bash "$SCRIPT_DIR/test-configsource-fault-check.sh"
+		bash "$SCRIPT_DIR/configsource-fault-check.sh"
+	fi
+else
+	echo "Running quality checks..."
+	# The following cached root test owns compilation, curated vet, and the
+	# architecture package; avoid repeating those expensive Go phases in the hook.
+	LIP_SKIP_GO_COMPILE_CHECKS=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh"
+
 	echo ""
-	echo "Running mandatory ext4 source-lifetime certification..."
-	bash "$SCRIPT_DIR/configsource-certify.sh"
-	echo ""
-	echo "Running mandatory source-ownership fault lifecycle tests..."
-	bash "$SCRIPT_DIR/test-configsource-fault-check.sh"
-	bash "$SCRIPT_DIR/configsource-fault-check.sh"
+	echo "Running complete root test suite with precommit tags (Go cache enabled)..."
+	env LIP_TEST_PRECOMMIT=1 bash "$SCRIPT_DIR/test-staged.sh"
+
+	if [[ "$(go env GOOS)" == "linux" ]]; then
+		echo ""
+		echo "Running mandatory ext4 source-lifetime certification..."
+		bash "$SCRIPT_DIR/configsource-certify.sh"
+		echo ""
+		echo "Running mandatory source-ownership fault lifecycle tests..."
+		bash "$SCRIPT_DIR/test-configsource-fault-check.sh"
+		bash "$SCRIPT_DIR/configsource-fault-check.sh"
+	fi
 fi
 
 # The race detector is owned by remote CI: nightly race/fuzz
@@ -85,8 +139,9 @@ if [[ "${LIP_SKIP_LINT:-}" != "1" ]]; then
 		echo "Running complete multi-module linter across all modules (precommit-full)..."
 		bash "$SCRIPT_DIR/lint-all-modules.sh"
 	else
-		echo "Running multi-module linter on staged modules..."
-		bash "$SCRIPT_DIR/lint-all-modules.sh" --staged
+		# Staged packages only: consumers are linted by CI's Lint job.
+		echo "Running multi-module linter on staged packages (CI lints their consumers)..."
+		bash "$SCRIPT_DIR/lint-all-modules.sh" --staged --direct
 	fi
 else
 	echo ""

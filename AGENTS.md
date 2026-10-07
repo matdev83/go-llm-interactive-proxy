@@ -110,7 +110,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 
 ## Verification
 
-- `git commit` and `git push` run the full pre-commit/pre-push quality gate, which includes the complete root-module test suite and takes minutes. Run them as a background command with no tool timeout so a harness timeout cannot kill the gate halfway and leave the commit unapplied. Never reach for `--no-verify` when a gate fails.
+- `git commit` runs the pre-commit gate: build, vet, tests and lint for the staged packages only. PR CI runs the complete suite and lint, including consumers. A commit touching many packages takes minutes, so run commits as a background command with no tool timeout so a harness timeout cannot kill the gate halfway and leave the commit unapplied. Never reach for `--no-verify` when a gate fails.
 - A backgrounded gate reports back when it finishes; end your turn and let it notify you rather than polling it with sleep, so waiting costs no tool calls and a slow gate stays diagnosable.
 - Sibling sessions share this host. Heavy `make`/`go` runs contend for CPU and can fail spuriously (`fork/exec: resource temporarily unavailable`, `context deadline exceeded`, load-dependent `go list` failures). Check for competing builds before starting an expensive gate, and re-run once the host is quiet before treating such a failure as real.
 - On this host, config-source integrity tests require `TMPDIR` on **ext4** (`/tmp` is tmpfs and makes them fail with `source-integrity-failed` regardless of your change). `scripts/require-ext4-tmpdir.sh` reports this up front; see `docs/development-iteration.md` for the storage requirement and how to find a suitable path.

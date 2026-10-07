@@ -69,7 +69,7 @@ jobs:
 
   repo-hygiene:
     name: Repo hygiene
-    needs: [changes, preflight, db-parity, billing-schema]
+    needs: [changes, preflight, db-parity, billing-schema, suite, lint]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -91,13 +91,15 @@ jobs:
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.code != 'true'
         run: echo "Repo hygiene manifest check bypassed"
-      - name: Require scope, preflight, database parity and billing certification success
+      - name: Require scope, preflight, database parity, billing certification, Go suite and lint success
         env:
           SCOPE_RESULT: ${{ needs.changes.result }}
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           PARITY_RESULT: ${{ needs.db-parity.result }}
           BILLING_RESULT: ${{ needs.billing-schema.result }}
-        run: test "$SCOPE_RESULT" = success && test "$PREFLIGHT_RESULT" = success && test "$PARITY_RESULT" = success && test "$BILLING_RESULT" = success
+          SUITE_RESULT: ${{ needs.suite.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+        run: test "$SCOPE_RESULT" = success && test "$PREFLIGHT_RESULT" = success && test "$PARITY_RESULT" = success && test "$BILLING_RESULT" = success && test "$SUITE_RESULT" = success && test "$LINT_RESULT" = success
 
   preflight:
     name: Repository preflight
@@ -335,6 +337,156 @@ jobs:
         run: |
           echo "CI test/build matrix bypassed: no test-relevant changes detected."
           echo "(Windows/macOS legs also bypass unless an OS-sensitive path changed, full-ci is labelled, or the daily schedule runs.)"
+
+  # The complete root suite and lint run here once per PR, so the local
+  # pre-commit hook only tests and lints what a commit affects. Repo hygiene
+  # (a required check) fails when either job fails.
+  suite:
+    name: Go suite (Linux)
+    needs: changes
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "CI scope detection failed; refusing to bypass the Go suite." >&2
+          exit 1
+
+      - name: Check out repository
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Kiro spec checks resolve recorded commit SHAs.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Restore bounded ci-suite Go cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: ci-suite
+
+      # QA runs internal/archtest; everything else in the root module runs here.
+      - name: Complete root suite with precommit tags
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t packages < <(go list -tags=precommit ./... | grep -vE '/internal/archtest(/|$)')
+          go test -tags=precommit -timeout=25m "${packages[@]}"
+
+      - name: Save bounded ci-suite Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: ci-suite
+          phase: save
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
+        run: echo "Go suite bypassed, no test-relevant changes detected."
+
+  lint:
+    name: Lint (Linux)
+    needs: changes
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOLANGCI_LINT_VERSION: 2.14.0
+      GOLANGCI_LINT_SHA256: ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
+    steps:
+      - name: Fail closed if scope detection failed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          echo "CI scope detection failed; refusing to bypass lint." >&2
+          exit 1
+
+      - name: Check out repository
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Restore bounded ci-lint Go cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: ci-lint
+
+      - name: Restore golangci-lint analysis cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-lint-${{ env.GOLANGCI_LINT_VERSION }}-${{ github.sha }}
+          restore-keys: golangci-lint-${{ env.GOLANGCI_LINT_VERSION }}-
+
+      - name: Install golangci-lint
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz"
+          curl -sSfLo "$RUNNER_TEMP/$archive" "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/$archive"
+          echo "$GOLANGCI_LINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64" >> "$GITHUB_PATH"
+
+      # PRs lint the packages their diff affects (every module when a shared
+      # lint input changed); main and scheduled runs lint every module.
+      - name: Lint
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LIP_LINT_JOBS: 2
+          LIP_LINT_CONCURRENCY: 4
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            bash scripts/lint-all-modules.sh --base "$BASE_SHA"
+          else
+            bash scripts/lint-all-modules.sh
+          fi
+
+      - name: Save golangci-lint analysis cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-lint-${{ env.GOLANGCI_LINT_VERSION }}-${{ github.sha }}
+
+      - name: Save bounded ci-lint Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: ci-lint
+          phase: save
+
+      - name: Report unrelated PR bypass
+        if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
+        run: echo "Lint bypassed, no test-relevant changes detected."
 
   db-parity:
     name: Database parity
