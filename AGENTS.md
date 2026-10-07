@@ -111,14 +111,17 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 ## Verification
 
 - `git commit` and `git push` run the full pre-commit/pre-push quality gate, which includes the complete root-module test suite and takes minutes. Run them as a background command with no tool timeout so a harness timeout cannot kill the gate halfway and leave the commit unapplied. Never reach for `--no-verify` when a gate fails.
+- A backgrounded gate reports back when it finishes; end your turn and let it notify you rather than polling it with sleep, so waiting costs no tool calls and a slow gate stays diagnosable.
+- Sibling sessions share this host. Heavy `make`/`go` runs contend for CPU and can fail spuriously (`fork/exec: resource temporarily unavailable`, `context deadline exceeded`, load-dependent `go list` failures). Check for competing builds before starting an expensive gate, and re-run once the host is quiet before treating such a failure as real.
 - On this host, config-source integrity tests require `TMPDIR` on **ext4** (`/tmp` is tmpfs and makes them fail with `source-integrity-failed` regardless of your change). `scripts/require-ext4-tmpdir.sh` reports this up front; see `docs/development-iteration.md` for the storage requirement and how to find a suitable path.
+- Keep working files outside the repository: `.gitignore` ignores everything at the repo root, so a new root file is invisible to `git status`, and `TestRootHygiene_MarkdownFiles` rejects root Markdown other than `AGENTS.md`/`README.md` at commit time. Write scratch to the global scratch path.
 
 - Automatic local feedback: `make dev-test-changed` selects branch changes plus staged, unstaged and untracked edits against the merge base with local `origin/main`. Inspect with `DEV_PLAN=1`, override the comparison with `DEV_BASE=<ref>`, or run complete default module tests with `DEV_FULL=1`. This does not replace comprehensive delivery or GitHub checks. See `docs/development-iteration.md` for selection and fallback rules.
 - Inner loop: `make dev-test PKGS='./path/to/package/...'`; use `make dev-build` or `make dev-lint` with the same explicit scope when needed. For nested modules add `MODULE=connectors/name` and use module-relative `PKGS`. These are feedback, not delivery certification; include affected consumers when contracts change.
 - Diagnose slow iteration with `make dev-doctor` and `DEV_REPEAT=2` on an identical scoped command. Do not clear Go/lint caches, force rebuilds (`-a`), or add `-count=1` to routine loops. Use a fresh run deliberately for final regression evidence. Keep cache directories stable across worktrees and sessions.
 - Run focused checks during edits; run the applicable comprehensive gates after a coherent change. Do not repeatedly alternate test/quality/QA/race/coverage variants after every edit. See `docs/development-iteration.md` for the maintained performance policy.
 - Focused test: `go test -run TestName ./path/to/pkg`.
-- Default unit: `make test-unit`.
+- Fast inner-loop pass: `make test-quick` (alias for a single one-pass `go test ./...`); default unit: `make test-unit`.
 - Windows test-cost ratchet: `make test-cost` is the explicit authoritative budget check; it is opt-in and not part of `make test`.
 - Database dialect parity: `make test-db-parity` (or `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct`).
 - Quality gate: `make quality-checks`.
