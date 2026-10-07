@@ -4,7 +4,7 @@ description: "Triage LIP PRs against current main, deliver sequential or stacked
 license: MIT
 metadata:
   author: go-llm-interactive-proxy
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # LIP PR Workflow
@@ -34,7 +34,7 @@ Triage is complete when the verdict is supported by current-source evidence and 
 ### Sequence and history
 
 - Establish predecessor order before submitting or merging dependent PRs.
-- Update a branch from main only when needed to merge, as specified by delivery steering; avoid routine rebases that invalidate otherwise current evidence.
+- Update a branch from main only when needed to merge, as specified by delivery steering; avoid routine rebases that invalidate otherwise current evidence. Being behind main is not such a need: `.github/workflows/auto-update-prs.yml` keeps auto-merge PRs current (root `AGENTS.md`, Merging).
 - After a predecessor is squash-merged, fetch main and transplant only the successor's unique commits. Confirm the old predecessor tip before using:
 
   ```sh
@@ -55,7 +55,7 @@ Triage is complete when the verdict is supported by current-source evidence and 
   ```
 
 - Immediately before merge, refresh the head SHA, mergeability, required checks, approvals, and unresolved review findings. Satisfy the actual branch-protection/ruleset requirements without bypasses; `mergeStateStatus` alone is not a merge gate. Pending, stale, missing required checks or unknown requirements block merging.
-- Merge in the approved order using the repository's established method and bind the operation to the inspected head SHA (`gh pr merge --match-head-commit <sha>`). If the head changes, revalidate before merging. Confirm the merged state and merge commit before proceeding to the successor.
+- Merge in the approved order by enabling auto-merge bound to the inspected head SHA: `gh pr merge <n> --auto --squash --match-head-commit <sha>`. A PR that is only behind main merges once the auto-update workflow refreshes it and its required checks pass; enable auto-merge on successors only after their predecessor has merged. If the head changes, revalidate before merging. Confirm the merged state and merge commit before proceeding to the successor.
 
 ### Merged-main verification
 

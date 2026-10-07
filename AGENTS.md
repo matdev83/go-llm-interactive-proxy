@@ -39,6 +39,12 @@ Keep `main` branch clean. It should be only a PR merge receiver, never a merge d
 
 The source-change gate limits a commit or PR to **100 modified `*.go` files** (100 changed files gate on Go sources). Skill, catalog, and documentation paths do not consume this gate. Split large Go refactors so they stay reviewable and mergeable. Pre-commit, the recommended pre-push hook, and PR CI apply the same limit to staged paths or the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning. The overrides are maintainer-only: agents never set them or apply the label. When the gate fires, stop, propose a split into slices, and report.
 
+## Merging
+
+- `main` requires the required checks and an up-to-date branch. This repository has no merge queue (it belongs to a personal account; the real queue comes with the move to the `aiproxer` organization).
+- Merging is the maintainer's decision. When the user asks for a PR to be merged, enable auto-merge bound to the reviewed head: `gh pr merge <n> --auto --squash --match-head-commit <sha>`. `.github/workflows/auto-update-prs.yml` then updates the oldest auto-merge PR that is behind `main`, one at a time; CI runs and GitHub merges it.
+- A PR that is only behind `main` needs no action: do not click "Update branch" or merge `main` into it to make it current. Update a branch by hand only for conflicts, or when that workflow's log says it cannot run (missing `AUTO_UPDATE_TOKEN`).
+
 ## Skill Loading
 
 - Architecture/package boundary/feature design: `golang-hexagonal-architecture`, `golang-design-patterns`, `golang-project-layout`.

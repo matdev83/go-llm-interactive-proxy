@@ -37,7 +37,7 @@ Test policy lives in `testing.md` (Test Proportionality). In short: tests prove 
 - Required checks (branch protection) gate merge. Other checks inform: a red non-required check is fixed in the branch only when the branch caused it.
 - A failure that also reproduces on `origin/main` is not owned by the feature branch. Record the failing command in the PR body and continue the slice. When it blocks a required check, add the test to `.github/test-quarantine.txt` with its tracking issue (format and validation: `go run ./tools/devcheck -task=quarantine`); the fixing PR removes the entry.
 - Fixes to shared gates, flaky tests, or other features go in their own small PR from `main`, then the feature branch rebases. A feature PR contains only its slice.
-- Update a feature branch from `main` only when needed to merge.
+- Update a feature branch from `main` only when needed to merge: for conflicts. Staying current with `main` is automated for auto-merge PRs (root `AGENTS.md`, Merging).
 
 ## Large-Change Overrides Are Maintainer-Only
 
