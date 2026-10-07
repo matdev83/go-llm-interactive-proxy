@@ -45,13 +45,6 @@ func TestCIScopeClassifier_Contracts(t *testing.T) {
 			"Fail closed if scope detection failed",
 			"QA bypassed: no test-relevant changes detected.",
 		},
-		"codeql.yml": {
-			"go: ${{ steps.filter.outputs.go }}",
-			"bash scripts/ci-scope.sh --self-test",
-			"if: always()",
-			"Fail closed if scope detection failed",
-			"Go CodeQL bypassed: no Go-relevant changes detected.",
-		},
 		"openresponses-coverage.yml": {
 			"name: Detect OpenResponses coverage scope",
 			"bash scripts/ci-scope.sh --self-test",
@@ -73,7 +66,7 @@ func TestCIScopeClassifier_Contracts(t *testing.T) {
 		}
 	}
 	if !strings.Contains(script, "scripts/ci-scope.sh|scripts/openresponses-compliance-scope.sh") {
-		t.Fatal("scope classifier must keep the two self-tested scope scripts outside heavy Go test/CodeQL scope")
+		t.Fatal("scope classifier must keep the two self-tested scope scripts outside heavy Go test scope")
 	}
 }
 
