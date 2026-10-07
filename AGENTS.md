@@ -51,7 +51,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - Error/security/observability/database/CLI/gRPC/performance/dependencies/documentation/CI/troubleshooting: load the matching focused `golang-*` skill from `.agents/catalog.json`.
 - Library selection: `golang-popular-libraries`; samber APIs: load the matching `golang-samber-*` skill.
 - Architecture, call paths, implementations, dependency direction, or blast radius: `codegraph`.
-- PR submission, sequential merge delivery, CI babysitting, merged-main verification, or worktree cleanup: `lip-pr-delivery`.
+- PR triage, submission, sequential merge delivery, CI babysitting, merged-main verification, or task worktree cleanup: `lip-pr-delivery`.
 - Repo steering overrides generic skill defaults.
 
 ### Canonical Skill Catalog
