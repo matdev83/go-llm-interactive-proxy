@@ -193,8 +193,12 @@ processes use an absolute niceness floor of 10; an inherited value of 10 or
 higher is retained. To update an existing guard, inspect and back up the installed file, then run
 `install -m 755 scripts/go-dev-guard.sh "$HOME/.local/bin/go"`. CI markers and Windows retain their existing resource defaults; race
 blocking on development hosts remains active even with CI markers. Elsewhere,
-leave package concurrency unset for Go's native default. These are per-command
-budgets; simultaneous sessions can still consume multiple cores. Make and Bash
+leave package concurrency unset for Go's native default. Across sessions, the
+guard admits at most `LIP_GO_SLOTS` (default 2) heavy commands (`build`, `test`,
+`vet`, `install`) host-wide; others print a waiting notice and queue for a free
+slot (`flock` on `$HOME/.cache/lip-go-slots`). Commands started by a slotted
+command inherit its slot, and after `LIP_GO_SLOT_WAIT` seconds (default 900) a
+waiting command runs anyway. Make and Bash
 gates pass explicit package flags, which take precedence over `GOFLAGS`; use
 `LIP_TEST_PACKAGES`, `LIP_TEST_PARALLEL`, and `DEV_JOBS` for their budget overrides,
 or replace Make's complete `GO_TEST_FLAGS` string.
