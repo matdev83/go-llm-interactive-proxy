@@ -3,15 +3,9 @@
 name: Codex connector race
 
 on:
-  pull_request:
-    paths:
-      - "connectors/codex/**"
-      - ".github/workflows/codex-connector-race.yml"
-  push:
-    branches: [main]
-    paths:
-      - "connectors/codex/**"
-      - ".github/workflows/codex-connector-race.yml"
+  # Race evidence is nightly, not per-PR (see AGENTS.md Verification).
+  schedule:
+    - cron: "7 4 * * *"
   workflow_dispatch:
 
 permissions:

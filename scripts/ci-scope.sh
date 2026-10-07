@@ -11,6 +11,16 @@ is_kiro_spec_path() {
   esac
 }
 
+# Agent policy surface: steering, skills, and root agent instructions. Prose
+# edits here are validated by the cheap QA policy preflight, never by the
+# platform test matrix.
+is_agent_policy_path() {
+  case "$1" in
+    .kiro/*|.agents/*|AGENTS.md|CLAUDE.md) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 is_documentation_path() {
   case "$1" in
     docs/*)
@@ -36,7 +46,19 @@ is_documentation_path() {
           ;;
       esac
       ;;
-    README.md|README.*.md|CHANGELOG.md|CHANGELOG.*.md|LICENSE|LICENSE.*)
+    .kiro/*|.agents/*)
+      # Steering and skill catalogs: prose and data only. Scripts, Go and
+      # workflow files under these trees stay code-relevant.
+      case "$1" in
+        *.md|*.markdown|*.json|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.svg|*.drawio)
+          return 0
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+      ;;
+    README.md|README.*.md|CHANGELOG.md|CHANGELOG.*.md|AGENTS.md|CLAUDE.md|LICENSE|LICENSE.*)
       return 0
       ;;
     *)
@@ -67,7 +89,21 @@ file_matches() {
       return 0
       ;;
     kiro)
-      is_kiro_spec_path "$file"
+      is_kiro_spec_path "$file" || is_agent_policy_path "$file"
+      ;;
+    os_sensitive)
+      # Paths whose behaviour differs per OS or per filesystem. Only these (or
+      # the daily schedule / full-ci label) justify Windows and macOS legs.
+      case "$file" in
+        cmd/*|connectors/*|connector-support/*|tools/taskrunner/*|\
+        internal/infra/configsource/*|internal/infra/runtimehost/*|internal/infra/backendplugins/*|\
+        go.mod|go.sum|go.work|go.work.sum|Makefile|\
+        scripts/configsource-*|scripts/require-ext4-tmpdir.sh|scripts/check-merge-receiver-branch.*|\
+        scripts/test-configsource-*|scripts/test-go-dev-guard.sh|scripts/test-require-ext4-tmpdir.sh|scripts/test-check-merge-receiver-branch.sh|\
+        scripts/ci-go-cache.py|.github/actions/go-cache/*|.github/workflows/ci.yml)
+          return 0 ;;
+        *) return 1 ;;
+      esac
       ;;
     go)
       case "$file" in
@@ -98,7 +134,7 @@ file_matches() {
       ;;
     billing_schema)
       case "$file" in
-        internal/core/billing/*|internal/infra/billing*/*|internal/testkit/billsem/*|pkg/*|go.mod|go.sum|go.work|go.work.sum|Makefile|\
+        internal/core/billing/*|internal/infra/billing*/*|internal/testkit/billsem/*|pkg/lipsdk/metering/*|pkg/lipsdk/economics/*|pkg/lipsdk/billing/*|pkg/lipsdk/scope/*|go.mod|go.sum|go.work|go.work.sum|Makefile|\
         .github/workflows/ci.yml|.github/actions/go-cache/*|scripts/ci-go-cache.py|scripts/ci-scope.sh|scripts/test-billing-*)
           return 0 ;;
         *) return 1 ;;
@@ -129,12 +165,13 @@ classify_diff() {
   local coverage=false
   local test_cost=false
   local billing_schema=false
+  local os_sensitive=false
   local file diff_file
 
   # Events without a base SHA (initial pushes or manual dispatches) run
   # every scope rather than risking a false bypass.
   if [[ -z "$base" || "$base" =~ ^0{40}$ ]]; then
-    printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\nbilling_schema=true\n'
+    printf 'code=true\ngo=true\ntest=true\nkiro=true\nopenresponses_coverage=true\ntest_cost=true\nbilling_schema=true\nos_sensitive=true\n'
     return 0
   fi
 
@@ -152,16 +189,17 @@ classify_diff() {
     file_matches openresponses_coverage "$file" && coverage=true
     file_matches test_cost "$file" && test_cost=true
     file_matches billing_schema "$file" && billing_schema=true
+    file_matches os_sensitive "$file" && os_sensitive=true
   done < "$diff_file"
   rm -f "$diff_file"
 
-  for value in "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema"; do
+  for value in "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive"; do
     case "$value" in
       true|false) ;;
       *) echo "invalid CI scope value: $value" >&2; return 1 ;;
     esac
   done
-  printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\nbilling_schema=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema"
+  printf 'code=%s\ngo=%s\ntest=%s\nkiro=%s\nopenresponses_coverage=%s\ntest_cost=%s\nbilling_schema=%s\nos_sensitive=%s\n' "$code" "$go" "$test" "$kiro" "$coverage" "$test_cost" "$billing_schema" "$os_sensitive"
 }
 
 self_test() {
@@ -188,9 +226,28 @@ self_test() {
     .kiro/specs/example/design.md \
     .kiro/specs/example/research.md \
     .kiro/specs/example/tasks.md \
-    .kiro/specs/example/spec.json; do
+    .kiro/specs/example/spec.json \
+    AGENTS.md \
+    .kiro/steering/testing.md \
+    .agents/skills/golang-testing/SKILL.md \
+    .agents/catalog.json; do
     file_matches code "$unrelated" && { echo "code scope included $unrelated" >&2; return 1; }
     file_matches test "$unrelated" && { echo "test scope included $unrelated" >&2; return 1; }
+  done
+
+  # Agent policy prose keeps the cheap policy preflight, but scripts inside the
+  # same trees stay code-relevant.
+  for relevant in AGENTS.md .kiro/steering/delivery.md .agents/skills/x/SKILL.md; do
+    file_matches kiro "$relevant" || { echo "kiro scope missed $relevant" >&2; return 1; }
+  done
+  for relevant in .agents/skills/x/scripts/run.sh .agents/skills/x/check.go; do
+    file_matches code "$relevant" || { echo "code scope missed $relevant" >&2; return 1; }
+  done
+  for relevant in internal/infra/configsource/source.go cmd/lipstd/main.go go.mod; do
+    file_matches os_sensitive "$relevant" || { echo "os_sensitive scope missed $relevant" >&2; return 1; }
+  done
+  for unrelated in internal/core/runtime/exec.go internal/plugins/features/x/y.go docs/README.md AGENTS.md; do
+    file_matches os_sensitive "$unrelated" && { echo "os_sensitive scope included $unrelated" >&2; return 1; }
   done
 
   for relevant in docs/backend-plugins/docs_test.go notes/README.md assets/example.txt testdata/fixture.json scripts/helper.sh; do

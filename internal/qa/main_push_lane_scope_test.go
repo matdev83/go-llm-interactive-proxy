@@ -22,7 +22,7 @@ func TestQAFastPreflight_MainPushLaneScopes(t *testing.T) {
 		{"openresponses-official-compliance.yml", "official-suite", "scope", "run_suite", "internal/core/example.go", "true", "true"},
 		{"acp-process-tree.yml", "changes", "classify", "relevant", "connector-support/acp/example.go", "true", "true"},
 		{"cursor-sdk-platform.yml", "changes", "filter", "cursorsdk", "connectors/cursorsdk/example.go", "true", "true"},
-		{"node-independence.yml", "changes", "filter", "host", "internal/core/runtime.go", "true", "true"},
+		{"node-independence.yml", "changes", "filter", "host", "tools/backendplugin/node_independence/main.go", "true", "true"},
 		{"taskrunner-process-tree.yml", "scope", "scope", "run_suite", "tools/taskrunner/example.go", "true", "true"},
 		{"backend-plugin-cross-platform.yml", "changes", "classify", "relevant", "connectors/nousportal/example.go", "true", "true"},
 		{"backend-plugin-cross-platform.yml", "changes", "select", "select", "connectors/nousportal/example.go", "nousportal", ""},

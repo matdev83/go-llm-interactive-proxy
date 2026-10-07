@@ -8,6 +8,10 @@ on:
       - main
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
+  # Windows and macOS legs run here, not on every PR. Linux is the PR gate.
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,6 +33,7 @@ jobs:
       test: ${{ steps.filter.outputs.test }}
       test_cost: ${{ steps.filter.outputs.test_cost }}
       billing_schema: ${{ steps.filter.outputs.billing_schema }}
+      os_sensitive: ${{ steps.filter.outputs.os_sensitive }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -195,7 +200,14 @@ jobs:
             packages: ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
           - os: macos-latest
             packages: ./pkg/credpool ./pkg/lipapi ./pkg/lipsdk/... ./pkg/streampump
-    runs-on: ${{ needs.changes.outputs.test == 'true' && matrix.os || 'ubuntu-latest' }}
+    # Linux is the PR gate. Windows/macOS legs only do real work when an
+    # OS-sensitive path changed, the `full-ci` label is set, or on the daily
+    # schedule; otherwise they report success from a cheap Linux runner so the
+    # check names stay stable.
+    env:
+      RUN_LEG: ${{ needs.changes.outputs.test == 'true' && (matrix.os == 'ubuntu-latest' || needs.changes.outputs.os_sensitive == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'true' || 'false' }}
+      RUN_CERT: ${{ needs.changes.outputs.test == 'true' && (needs.changes.outputs.os_sensitive == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'true' || 'false' }}
+    runs-on: ${{ (needs.changes.outputs.test == 'true' && (matrix.os == 'ubuntu-latest' || needs.changes.outputs.os_sensitive == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-ci'))) && matrix.os || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - name: Fail closed if scope detection failed
@@ -208,7 +220,7 @@ jobs:
       # Historical Windows comparisons are paused. Every platform keeps the
       # ordinary scoped unit/build check on a shallow checkout.
       - name: Check out repository
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && env.RUN_LEG == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         env:
           GIT_CONFIG_COUNT: 2
@@ -220,7 +232,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && env.RUN_LEG == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -232,25 +244,25 @@ jobs:
       # next revision from the latest compatible snapshot so source-only work
       # does not repeatedly rebuild against a frozen dependency-era cache.
       - name: Restore bounded ci-unit Go cache
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && env.RUN_LEG == 'true'
         uses: ./.github/actions/go-cache
         with:
           lane: ci-unit
 
       - name: Fast unit tests
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && env.RUN_LEG == 'true'
         # CLI integration and architecture gates run once on Ubuntu in QA. The
         # platform matrix covers portable public packages without invoking
         # host security posture checks on administrative Windows runners.
         run: go test -timeout=8m ${{ matrix.packages }}
 
       - name: Native source identity and reload tests
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'windows-latest'
+        if: needs.changes.result == 'success' && env.RUN_LEG == 'true' && matrix.os == 'windows-latest'
         shell: bash
         run: go test -count=1 ./internal/infra/configsource/... ./internal/infra/runtimehost/...
 
       - name: Certify pinned source lifetime on ext4
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.os == 'ubuntu-latest'
+        if: needs.changes.result == 'success' && env.RUN_CERT == 'true' && matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           set -euo pipefail
@@ -279,22 +291,23 @@ jobs:
           bash scripts/configsource-fault-check.sh
 
       - name: Build release binary
-        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: needs.changes.result == 'success' && env.RUN_LEG == 'true'
         run: go build -trimpath ./cmd/lipstd
 
       # Publish successful per-OS unit/build snapshots for the next main or PR run.
       - name: Save bounded ci-unit Go cache
-        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        if: success() && needs.changes.result == 'success' && env.RUN_LEG == 'true'
         uses: ./.github/actions/go-cache
         with:
           lane: ci-unit
           phase: save
 
       - name: Report unrelated PR bypass
-        if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
+        if: needs.changes.result == 'success' && env.RUN_LEG != 'true'
         shell: bash
         run: |
           echo "CI test/build matrix bypassed: no test-relevant changes detected."
+          echo "(Windows/macOS legs also bypass unless an OS-sensitive path changed, full-ci is labelled, or the daily schedule runs.)"
 
   db-parity:
     name: Database parity

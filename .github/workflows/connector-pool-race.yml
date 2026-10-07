@@ -2,28 +2,10 @@
 name: Connector pool race
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/actions/go-cache/**"
-      - "scripts/ci-go-cache.py"
-      - "internal/infra/runtimebundle/**"
-      - "internal/infra/backendplugins/adapter/**"
-      - "internal/core/execbackend/**"
-      - "pkg/lipsdk/backendplugin/**"
-      - "internal/infra/backendplugins/processhost/**"
-      - ".github/workflows/connector-pool-race.yml"
-
-  pull_request:
-    paths:
-      - ".github/actions/go-cache/**"
-      - "scripts/ci-go-cache.py"
-      - "internal/infra/runtimebundle/**"
-      - "internal/infra/backendplugins/adapter/**"
-      - "internal/core/execbackend/**"
-      - "pkg/lipsdk/backendplugin/**"
-      - "internal/infra/backendplugins/processhost/**"
-      - ".github/workflows/connector-pool-race.yml"
+  # Race evidence is nightly, not per-PR (see AGENTS.md Verification).
+  schedule:
+    - cron: "12 4 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -125,7 +125,7 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - Full default: `make test`.
 - Cross-frontend/backend or protocol matrix: `make parity-checks`.
 - Wide/release-grade change: `make qa`.
-- Concurrency/streaming changes: run focused non-race tests locally; race evidence comes exclusively from remote GitHub CI. The development-host race guard is policy, including direct Go commands. Never bypass it with an absolute toolchain path, alternate PATH, host spoofing, or `LIP_ALLOW_RACE_ON_DEV`. Verify guard behavior with the fake-toolchain tests in `scripts/test-go-dev-guard.sh`; installation is documented in `docs/development-iteration.md`.
+- Concurrency/streaming changes: run focused non-race tests locally; race evidence comes exclusively from remote GitHub CI, which runs the race detector nightly on `main` (and on demand via `workflow_dispatch`), not on every PR. Per-PR CI is Linux-only; Windows and macOS legs run daily, and for OS-sensitive paths or a `full-ci` label. The development-host race guard is policy, including direct Go commands. Never bypass it with an absolute toolchain path, alternate PATH, host spoofing, or `LIP_ALLOW_RACE_ON_DEV`. Verify guard behavior with the fake-toolchain tests in `scripts/test-go-dev-guard.sh`; installation is documented in `docs/development-iteration.md`.
 - Fuzz parser/decoder changes where practical: `make test-fuzz` or targeted `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path`.
 
 ## Go Conventions

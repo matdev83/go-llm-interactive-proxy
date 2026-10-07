@@ -3,8 +3,6 @@ name: Benchmarks
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 5 * * 0" # weekly Sunday 05:17 UTC
 
 permissions:
   contents: read

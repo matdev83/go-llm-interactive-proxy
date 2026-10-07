@@ -408,8 +408,21 @@ func TestQAFastPreflight_TestCostRatchetContracts(t *testing.T) {
 	if strings.Contains(fastUnitBlock, "continue-on-error") || strings.Contains(fastUnitBlock, "test_cost") || strings.Contains(fastUnitBlock, "labels") {
 		t.Fatal("ordinary Windows unit tests must not be skipped or softened by cost policy changes or labels")
 	}
-	if !strings.Contains(fastUnitBlock, "if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'") {
-		t.Fatal("portable units must follow the normal test scope on every matrix platform")
+	if !strings.Contains(fastUnitBlock, "if: needs.changes.result == 'success' && env.RUN_LEG == 'true'") {
+		t.Fatal("portable units must follow the per-leg RUN_LEG scope on every matrix platform")
+	}
+	// Linux is the PR gate. Windows and macOS legs run for OS-sensitive paths,
+	// the full-ci label, and the daily schedule; the job-level RUN_LEG
+	// expression is the single place that policy lives.
+	runLeg := ci[strings.Index(ci, "RUN_LEG:"):]
+	runLeg = runLeg[:strings.Index(runLeg, "\n")]
+	for _, want := range []string{"needs.changes.outputs.test == 'true'", "matrix.os == 'ubuntu-latest'", "needs.changes.outputs.os_sensitive == 'true'", "github.event_name == 'schedule'", "full-ci"} {
+		if !strings.Contains(runLeg, want) {
+			t.Fatalf("RUN_LEG must keep %q so non-Linux legs stay scheduled/OS-scoped", want)
+		}
+	}
+	if !strings.Contains(ci, "schedule:") {
+		t.Fatal("CI must keep its daily schedule so Windows and macOS still run every day")
 	}
 }
 
