@@ -74,16 +74,13 @@ func TestQAFastPreflight_AllGoWorkflowsUseSharedCachePolicy(t *testing.T) {
 			t.Fatal(err)
 		}
 		for jobName, job := range workflow.Jobs {
-			var setupGo, restoreCache, codeQLCache bool
+			var setupGo, restoreCache bool
 			for _, step := range job.Steps {
 				if strings.HasPrefix(step.Uses, "actions/setup-go@") {
 					setupGo = true
 					if step.With["cache"] != false {
 						t.Errorf("%s/%s bypasses shared cache ownership", filepath.Base(path), jobName)
 					}
-				}
-				if strings.HasPrefix(step.Uses, "github/codeql-action/init@") && step.With["dependency-caching"] == true {
-					codeQLCache = true
 				}
 				if step.Uses == "./.github/actions/go-cache" {
 					restoreCache = restoreCache || step.With["phase"] == nil || step.With["phase"] == "restore"
@@ -100,12 +97,10 @@ func TestQAFastPreflight_AllGoWorkflowsUseSharedCachePolicy(t *testing.T) {
 					}
 				}
 			}
-			// These scope-only jobs compile small stdlib probes. CodeQL owns
-			// its dependency cache through its supported extraction action.
+			// These scope-only jobs compile small stdlib probes.
 			identity := filepath.Base(path) + "/" + jobName
 			lightweight := identity == "ci.yml/preflight" || identity == "qa.yml/changes"
-			codeQL := identity == "codeql.yml/analyze" && codeQLCache
-			if setupGo && !restoreCache && !lightweight && !codeQL {
+			if setupGo && !restoreCache && !lightweight {
 				t.Errorf("%s must restore a registered Go cache lane", identity)
 			}
 		}

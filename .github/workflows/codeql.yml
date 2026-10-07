@@ -1,106 +1,21 @@
 name: CodeQL
 
+# CodeQL analysis is disabled: it produced noise and no actionable findings.
+# The `Analyze (Go)` job is kept as an instant no-op only so a required status
+# check of that name keeps reporting success on pull requests. Delete this file
+# together with the branch-protection entry to remove it entirely.
 on:
-  # main is analysed weekly, not per push: PRs opt in with the `codeql` label.
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, labeled, unlabeled]
-  schedule:
-    - cron: "23 4 * * 1"
 
 permissions:
   contents: read
 
-concurrency:
-  group: codeql-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
-
 jobs:
-  changes:
-    name: Detect code changes
-    runs-on: ubuntu-latest
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-      go: ${{ steps.filter.outputs.go }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Validate CI scope matcher
-        shell: bash
-        run: bash scripts/ci-scope.sh --self-test
-
-      - name: Classify changed files
-        id: filter
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          WANT_CODEQL: ${{ contains(github.event.pull_request.labels.*.name, 'codeql') }}
-        run: |
-          set -euo pipefail
-          bash scripts/ci-scope.sh --outputs "${BASE_SHA:-}" HEAD >> "$GITHUB_OUTPUT"
-          # PRs skip the ~8 minute analysis unless labelled `codeql`; main pushes
-          # and the weekly schedule still analyse every change. The last value
-          # written to GITHUB_OUTPUT wins.
-          if [[ "$EVENT_NAME" == "pull_request" && "$WANT_CODEQL" != "true" ]]; then
-            echo "go=false" >> "$GITHUB_OUTPUT"
-          fi
-
   analyze:
     name: Analyze (Go)
-    needs: changes
-    if: always() && !cancelled()
-    # Required status check: see ci.yml repo-hygiene. Always run the job so
-    # the check reports success (not skip) on docs-only PRs; guard steps.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      security-events: write # Required to publish CodeQL results.
-      packages: read
+    timeout-minutes: 5
     steps:
-      - name: Fail closed if scope detection failed
-        if: needs.changes.result != 'success'
-        run: |
-          echo "CodeQL scope detection failed; refusing to bypass Go analysis." >&2
-          exit 1
-
-      - name: Check out repository
-        if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-
-      - name: Setup pinned Go before extraction
-        if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - name: Initialize CodeQL
-        if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          languages: go
-          dependency-caching: true
-          queries: security-extended
-
-      - name: Build
-        if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
-        uses: github/codeql-action/autobuild@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-
-      - name: Analyze
-        if: needs.changes.result == 'success' && needs.changes.outputs.go == 'true'
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          category: /language:go
-
-      - name: Report unrelated PR bypass
-        if: needs.changes.result == 'success' && needs.changes.outputs.go != 'true'
-        run: |
-          echo "Go CodeQL bypassed: no Go-relevant changes detected."
+      - name: CodeQL disabled
+        run: echo "CodeQL analysis is disabled for this repository."

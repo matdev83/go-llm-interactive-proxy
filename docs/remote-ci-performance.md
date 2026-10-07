@@ -126,7 +126,7 @@ Cost classification remains available as metadata, but default CI
 and the weekly/manual watchdog no longer execute the remote comparison. Initial branch pushes
 retain full validation, and an invalid predecessor fails closed. Executable QA
 fixtures cover production, documentation, cost policy and both predecessor cases.
-CodeQL, security and the native ACP, Cursor, taskrunner and backend gates also
+Security and the native ACP, Cursor, taskrunner and backend gates also
 use the actual push predecessor. Ordinary main merges no longer widen a selected
 connector to the full native matrix or run Go scans for documentation alone.
 Fifty-three Git fixtures execute the ten lane classifiers/selectors against relevant,
@@ -147,13 +147,9 @@ anchor, commits only that test file, and rejects an unexpected fixture. Executab
 PowerShell QA checks the known anchor, unexpected fixture and unrelated anchor.
 Production sources, measured workloads and all cost thresholds remain unchanged.
 
-CodeQL provisions the repository's pinned Go before extraction and enables the
-action's supported dependency caching. It still discovers all modules and runs
-`security-extended`. Incremental overlay analysis is managed by the CodeQL
-action's feature rollout and query-suite compatibility. Do not force undocumented
-overlay flags or drop security queries to obtain a faster number. Check the
-action's overlay-disable reason and baseline-cache diagnostics after main scans;
-not every repository/query suite is eligible for automatic overlays.
+CodeQL analysis is disabled. `.github/workflows/codeql.yml` keeps an instant
+no-op `Analyze (Go)` job only so a required status check of that name still
+reports on pull requests.
 
 ## Test stalls are separate from compilation
 
