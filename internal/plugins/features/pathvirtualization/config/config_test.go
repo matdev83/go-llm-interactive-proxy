@@ -168,15 +168,25 @@ func TestAbsentOrEmptySubtreeIsDisabledAndConstructsNothing(t *testing.T) {
 // registration being enabled is not what turns the feature on. Only the
 // feature's own subtree can, so an operator who adds the row without the
 // configuration gets an inert feature rather than a defaulted one.
+//
+// The composition guard is where the distinction is observable: it is handed an
+// enabled registration carrying no subtree at all, resolves the feature to
+// disabled, and composes the generation even though the repair order present
+// would be refused for an actually-enabled feature.
 func TestAnEnabledRegistrationWithAnAbsentSubtreeStaysInert(t *testing.T) {
 	t.Parallel()
 
-	resolved := decodeOK(t, "{}\n")
-	if resolved.Enabled {
-		t.Fatal("an empty mapping decoded as enabled")
+	regs := []lipsdk.Registration{
+		{
+			ID:          featureID,
+			FactoryKind: featureID,
+			Kind:        lipsdk.PluginKindFeature,
+			Enabled:     true,
+		},
+		featureRegistration(t, toolcallrepair.ID, true, "order: 1000\n"),
 	}
-	if resolved.Resolver != nil {
-		t.Fatal("an empty mapping published a resolver")
+	if err := config.ValidateGenerationComposition(regs); err != nil {
+		t.Fatalf("an enabled registration with an absent subtree must publish nothing, got %v", err)
 	}
 }
 
@@ -638,10 +648,6 @@ func TestTheBoundRangeIsNotReDerived(t *testing.T) {
 			}
 		}
 	}
-
-	// The validator itself must be reachable from the config package, which is
-	// what makes the range single-sourced rather than merely unre-spelled.
-	_ = toolcall.BufferingSpec.Validate
 }
 
 // TestEveryBoundaryAgreesWithTheSharedValidator is the dynamic half of
