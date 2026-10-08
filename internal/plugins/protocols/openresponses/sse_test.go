@@ -179,6 +179,52 @@ func TestSSE_WriteDONEAfterFailedTerminal(t *testing.T) {
 	}
 }
 
+func TestSSE_MultilinePayloadLinesCarryDataPrefix(t *testing.T) {
+	opaques := []json.RawMessage{
+		json.RawMessage("{\n\"x\": 1\n}"),
+		json.RawMessage("{\r\n\"x\": 1\r\n}"),
+		json.RawMessage("{\r\"x\": 1\r}"),
+		json.RawMessage("{}"),
+		json.RawMessage("{\"trailing\": true}\n"),
+	}
+	for _, opaque := range opaques {
+		evt := StreamEvent{Type: "response.output_text.delta", SequenceNumber: 7, Opaque: opaque}
+		framed, err := FormatSSEEvent(evt)
+		if err != nil {
+			t.Fatalf("FormatSSEEvent failed for opaque %q: %v", opaque, err)
+		}
+		str := string(framed)
+		if !strings.HasPrefix(str, "event: response.output_text.delta\n") {
+			t.Fatalf("missing event header for opaque %q: %q", opaque, str)
+		}
+		if !strings.HasSuffix(str, "\n\n") {
+			t.Fatalf("missing blank-line terminator for opaque %q: %q", opaque, str)
+		}
+		lines := strings.Split(strings.TrimSuffix(str, "\n"), "\n")
+		if last := lines[len(lines)-1]; last != "" {
+			t.Fatalf("expected blank terminator line for opaque %q, got %q", opaque, last)
+		}
+		lines = lines[:len(lines)-1]
+		var data []string
+		for i, line := range lines[1:] {
+			rest, ok := strings.CutPrefix(line, "data: ")
+			if !ok {
+				t.Fatalf("line %d missing data prefix for opaque %q: %q", i, opaque, line)
+			}
+			data = append(data, rest)
+		}
+		raw, err := json.Marshal(evt)
+		if err != nil {
+			t.Fatalf("reference marshal failed: %v", err)
+		}
+		want := strings.ReplaceAll(string(raw), "\r\n", "\n")
+		want = strings.ReplaceAll(want, "\r", "\n")
+		if got := strings.Join(data, "\n"); got != want {
+			t.Fatalf("data lines do not rejoin to payload for opaque %q:\n got %q\nwant %q", opaque, got, want)
+		}
+	}
+}
+
 func TestSSE_StreamErrorToRawMessage(t *testing.T) {
 	if res := StreamErrorToRawMessage(nil); string(res) != "null" {
 		t.Fatalf("expected 'null' for nil StreamError, got %s", string(res))
