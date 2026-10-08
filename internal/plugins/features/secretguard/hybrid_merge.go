@@ -258,7 +258,17 @@ func uniquePrivateOccurrences(in []betterLeaksOccurrence) []betterLeaksOccurrenc
 		return nil
 	}
 	out := make([]betterLeaksOccurrence, 0, len(in))
-	return appendUniquePrivateOccurrences(out, in...)
+	seen := make(map[privateOccurrenceKey]struct{}, len(in))
+	for _, occurrence := range in {
+		key := occurrenceKey(occurrence)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		occurrence.value = bytes.Clone(occurrence.value)
+		out = append(out, occurrence)
+	}
+	return out
 }
 
 // privateOccurrenceKey encodes complete private identity, not a public hash.
@@ -271,23 +281,6 @@ type privateOccurrenceKey struct {
 
 func occurrenceKey(occurrence betterLeaksOccurrence) privateOccurrenceKey {
 	return privateOccurrenceKey{occurrence.fieldID, occurrence.span, string(occurrence.value)}
-}
-
-func appendUniquePrivateOccurrences(dst []betterLeaksOccurrence, in ...betterLeaksOccurrence) []betterLeaksOccurrence {
-	seen := make(map[privateOccurrenceKey]struct{}, len(dst)+len(in))
-	for _, occurrence := range dst {
-		seen[occurrenceKey(occurrence)] = struct{}{}
-	}
-	for _, occurrence := range in {
-		key := occurrenceKey(occurrence)
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		occurrence.value = bytes.Clone(occurrence.value)
-		dst = append(dst, occurrence)
-	}
-	return dst
 }
 
 func sortedPrivateOccurrences(in []betterLeaksOccurrence) []betterLeaksOccurrence {
@@ -357,15 +350,6 @@ func comparePrivateFindings(left, right privateHybridFinding) int {
 		return c
 	}
 	return compareSortedPrivateOccurrenceLists(left.occurrences, right.occurrences)
-}
-
-func containsPrivateOccurrence(occurrences []betterLeaksOccurrence, want betterLeaksOccurrence) bool {
-	for _, occurrence := range occurrences {
-		if privateOccurrenceEqual(occurrence, want) {
-			return true
-		}
-	}
-	return false
 }
 
 func compareStringSlices(left, right []string) int {
