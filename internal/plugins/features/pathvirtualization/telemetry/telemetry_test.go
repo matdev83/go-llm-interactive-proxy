@@ -476,10 +476,10 @@ func TestRealizedSavingsAreReportedPerDirectionAndNeverNegative(t *testing.T) {
 	// And the grand total is the OUTBOUND saving only. Summing the inbound delta in
 	// would report a heavily virtualizing deployment as losing bytes on every
 	// expansion, which is arithmetically true and operationally useless.
-	if got, want := snapshot.Total.BytesSaved, int64(60); got != want {
+	if got, want := snapshot.Total.PassObservedOpportunityBytes, int64(60); got != want {
 		t.Fatalf("total saving = %d, want the outbound figure %d", got, want)
 	}
-	if snapshot.Total.BytesSaved < 0 {
+	if snapshot.Total.PassObservedOpportunityBytes < 0 {
 		t.Fatal("a published saving is negative")
 	}
 }
@@ -813,7 +813,7 @@ func TestNothingIsRecordedWithoutAnExplicitObservation(t *testing.T) {
 	if snapshot.Total.Reports != 0 || snapshot.Outbound.Reports != 0 || snapshot.Inbound.Reports != 0 {
 		t.Fatalf("a fresh recorder reported observations it was never handed: %s", mustJSON(t, snapshot))
 	}
-	if snapshot.Total.BytesSaved != 0 || snapshot.Total.Eligible != 0 {
+	if snapshot.Total.PassObservedOpportunityBytes != 0 || snapshot.Total.Eligible != 0 {
 		t.Fatalf("a fresh recorder reported counters: %s", mustJSON(t, snapshot))
 	}
 	// The zero snapshot must still be a complete, renderable value, because a metrics
