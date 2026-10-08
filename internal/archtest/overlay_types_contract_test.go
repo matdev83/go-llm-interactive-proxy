@@ -19,10 +19,13 @@ func TestNativeArchBuildContextUsesBinaryCGOSetting(t *testing.T) {
 		t.Fatal("test binary has no build information")
 	}
 	wantCGO := ""
+	wantTrimpath := false
 	for _, setting := range info.Settings {
-		if setting.Key == "CGO_ENABLED" {
+		switch setting.Key {
+		case "CGO_ENABLED":
 			wantCGO = setting.Value
-			break
+		case "-trimpath":
+			wantTrimpath = setting.Value == "true"
 		}
 	}
 	if wantCGO != "0" && wantCGO != "1" {
@@ -32,11 +35,25 @@ func TestNativeArchBuildContextUsesBinaryCGOSetting(t *testing.T) {
 	for _, runtimeCGO := range []string{"0", "1"} {
 		t.Run("runtime CGO_ENABLED="+runtimeCGO, func(t *testing.T) {
 			t.Setenv("CGO_ENABLED", runtimeCGO)
+			ambientTrimpath := "-trimpath=true"
+			wantFlag := "-trimpath=false"
+			if wantTrimpath {
+				ambientTrimpath, wantFlag = "-trimpath=false", "-trimpath=true"
+			}
+			t.Setenv("GOFLAGS", ambientTrimpath)
 			contexts := nativeArchBuildContexts()
 			if len(contexts) != 1 {
 				t.Fatalf("native contexts=%d, want 1", len(contexts))
 			}
 			context := contexts[0]
+			if context.Trimpath != wantTrimpath || context.trimpathFlag() != wantFlag {
+				t.Fatalf("native trimpath=%t flag=%s; want binary setting %t and flag %s", context.Trimpath, context.trimpathFlag(), wantTrimpath, wantFlag)
+			}
+			for _, canonical := range archSupportedBuildContexts {
+				if canonical.Trimpath || canonical.trimpathFlag() != "-trimpath=false" {
+					t.Fatalf("canonical context should retain untrimmed paths: %+v", canonical)
+				}
+			}
 			if context.CGOEnabled != (wantCGO == "1") {
 				t.Fatalf("native CGOEnabled=%t with runtime CGO_ENABLED=%s; binary setting is %s", context.CGOEnabled, runtimeCGO, wantCGO)
 			}

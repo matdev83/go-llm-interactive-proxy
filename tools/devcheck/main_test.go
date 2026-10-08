@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,115 @@ func TestScopedCommands(t *testing.T) {
 			got, err := commandFor(tc.task, "./pkg/one ./pkg/two/...", 2, false)
 			if err != nil || !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("command = %v, %v; want %v", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestLocalArchTrimpathCommandGroups(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, task, module, scope string
+		localArchTrimpath         bool
+		wantCommands              int
+		wantTrimmed               []bool
+		wantPackages              []string
+	}{
+		{
+			name:              "mixed root test scope",
+			task:              "test",
+			module:            ".",
+			scope:             "./pkg/one ./internal/archtest ./pkg/two/...",
+			localArchTrimpath: true,
+			wantCommands:      2,
+			wantTrimmed:       []bool{false, true},
+			wantPackages:      []string{"./pkg/one", "./pkg/two/...", "./internal/archtest"},
+		},
+		{
+			name:              "root arch build",
+			task:              "build",
+			module:            ".",
+			scope:             "./internal/archtest/...",
+			localArchTrimpath: true,
+			wantCommands:      1,
+			wantTrimmed:       []bool{true},
+			wantPackages:      []string{"./internal/archtest/..."},
+		},
+		{
+			name:              "nested module stays unchanged",
+			task:              "test",
+			module:            "connectors/nested",
+			scope:             "./internal/archtest",
+			localArchTrimpath: true,
+			wantCommands:      1,
+			wantTrimmed:       []bool{false},
+			wantPackages:      []string{"./internal/archtest"},
+		},
+		{
+			name:              "broad root scope stays unchanged",
+			task:              "test",
+			module:            ".",
+			scope:             "./...",
+			localArchTrimpath: true,
+			wantCommands:      1,
+			wantTrimmed:       []bool{false},
+			wantPackages:      []string{"./..."},
+		},
+		{
+			name:              "mixed root broad scope stays unchanged",
+			task:              "test",
+			module:            ".",
+			scope:             "./... ./internal/archtest",
+			localArchTrimpath: true,
+			wantCommands:      1,
+			wantTrimmed:       []bool{false},
+			wantPackages:      []string{"./...", "./internal/archtest"},
+		},
+		{
+			name:              "mixed internal broad scope stays unchanged",
+			task:              "build",
+			module:            ".",
+			scope:             "./internal/... ./internal/archtest",
+			localArchTrimpath: true,
+			wantCommands:      1,
+			wantTrimmed:       []bool{false},
+			wantPackages:      []string{"./internal/...", "./internal/archtest"},
+		},
+		{
+			name:         "local opt in is required",
+			task:         "build",
+			module:       ".",
+			scope:        "./internal/archtest",
+			wantCommands: 1,
+			wantTrimmed:  []bool{false},
+			wantPackages: []string{"./internal/archtest"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			commands, err := commandGroupsFor(tc.task, tc.module, tc.scope, 2, true, tc.localArchTrimpath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(commands) != tc.wantCommands {
+				t.Fatalf("got %d commands, want %d: %v", len(commands), tc.wantCommands, commands)
+			}
+			var gotPackages []string
+			for i, command := range commands {
+				trimmed := slices.Contains(command, "-trimpath")
+				if trimmed != tc.wantTrimmed[i] {
+					t.Errorf("command %d trimpath = %t, want %t: %v", i, trimmed, tc.wantTrimmed[i], command)
+				}
+				if tc.task == "test" && !slices.Contains(command, "-count=1") {
+					t.Errorf("fresh execution flag missing from command %d: %v", i, command)
+				}
+				for _, arg := range command {
+					if arg == "." || strings.HasPrefix(arg, "./") {
+						gotPackages = append(gotPackages, arg)
+					}
+				}
+			}
+			if !reflect.DeepEqual(gotPackages, tc.wantPackages) {
+				t.Errorf("package coverage/order = %v, want %v", gotPackages, tc.wantPackages)
 			}
 		})
 	}
