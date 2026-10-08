@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,86 +117,138 @@ func workflowMatrixLanes(t *testing.T, rel string, job string) []string {
 	return lanes
 }
 
-// TestMakeGateBudgets_OnlyRaceScanExceedsTheDefault locks the per-gate budget
-// split: a blanket deadline under `make test-race` cannot cover the sequential
-// race lanes, so race_scan declares the budget that covers those lanes.
-// Every other `make` gate keeps the default, so the exception stays explicit
-// instead of becoming a blanket.
-func TestMakeGateBudgets_OnlyRaceScanExceedsTheDefault(t *testing.T) {
+func TestMakeGateBudgets_RaceScanIsWorkflowOwned(t *testing.T) {
 	t.Parallel()
-	var race gateSpec
-	seen := map[string]bool{}
+	cat := catalogByName()
+	race, ok := cat["race_scan"]
+	if !ok {
+		t.Fatal("race_scan gate missing from the catalog")
+	}
+	if race.Kind != "external" {
+		t.Fatalf("race_scan kind = %q, want external workflow evidence", race.Kind)
+	}
+	if race.Timeout != 0 {
+		t.Fatalf("race_scan declares an unused timeout %s", race.Timeout)
+	}
+	if strings.TrimSpace(race.Notes) == "" {
+		t.Fatal("race_scan must explain which workflow owns its evidence")
+	}
+
 	for _, g := range rootGateCatalog() {
 		if g.Kind != "make" {
-			continue
-		}
-		seen[g.Name] = true
-		if g.Name == "race_scan" {
-			race = g
 			continue
 		}
 		if got := g.makeTimeout(); got != defaultMakeGateTimeout {
 			t.Fatalf("gate %q budget = %s, want the default %s", g.Name, got, defaultMakeGateTimeout)
 		}
 	}
-	if !seen["race_scan"] {
-		t.Fatal("race_scan gate missing from the catalog")
-	}
-	if got := race.makeTimeout(); got != raceScanGateTimeout {
-		t.Fatalf("race_scan budget = %s, want %s", got, raceScanGateTimeout)
-	}
-	if raceScanGateTimeout <= defaultMakeGateTimeout {
-		t.Fatalf("race_scan budget %s must exceed the default %s", raceScanGateTimeout, defaultMakeGateTimeout)
-	}
 }
 
-// TestRaceScanGateBudget_PartitionContractAndJobBound records exactly what the
-// gate deadline does and does not assert.
-//
-// The Release workflow partitions the identical race script into five matrix
-// lanes and picks each lane's budget from a workflow expression, so no single
-// Release job budget describes the scan. This gate runs those same lanes
-// sequentially in one process, and raceScanGateTimeout is only an operational
-// bound on that run, not a certification that the scan completes. The contract
-// is therefore deliberately narrow: the exhaustive partition must stay intact,
-// and the deadline must be positive and fit inside the release-gates job that
-// contains the gate. It is not compared against the verify job, and it is not
-// derived from the sum of the per-lane budgets, because neither is a real
-// bound on a sequential local run.
-func TestRaceScanGateBudget_PartitionContractAndJobBound(t *testing.T) {
+func TestRaceScanWorkflows_RequireExhaustiveMatrixBeforeAggregate(t *testing.T) {
 	t.Parallel()
 
 	want := []string{"broad", "billing", "support", "runtime", "architecture"}
-	lanes := workflowMatrixLanes(t, releaseWorkflow, "race")
-	if len(lanes) != len(want) {
-		t.Fatalf("release race matrix has lane(s) %v, want the exhaustive partition %v", lanes, want)
-	}
-	for i, lane := range lanes {
-		if lane != want[i] {
-			t.Fatalf("release race matrix lane %d = %q, want %q", i, lane, want[i])
+	for _, workflow := range []struct {
+		path       string
+		consumerID string
+	}{
+		{path: releaseWorkflow, consumerID: "verify"},
+		{path: releaseGatesWorkflow, consumerID: "release-gates"},
+	} {
+		lanes := workflowMatrixLanes(t, workflow.path, "race")
+		if len(lanes) != len(want) {
+			t.Fatalf("%s race matrix has lane(s) %v, want the exhaustive partition %v", workflow.path, lanes, want)
+		}
+		for i, lane := range lanes {
+			if lane != want[i] {
+				t.Fatalf("%s race matrix lane %d = %q, want %q", workflow.path, i, lane, want[i])
+			}
+		}
+		if !slices.Contains(workflowNeeds(t, workflow.path, workflow.consumerID), "race") {
+			t.Fatalf("%s job %q must depend on every race matrix lane", workflow.path, workflow.consumerID)
+		}
+		if got := workflowJobTimeoutMinutes(t, workflow.path, "race"); got.Expr != "${{ matrix.lane == 'billing' && 75 || 40 }}" {
+			t.Fatalf("%s race lane budget = %s, want billing 75m and other lanes 40m", workflow.path, got)
+		}
+		if got := workflowStepRun(t, workflow.path, "race", "Strict Linux race detector"); got != `bash scripts/race-check.sh --strict --lane "$RACE_LANE"` {
+			t.Fatalf("%s strict race command = %q", workflow.path, got)
+		}
+		laneEnv := workflowNode(t, workflowStep(t, workflow.path, "race", "Strict Linux race detector"), "env", "RACE_LANE")
+		if laneEnv == nil || laneEnv.Value != "${{ matrix.lane }}" {
+			t.Fatalf("%s strict race step must select its matrix lane", workflow.path)
 		}
 	}
-
-	// The partition selects a budget per lane through a workflow expression; a
-	// literal here would mean the five lanes were replaced by one undivided scan.
-	raceBudget := workflowJobTimeoutMinutes(t, releaseWorkflow, "race")
-	if !raceBudget.Declared {
-		t.Fatalf("%s: job race declares no timeout-minutes", releaseWorkflow)
-	}
-	if raceBudget.Expr == "" {
-		t.Fatalf("%s: job race budget is the literal %s; the per-lane partition is gone", releaseWorkflow, raceBudget)
+	if !slices.Contains(workflowNeeds(t, releaseWorkflow, "release"), "verify") {
+		t.Fatalf("%s release job must retain the verify dependency that follows all race lanes", releaseWorkflow)
 	}
 
-	if raceScanGateTimeout <= 0 {
-		t.Fatalf("race_scan budget %s must be a positive deadline", raceScanGateTimeout)
+	continueOnError := workflowNode(t, parseWorkflow(t, releaseGatesWorkflow), "jobs", "race", "continue-on-error")
+	if continueOnError != nil && continueOnError.Value != "false" {
+		t.Fatalf("%s race job must fail when a lane fails", releaseGatesWorkflow)
+	}
+	if condition := workflowNode(t, parseWorkflow(t, releaseGatesWorkflow), "jobs", "release-gates", "if"); condition != nil {
+		t.Fatalf("%s aggregate job must use the default success condition after needs: race, got %q", releaseGatesWorkflow, condition.Value)
 	}
 
-	job := workflowJobTimeoutMinutes(t, releaseGatesWorkflow, "release-gates")
-	if !job.Declared || job.Expr != "" {
-		t.Fatalf("%s: job release-gates needs a literal timeout-minutes, got %s", releaseGatesWorkflow, job)
+	record := workflowStepRun(t, releaseGatesWorkflow, "race", "Record tested revision")
+	for _, evidence := range []string{`tested_sha="$(git rev-parse HEAD)"`, "tested_sha=%s", "command=bash scripts/race-check.sh --strict --lane %s"} {
+		if !strings.Contains(record, evidence) {
+			t.Fatalf("%s race evidence step is missing %q", releaseGatesWorkflow, evidence)
+		}
 	}
-	containing := time.Duration(job.Minutes) * time.Minute
-	if raceScanGateTimeout > containing {
-		t.Fatalf("race_scan budget %s exceeds the release-gates job budget %s that contains it", raceScanGateTimeout, containing)
+	artifact := workflowStep(t, releaseGatesWorkflow, "race", "Upload strict race evidence")
+	artifactName := workflowNode(t, artifact, "with", "name")
+	artifactPath := workflowNode(t, artifact, "with", "path")
+	if artifactName == nil || !strings.Contains(artifactName.Value, "steps.revision.outputs.sha") {
+		t.Fatalf("%s race artifact name must include the tested SHA", releaseGatesWorkflow)
 	}
+	if artifactPath == nil || !strings.Contains(artifactPath.Value, ".tmp/race-evidence.txt") {
+		t.Fatalf("%s race artifact must contain the tested-SHA evidence file", releaseGatesWorkflow)
+	}
+}
+
+func workflowNeeds(t *testing.T, rel, job string) []string {
+	t.Helper()
+	node := workflowNode(t, parseWorkflow(t, rel), "jobs", job, "needs")
+	if node == nil {
+		return nil
+	}
+	switch node.Kind {
+	case yaml.ScalarNode:
+		return []string{node.Value}
+	case yaml.SequenceNode:
+		out := make([]string, 0, len(node.Content))
+		for _, item := range node.Content {
+			out = append(out, item.Value)
+		}
+		return out
+	default:
+		t.Fatalf("%s job %q needs is not a scalar or sequence", rel, job)
+		return nil
+	}
+}
+
+func workflowStep(t *testing.T, rel, job, name string) *yaml.Node {
+	t.Helper()
+	steps := workflowNode(t, parseWorkflow(t, rel), "jobs", job, "steps")
+	if steps == nil || steps.Kind != yaml.SequenceNode {
+		t.Fatalf("%s job %q has no steps sequence", rel, job)
+	}
+	for _, step := range steps.Content {
+		stepName := workflowNode(t, step, "name")
+		if stepName != nil && stepName.Value == name {
+			return step
+		}
+	}
+	t.Fatalf("%s job %q is missing step %q", rel, job, name)
+	return nil
+}
+
+func workflowStepRun(t *testing.T, rel, job, name string) string {
+	t.Helper()
+	node := workflowNode(t, workflowStep(t, rel, job, name), "run")
+	if node == nil {
+		t.Fatalf("%s job %q step %q has no run command", rel, job, name)
+	}
+	return node.Value
 }
