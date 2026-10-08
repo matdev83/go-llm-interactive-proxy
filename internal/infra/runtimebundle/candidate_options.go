@@ -43,6 +43,9 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 			if p := overlay.CorePorts.InterleavedProcessor; p != nil {
 				out.CorePorts.InterleavedProcessor = p
 			}
+			if p := overlay.CorePorts.ConversationBootstrap; p != nil {
+				out.CorePorts.ConversationBootstrap = p
+			}
 			if r := overlay.CorePorts.ConversationReader; r != nil {
 				out.CorePorts.ConversationReader, out.CorePorts.ConversationReaderStockOrigin = r, overlay.CorePorts.ConversationReaderStockOrigin
 			}

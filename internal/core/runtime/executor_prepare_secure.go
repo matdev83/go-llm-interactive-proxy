@@ -610,6 +610,13 @@ func (e *Executor) prepareSubmitAndALegSecure(
 				e.Log.DebugContext(outCtx, "submit traffic marshal skipped", "leg", sdktraffic.LegCTP, "error", jerr)
 			}
 		}
+	}
+	ingressClone := lipapi.CloneCall(unaugmentedForIngress)
+	ibt.ingressCall = &ingressClone
+	if err := e.selectLocalAndBootstrap(outCtx, ibt, *workingCall); err != nil {
+		return failAfterRequestAdmit(err)
+	}
+	if snap != nil {
 		// --- Task 3.2 seam: snapshot once after authoritative A-leg resolution ---
 		// Preserve ingress before projection; project exclusion+steering ONCE
 		// before backend request/pre-request transforms, context estimation,
@@ -617,8 +624,6 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		// projection errors; evidence stays bounded content-free.
 		// P2: ingress is customer perspective (unaugmented); backend is the
 		// augmented workingCall that already carries the continuity block.
-		ingressClone := lipapi.CloneCall(unaugmentedForIngress)
-		ibt.ingressCall = &ingressClone
 		backendClone := lipapi.CloneCall(*workingCall)
 		originalForFilter := lipapi.CloneCall(backendClone)
 		// Snapshot coherent view and derive backend-effective call.

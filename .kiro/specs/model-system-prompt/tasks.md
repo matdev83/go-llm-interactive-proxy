@@ -26,7 +26,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 4. Producer and runtime seam
 
-- [ ] 4.1 Integrate generation producer before one normal inference snapshot
+- [x] 4.1 Integrate generation producer before one normal inference snapshot
   - Compose enabled matcher/store adapter in featurehost CompileGeneration; reject missing/mismatched authority/reader/atomic capability before publication. Pass only a generic consumer-owned port through CorePorts/executor wiring; no concrete feature imports in core/runtimebundle and no public plane.
   - Resolve accepted default/alias intent with shared pure routing compilation and frozen A-leg override, all leaves, logical not NativeModel, no candidate choice. Lazy intent resolution and regex matching occur only inside undecided store callback.
   - Split local Match from Handle; retain selected/declined result and validated source requests before bootstrap. Later Handle preserves existing source/reply tag order, failure behavior and release. Never second Match or model/view snapshot. Use same seam for secure/detached private A-leg, no parent mutation.

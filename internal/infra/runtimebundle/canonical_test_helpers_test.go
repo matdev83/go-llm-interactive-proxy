@@ -63,6 +63,7 @@ func compileCandidateWithFeatures(ctx context.Context, ps *runtimebundle.Process
 		}
 		candOpts.FeaturePlanes = featOut.Planes
 		candOpts.FeatureLifecycles = featOut.Lifecycles
+		candOpts.CorePorts.ConversationBootstrap = featOut.CorePorts.ConversationBootstrap
 		if candOpts.CorePorts.InterleavedProcessor == nil {
 			candOpts.CorePorts.InterleavedProcessor = featOut.CorePorts.InterleavedProcessor
 		}

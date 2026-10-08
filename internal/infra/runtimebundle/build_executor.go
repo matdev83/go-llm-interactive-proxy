@@ -87,6 +87,7 @@ type executorBuildInput struct {
 	GenerationRunner              *infraaux.GenerationExecutorRunner
 	TerminalPolicyReader          runtime.TerminalPolicyReader
 	ConversationReader            conversationprojection.Reader
+	ConversationBootstrap         runtime.ConversationBootstrap
 	ConversationReaderStockOrigin bool
 	ConversationStore             conversationview.Store
 	InterleavedProcessor          runtime.InterleavedProcessor
@@ -302,6 +303,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			MaxPendingWireEvents:               cfg.Server.EffectiveMaxPendingWireEvents(),
 			StreamRecovery:                     streamRecovery,
 			ConversationViewReader:             in.ConversationReader,
+			ConversationBootstrap:              in.ConversationBootstrap,
 			ConversationViewTagger:             newConversationViewTaggerAdapter(convStore),
 			LargeBodyAssessor:                  largeBodyAssessor,
 			LargeBodyGenerationID:              largeBodyGenID,

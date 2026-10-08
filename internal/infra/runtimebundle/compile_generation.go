@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/featurehost"
@@ -108,19 +109,24 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	} else if ps.opts != nil && len(ps.opts.Testing.FeatureHostRegistrations) > 0 {
 		genHostRegs = ps.opts.Testing.FeatureHostRegistrations
 	}
+	var convObserver conversationview.Observer
+	if ps.Metrics != nil && ps.Metrics.ConversationViewObserver() != nil {
+		convObserver = metricsObserverAdapter{inner: ps.Metrics.ConversationViewObserver()}
+	}
 	featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
-		Registrations:      regs,
-		HostRegistrations:  genHostRegs,
-		MergeSurface:       genMerged,
-		Planes:             genMerged.Frozen,
-		Lifecycles:         lifecycles,
-		BackgroundClient:   boundClient,
-		BackgroundPoller:   boundPoller,
-		AccessMode:         accessMode,
-		ConfigInterleaved:  frozen.Interleaved,
-		ConfigDir:          frozen.ConfigDir,
-		NowFn:              nowFn,
-		KeepwarmAccounting: kwAccounting,
+		Registrations:        regs,
+		HostRegistrations:    genHostRegs,
+		MergeSurface:         genMerged,
+		Planes:               genMerged.Frozen,
+		Lifecycles:           lifecycles,
+		BackgroundClient:     boundClient,
+		BackgroundPoller:     boundPoller,
+		AccessMode:           accessMode,
+		ConfigInterleaved:    frozen.Interleaved,
+		ConfigDir:            frozen.ConfigDir,
+		NowFn:                nowFn,
+		KeepwarmAccounting:   kwAccounting,
+		ConversationObserver: convObserver,
 	})
 	if err != nil {
 		return nil, err

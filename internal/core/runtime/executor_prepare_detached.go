@@ -78,6 +78,18 @@ func (e *Executor) prepareSubmitAndALegDetached(
 		return nil, nil, outCtx, fmt.Errorf("executor: create identity bound turn: %w", err)
 	}
 	workingCall = &work
+	// Establish private child views before any submit/local selection can read
+	// the inherited context. General identity projection preserves view labels,
+	// so it must never be given the parent's session/attempt/annotations here.
+	outCtx = execctx.WithViews(outCtx, execctx.Views{
+		Principal: ibt.principal,
+		Scope:     ibt.scope,
+		Session:   ibt.preSession,
+		Attempt:   execview.AttemptView{TraceID: ibt.traceID},
+		Annotations: map[string]string{
+			"execution_mode": "detached",
+		},
+	})
 
 	if e.Log != nil {
 		outCtx = corehooks.WithDiagnosticsLogger(outCtx, e.Log)
@@ -102,6 +114,10 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	// fail closed on snapshot/projection errors.
 	ingressClone := lipapi.CloneCall(*workingCall)
 	ibt.ingressCall = &ingressClone
+	if err := e.selectLocalAndBootstrap(outCtx, ibt, *workingCall); err != nil {
+		_ = e.releaseRequestAuthority(outCtx)
+		return nil, nil, outCtx, err
+	}
 	backendClone := lipapi.CloneCall(*workingCall)
 	originalForFilter := lipapi.CloneCall(backendClone)
 	snapView, projEv, projected, perr := e.snapshotAndProject(outCtx, ibt.aLeg.ALegID, backendClone)
@@ -134,14 +150,5 @@ func (e *Executor) prepareSubmitAndALegDetached(
 		workingCall = &bk
 	}
 	outCtx = diag.EnsureCallDiag(outCtx, ibt.traceID, ibt.aLeg.ALegID)
-	outCtx = execctx.WithViews(outCtx, execctx.Views{
-		Principal: ibt.principal,
-		Scope:     ibt.scope,
-		Session:   ibt.preSession,
-		Attempt:   execview.AttemptView{TraceID: ibt.traceID},
-		Annotations: map[string]string{
-			"execution_mode": "detached",
-		},
-	})
 	return ibt, workingCall, outCtx, nil
 }

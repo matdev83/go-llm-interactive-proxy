@@ -96,6 +96,8 @@ type CoreRuntime struct {
 	// ConversationViewReader is an optional narrow snapshot port. When set,
 	// runtime preserves the single-snapshot per-turn invariant (task 3.2).
 	ConversationViewReader conversationprojection.Reader
+	// ConversationBootstrap is the optional generation-bound pre-snapshot producer.
+	ConversationBootstrap ConversationBootstrap
 	// ConversationViewTagger is the optional narrow tagger port for local-turn
 	// tag-before-release.
 	ConversationViewTagger ConversationViewTagger

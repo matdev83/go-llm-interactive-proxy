@@ -23,6 +23,10 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	if in.FaultInject != nil {
 		return GenerationOutput{}, in.FaultInject
 	}
+	bootstrap, err := r.modelSystemPrompt(in)
+	if err != nil {
+		return GenerationOutput{}, err
+	}
 
 	// When r is nil (StandardFeatures disabled), return disabled feature output.
 	if r == nil {
@@ -67,7 +71,6 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 	}
 
 	// 3. Compaction continuity surface binding.
-	var err error
 	surface, err = r.bindCompactionContinuity(surface, in.Registrations)
 	if err != nil {
 		return GenerationOutput{}, err
@@ -258,6 +261,7 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 			CompactionDetector:            r.compactionDetector,
 			ConversationReader:            r.ConversationReader(),
 			ConversationReaderStockOrigin: r.conversationStoreStock && r.conversationStore != nil,
+			ConversationBootstrap:         bootstrap,
 			InterleavedProcessor:          interleavedProc,
 			PromptCacheMaintenance:        kwMaint,
 			TerminalPolicyReader:          r.TerminalPolicyReader(),
