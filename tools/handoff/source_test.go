@@ -14,7 +14,6 @@ import (
 )
 
 func TestHandoff_SourceIdentityAndStaleEvidence(t *testing.T) {
-	t.Parallel()
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -61,6 +60,9 @@ func TestHandoff_SourceIdentityAndStaleEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	zero, no := 0, false
+	// Hook-exported Git selectors must not redirect the recorded command away
+	// from the repository whose source identity was captured.
+	t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), "nonexistent.git"))
 	var captured bytes.Buffer
 	if err := captureCommand(t.Context(), repo, filepath.Join(artifactDir, "captured.log"), "verification", []string{"git", "rev-parse", "HEAD"}, &captured, io.Discard); err != nil {
 		t.Fatal(err)

@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
 )
 
 // captureCommand runs explicit argv, saves real output/status, and refuses to
@@ -31,6 +33,7 @@ func captureCommand(ctx context.Context, repo, log, purpose string, argv []strin
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = repo
+	cmd.Env = gitscope.Environ()
 	cmd.Stdout = io.MultiWriter(file, diagnostics)
 	cmd.Stderr = cmd.Stdout
 	runErr := cmd.Run()
