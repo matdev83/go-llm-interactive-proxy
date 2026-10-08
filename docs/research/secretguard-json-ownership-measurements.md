@@ -63,7 +63,9 @@ request-latency SLO is certified on this shared host.
 
 - Fresh SecretGuard/engine, SDK and extension-runner suites passed.
 - A shared-buffer regression checks block/log immutability, successful redaction,
-  matcher failure and a scan limit after admitted JSON.
+  matcher failure and a scan limit after admitted JSON. Parallel subtests share
+  one frozen BetterLeaks generation and the same positive JSON backing bytes, so
+  remote race tests exercise concurrent hybrid scans of the borrowed buffer.
 - Replacing the working clone with a shallow call copy makes the scan-limit
   regression fail; the clone was restored without a production diff.
 - Existing cancellation, cap, unsupported-token, overlap, multipart, JSON-mirror

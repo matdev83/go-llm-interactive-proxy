@@ -12,25 +12,27 @@ import (
 )
 
 func TestGuard_JSONBackingBytesRemainUnchangedAcrossDecisions(t *testing.T) {
-	shared := json.RawMessage(` {"value": "credential"} `)
+	shared := json.RawMessage(` {"value": "` + adapterGitHubToken + `"} `)
 	original := bytes.Clone(shared)
+	generation := newProvenanceBetterLeaksServices(t)
 	for _, action := range []string{ActionBlock, ActionLog, ActionRedact} {
 		for _, failure := range []string{"none", "limit", "matcher"} {
 			if action != ActionRedact && failure != "none" {
 				continue
 			}
 			t.Run(action+"/"+failure, func(t *testing.T) {
+				t.Parallel()
 				call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartJSON, Content: shared}, lipapi.TextPart("tail")}}}}
 				before := lipapi.CloneCall(call)
 				cfg := Config{Action: action}
-				var matcher sdk.Matcher = newExactStub("credential", "SECRET", sdk.SourceCategoryProxyEnv)
+				var matcher sdk.Matcher = newExactStub(adapterGitHubToken, "SECRET", sdk.SourceCategoryProxyEnv)
 				switch failure {
 				case "limit":
 					cfg.ScanMaxBytes = len(shared)
 				case "matcher":
 					matcher = &failingRedactMatcher{match: "tail", err: errors.New("fixture error")}
 				}
-				d, err := NewGuard(cfg).Evaluate(t.Context(), &call, sdk.Meta{}, servicesWith(matcher))
+				d, err := NewGuard(cfg).Evaluate(t.Context(), &call, sdk.Meta{}, provenanceServices("hybrid", matcher, generation))
 				if !bytes.Equal(shared, original) {
 					t.Fatal("guard changed a backing buffer shared with another request")
 				}
@@ -41,7 +43,7 @@ func TestGuard_JSONBackingBytesRemainUnchangedAcrossDecisions(t *testing.T) {
 					if !reflect.DeepEqual(call, before) {
 						t.Fatal("read-only or unsuccessful redaction changed the canonical call")
 					}
-				} else if d.Outcome != sdk.OutcomeRedacted || bytes.Contains(call.Messages[0].Parts[0].Content, []byte("credential")) {
+				} else if d.Outcome != sdk.OutcomeRedacted || bytes.Contains(call.Messages[0].Parts[0].Content, []byte(adapterGitHubToken)) {
 					t.Fatal("successful redaction did not publish masked JSON")
 				}
 			})
