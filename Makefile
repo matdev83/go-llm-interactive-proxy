@@ -94,7 +94,7 @@ help:
 	@echo "  make billing-convergence-certify - fail-fast final billing architecture, integration, quality, docs, and race certification"
 	@echo "  make test-db-parity-sqlite - canonical SQLite database parity tests across all registered components"
 	@echo "  make test-db-parity-postgres-direct - repository-wide fail-closed direct PostgreSQL parity (DSN; Make sets LIP_REQUIRE_POSTGRES=1)"
-	@echo "  make test-db-parity  - sequential repository-wide SQLite and direct PostgreSQL parity gate"
+	@echo "  make test-db-parity  - repository-wide SQLite and direct PostgreSQL parity gate (the two backends run concurrently)"
 	@echo "  make test-postgres-migrations - apply and verify dual-plane PostgreSQL migrations"
 	@echo "  PostgreSQL gates are intentional opt-in: make test-authority-postgres-direct needs only a configured DSN (Make sets LIP_REQUIRE_POSTGRES=1); pooled/aggregate proof also requires LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1"
 	@echo "  make test-authority-postgres-direct - direct PostgreSQL runtime proof (DSN; Make sets require flag)"
