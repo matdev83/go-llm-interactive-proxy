@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/dev-cpu-defaults.sh"
 echo "=== Pre-Commit Quality Gate ==="
 echo ""
 
-staged_files="$(git diff --cached --name-only --diff-filter=ACMRD)"
+staged_files="$(git diff --cached --no-renames --name-only --diff-filter=ACMRD)"
 if ! grep -qE '\.go$' <<< "$staged_files"; then
 	if grep -qE '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
 		echo "No staged Go source files detected; checking module metadata."
@@ -43,15 +43,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bash "$SCRIPT_DIR/require-ext4-tmpdir.sh"
 
 if grep -Eq '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
-	echo "Checking all independent Go module metadata..."
-	bash "$SCRIPT_DIR/tidy-all-modules.sh" --check
-	echo ""
+	# Root dependencies can affect every independent module. Nested metadata
+	# belongs to that module and is checked by the staged quality pass below.
+	if [[ "${LIP_PRECOMMIT_FULL:-}" == "1" ]] || grep -Eq '^(go\.mod|go\.sum)$' <<< "$staged_files"; then
+		echo "Checking all independent Go module metadata..."
+		bash "$SCRIPT_DIR/tidy-all-modules.sh" --check
+		echo ""
+	fi
 fi
 
 if [[ "${LIP_PRECOMMIT_FULL:-}" != "1" ]]; then
 	echo "Running quality checks on staged packages..."
 	# Lint runs once, scoped, at the end of this gate.
-	LIP_SKIP_LINT=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh"
+	LIP_SKIP_LINT=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh" --staged
 
 	echo ""
 	# Test only the packages whose files are staged. Nearly every package

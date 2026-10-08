@@ -3,7 +3,24 @@
 # Fast quality checks before tests. Order: fastest to slowest, fail-fast.
 
 set -euo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/dev-cpu-defaults.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/dev-cpu-defaults.sh"
+
+QUALITY_MODE=full
+if [[ $# -eq 1 && "$1" == "--staged" ]]; then
+	QUALITY_MODE=staged
+elif [[ $# -ne 0 ]]; then
+	echo "usage: $0 [--staged]" >&2
+	exit 2
+fi
+
+QUALITY_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/lip-quality.XXXXXX")"
+cleanup_quality_tmp() {
+	if [[ -n "${QUALITY_TMPDIR:-}" ]]; then
+		rm -rf "$QUALITY_TMPDIR"
+	fi
+}
+trap cleanup_quality_tmp EXIT
 
 # Test parallelism defaults to the machine's logical core count; override with
 # LIP_TEST_PARALLEL=<n> (mirrors GO_TEST_FLAGS in the Makefile).
@@ -94,28 +111,241 @@ collect_quality_packages() {
 	printf '%s\n' "${!package_set[@]}" | sort
 }
 
-mapfile -t QUALITY_PACKAGES < <(collect_quality_packages)
+declare -a STAGED_PATHS=() STAGED_GO_FILES_EXISTING=() STAGED_MODULES=() STAGED_TIDY_MODULES=()
+declare -A STAGED_MODULE_INDEX=() STAGED_TIDY_SEEN=() STAGED_MODULE_ALL=() STAGED_DELETED_MODULES=()
+STAGED_FEATURE_PLANES=false
+STAGED_PROTOBUF=false
 
-echo "Quality scope: ${QUALITY_PACKAGES[*]}"
+module_for_path() {
+	local path="$1" dir
+	for dir in "${!STAGED_DELETED_MODULES[@]}"; do
+		if [[ "$path" == "$dir/"* ]]; then
+			return 1
+		fi
+	done
+	dir="${path%/*}"
+	if [[ "$dir" == "$path" ]]; then
+		dir="."
+	fi
+	while :; do
+		if [[ -f "$dir/go.mod" ]]; then
+			FOUND_MODULE="$dir"
+			return 0
+		fi
+		if [[ "$dir" == "." ]]; then
+			break
+		fi
+		if [[ "$dir" == */* ]]; then
+			dir="${dir%/*}"
+		else
+			dir="."
+		fi
+	done
+	return 1
+}
+
+add_staged_tidy_module() {
+	local module="$1"
+	[[ -f "$module/go.mod" ]] || return 0
+	if [[ -z "${STAGED_TIDY_SEEN[$module]+x}" ]]; then
+		STAGED_TIDY_SEEN["$module"]=1
+		STAGED_TIDY_MODULES+=("$module")
+	fi
+}
+
+add_staged_package() {
+	local module="$1" package="$2" module_index package_file existing
+	if [[ -n "${STAGED_MODULE_ALL[$module]+x}" ]]; then
+		return 0
+	fi
+	if [[ -z "${STAGED_MODULE_INDEX[$module]+x}" ]]; then
+		module_index=${#STAGED_MODULES[@]}
+		STAGED_MODULE_INDEX["$module"]="$module_index"
+		STAGED_MODULES+=("$module")
+		package_file="$QUALITY_TMPDIR/packages.$module_index"
+		: >"$package_file"
+	fi
+	module_index="${STAGED_MODULE_INDEX[$module]}"
+	package_file="$QUALITY_TMPDIR/packages.$module_index"
+	while IFS= read -r -d '' existing; do
+		[[ "$existing" == "$package" ]] && return 0
+	done <"$package_file"
+	printf '%s\0' "$package" >>"$package_file"
+}
+
+add_staged_module_all_packages() {
+	local module="$1" module_index package_file
+	[[ -f "$module/go.mod" ]] || return 0
+	if [[ -z "${STAGED_MODULE_INDEX[$module]+x}" ]]; then
+		module_index=${#STAGED_MODULES[@]}
+		STAGED_MODULE_INDEX["$module"]="$module_index"
+		STAGED_MODULES+=("$module")
+	else
+		module_index="${STAGED_MODULE_INDEX[$module]}"
+	fi
+	package_file="$QUALITY_TMPDIR/packages.$module_index"
+	printf '%s\0' "./..." >"$package_file"
+	STAGED_MODULE_ALL["$module"]=1
+}
+
+collect_staged_scope() {
+	local file module dir package relative_dir
+	if ! git diff --cached --name-only -z --no-renames --diff-filter=ACMRD >"$QUALITY_TMPDIR/staged-paths"; then
+		echo "ERROR: unable to read staged paths from Git" >&2
+		return 1
+	fi
+	mapfile -d '' -t STAGED_PATHS <"$QUALITY_TMPDIR/staged-paths"
+
+	# A removed module with surviving sources is absorbed by its parent module.
+	# Check that whole parent; skip modules whose sources were removed too.
+	for file in "${STAGED_PATHS[@]}"; do
+		case "$file" in
+			go.mod) module="." ;;
+			*/go.mod) module="${file%/*}" ;;
+			*) continue ;;
+		esac
+		[[ -f "$file" ]] && continue
+		if [[ -d "$module" ]]; then
+			local surviving_source
+			if ! surviving_source=$(find "$module" -type f -name '*.go' -print -quit); then
+				echo "ERROR: unable to inspect removed module $module" >&2
+				return 1
+			fi
+			if [[ -n "$surviving_source" ]]; then
+				if ! module_for_path "$file"; then
+					echo "ERROR: $module/go.mod is staged for deletion but Go source has no surviving parent module." >&2
+					return 1
+				fi
+				add_staged_tidy_module "$FOUND_MODULE"
+				add_staged_module_all_packages "$FOUND_MODULE"
+				continue
+			fi
+		fi
+		STAGED_DELETED_MODULES["$module"]=1
+	done
+
+	for file in "${STAGED_PATHS[@]}"; do
+		case "$file" in
+			pkg/lipsdk/feature/*|internal/archtest/*|scripts/generate-feature-planes.go|go.mod|go.sum|scripts/quality-checks.sh)
+				STAGED_FEATURE_PLANES=true
+				;;
+		esac
+		case "$file" in
+			api/*|go.mod|go.sum|scripts/proto-check.sh|scripts/quality-checks.sh|.github/workflows/ci.yml)
+				STAGED_PROTOBUF=true
+				;;
+		esac
+
+		case "$file" in
+			go.mod|go.sum) module="." ;;
+			*/go.mod|*/go.sum) module="${file%/*}" ;;
+			*) module="" ;;
+		esac
+		if [[ -n "$module" ]]; then
+			add_staged_tidy_module "$module"
+			add_staged_module_all_packages "$module"
+		fi
+
+		[[ "$file" == *.go ]] || continue
+		is_agent_skill_path "$file" && continue
+		if [[ -f "$file" ]]; then
+			STAGED_GO_FILES_EXISTING+=("$file")
+		fi
+		if ! module_for_path "$file"; then
+			continue
+		fi
+		module="$FOUND_MODULE"
+		add_staged_tidy_module "$module"
+
+		dir="${file%/*}"
+		if [[ "$dir" == "$file" ]]; then
+			dir="."
+		fi
+		local -a surviving_go_files=("$dir"/*.go)
+		if [[ ${#surviving_go_files[@]} -eq 1 && ! -f "${surviving_go_files[0]}" ]]; then
+			continue
+		fi
+		if [[ "$dir" == "$module" ]]; then
+			relative_dir="."
+		elif [[ "$module" == "." ]]; then
+			relative_dir="$dir"
+		else
+			relative_dir="${dir#"$module"/}"
+		fi
+		if [[ "$relative_dir" == "." ]]; then
+			package="."
+		else
+			package="./$relative_dir"
+		fi
+		add_staged_package "$module" "$package"
+	done
+}
+
+if [[ "$QUALITY_MODE" == "staged" ]]; then
+	REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+		echo "ERROR: staged checks require a Git worktree" >&2
+		exit 1
+	}
+	cd "$REPO_ROOT"
+	if ! collect_staged_scope; then
+		exit 1
+	fi
+	QUALITY_PACKAGES=()
+	for module in "${STAGED_MODULES[@]}"; do
+		module_index="${STAGED_MODULE_INDEX[$module]}"
+		mapfile -d '' -t packages <"$QUALITY_TMPDIR/packages.$module_index"
+		QUALITY_PACKAGES+=("$module:${packages[*]}")
+	done
+	if [[ ${#QUALITY_PACKAGES[@]} -eq 0 ]]; then
+		QUALITY_SCOPE="no staged Go packages"
+	else
+		QUALITY_SCOPE="${QUALITY_PACKAGES[*]}"
+	fi
+else
+	if ! collect_quality_packages >"$QUALITY_TMPDIR/quality-packages"; then
+		exit 1
+	fi
+	mapfile -t QUALITY_PACKAGES <"$QUALITY_TMPDIR/quality-packages"
+	QUALITY_SCOPE="${QUALITY_PACKAGES[*]}"
+fi
+
+echo "Quality scope: $QUALITY_SCOPE"
 echo ""
 echo "=== Quality Checks ==="
 echo ""
 
-echo "[1/8] Checking generated feature planes..."
-if ! go run ./scripts/generate-feature-planes.go -check; then
-	echo "ERROR: Feature planes generation check failed"
-	exit 1
+if [[ "$QUALITY_MODE" != "staged" || "$STAGED_FEATURE_PLANES" == true ]]; then
+	echo "[1/8] Checking generated feature planes..."
+	if ! go run ./scripts/generate-feature-planes.go -check; then
+		echo "ERROR: Feature planes generation check failed"
+		exit 1
+	fi
+	echo "OK: Generated feature planes check passed"
+else
+	echo "Skipping generated feature planes: no staged generator inputs changed."
 fi
-echo "OK: Generated feature planes check passed"
 echo ""
 
 echo "[2/8] Checking Go formatting..."
-unformatted=$(gofmt -l . 2>/dev/null | while IFS= read -r file; do
-	file=${file//\\//}
-	if ! is_agent_skill_path "$file"; then
-		printf '%s\n' "$file"
+if [[ "$QUALITY_MODE" == "staged" ]]; then
+	if [[ ${#STAGED_GO_FILES_EXISTING[@]} -eq 0 ]]; then
+		unformatted=""
+		echo "Skipping gofmt: no staged Go files exist in the worktree."
+	else
+		if ! unformatted=$(gofmt -l "${STAGED_GO_FILES_EXISTING[@]}" 2>"$QUALITY_TMPDIR/gofmt.err"); then
+			cat "$QUALITY_TMPDIR/gofmt.err" >&2
+			echo "ERROR: gofmt failed on staged Go files" >&2
+			exit 1
+		fi
 	fi
-done || true)
+else
+	unformatted=$(gofmt -l . 2>/dev/null | while IFS= read -r file; do
+		file=${file//\\//}
+		if ! is_agent_skill_path "$file"; then
+			printf '%s\n' "$file"
+		fi
+	done || true)
+fi
 if [ -n "$unformatted" ]; then
 	echo "Unformatted files:"
 	echo "$unformatted"
@@ -126,20 +356,34 @@ echo "OK: Format check passed"
 echo ""
 
 echo "[3/8] Checking Go modules..."
-pre_tidy_mod=$(git hash-object go.mod 2>/dev/null || printf 'missing-go-mod')
-pre_tidy_sum=$(git hash-object go.sum 2>/dev/null || printf 'missing-go-sum')
-go mod tidy
-post_tidy_mod=$(git hash-object go.mod 2>/dev/null || printf 'missing-go-mod')
-post_tidy_sum=$(git hash-object go.sum 2>/dev/null || printf 'missing-go-sum')
-if [ "$pre_tidy_mod" != "$post_tidy_mod" ] || [ "$pre_tidy_sum" != "$post_tidy_sum" ]; then
-	tidy_changes=$(git diff --name-only go.mod go.sum 2>/dev/null || true)
-	echo "ERROR: go.mod/go.sum modified by 'go mod tidy'"
-	if [ -n "$tidy_changes" ]; then
-		echo "Changes detected:"
-		echo "$tidy_changes"
+if [[ "$QUALITY_MODE" == "staged" ]]; then
+	if [[ ${#STAGED_TIDY_MODULES[@]} -eq 0 ]]; then
+		echo "Skipping module tidy: no staged Go source or module metadata changes."
+	else
+		for module in "${STAGED_TIDY_MODULES[@]}"; do
+			echo "Checking module tidy in $module..."
+			if ! (cd "$module" && GOWORK=off go mod tidy -diff); then
+				echo "ERROR: go.mod/go.sum drift detected in module $module" >&2
+				exit 1
+			fi
+		done
 	fi
-	echo "Run: go mod tidy && git add go.mod go.sum"
-	exit 1
+else
+	pre_tidy_mod=$(git hash-object go.mod 2>/dev/null || printf 'missing-go-mod')
+	pre_tidy_sum=$(git hash-object go.sum 2>/dev/null || printf 'missing-go-sum')
+	go mod tidy
+	post_tidy_mod=$(git hash-object go.mod 2>/dev/null || printf 'missing-go-mod')
+	post_tidy_sum=$(git hash-object go.sum 2>/dev/null || printf 'missing-go-sum')
+	if [ "$pre_tidy_mod" != "$post_tidy_mod" ] || [ "$pre_tidy_sum" != "$post_tidy_sum" ]; then
+		tidy_changes=$(git diff --name-only go.mod go.sum 2>/dev/null || true)
+		echo "ERROR: go.mod/go.sum modified by 'go mod tidy'"
+		if [ -n "$tidy_changes" ]; then
+			echo "Changes detected:"
+			echo "$tidy_changes"
+		fi
+		echo "Run: go mod tidy && git add go.mod go.sum"
+		exit 1
+	fi
 fi
 should_verify_module_cache=false
 case "${LIP_VERIFY_MODULE_CACHE:-}" in
@@ -166,10 +410,57 @@ fi
 echo "OK: Module check passed"
 echo ""
 
-script_dir=$(cd "$(dirname "$0")" && pwd)
+script_dir="$SCRIPT_DIR"
 
 if [ "${LIP_SKIP_GO_COMPILE_CHECKS:-}" = "1" ]; then
 	echo "Skipping standalone build/vet: the following go test target owns compilation and curated vet checks."
+elif [[ "$QUALITY_MODE" == "staged" ]]; then
+	if [[ ${#STAGED_MODULES[@]} -eq 0 ]]; then
+		echo "Skipping build/vet: no staged Go package or module metadata scope."
+	else
+		for module in "${STAGED_MODULES[@]}"; do
+			module_index="${STAGED_MODULE_INDEX[$module]}"
+			mapfile -d '' -t packages <"$QUALITY_TMPDIR/packages.$module_index"
+			printf '=== Staged module %s: %s ===\n' "$module" "${packages[*]}"
+			if [[ ${#packages[@]} -eq 1 && "${packages[0]}" == "./..." ]]; then
+				if ! (cd "$module" && GOWORK=off go build -buildvcs=false ./...); then
+					echo "ERROR: build failed in staged module $module" >&2
+					exit 1
+				fi
+			else
+				if ! (cd "$module" && GOWORK=off go list -f '{{if or .GoFiles .CgoFiles}}{{.ImportPath}}{{end}}' "${packages[@]}") >"$QUALITY_TMPDIR/build-packages.$module_index"; then
+					echo "ERROR: unable to list staged packages in module $module" >&2
+					exit 1
+				fi
+				mapfile -t build_packages <"$QUALITY_TMPDIR/build-packages.$module_index"
+				filtered_build_packages=()
+				for package in "${build_packages[@]}"; do
+					if [[ -n "$package" ]]; then
+						filtered_build_packages+=("$package")
+					fi
+				done
+				if [[ ${#filtered_build_packages[@]} -eq 0 ]]; then
+					echo "Skipping build: staged package has no production Go files."
+				else
+					# A file accepts either a library archive or one executable.
+					# With multiple packages Go discards outputs; an output directory
+					# would instead force linking all main packages and reject libraries.
+					build_output=()
+					if [[ ${#filtered_build_packages[@]} -eq 1 ]]; then
+						build_output=(-o "$QUALITY_TMPDIR/build.$module_index")
+					fi
+					if ! (cd "$module" && GOWORK=off go build -buildvcs=false "${build_output[@]}" "${filtered_build_packages[@]}"); then
+						echo "ERROR: build failed in staged module $module" >&2
+						exit 1
+					fi
+				fi
+			fi
+			if ! (cd "$module" && GOWORK=off go vet "${packages[@]}"); then
+				echo "ERROR: vet failed in staged module $module" >&2
+				exit 1
+			fi
+		done
+	fi
 else
 	echo "[4/8] Checking build..."
 	if ! go build "${QUALITY_PACKAGES[@]}"; then
@@ -189,9 +480,8 @@ else
 fi
 
 echo "[6-8/8] Running independent guardrails in parallel..."
-guard_tmp=$(mktemp -d "${TMPDIR:-/tmp}/lip-quality.XXXXXX")
-guard_cleanup() { rm -rf "$guard_tmp"; }
-trap guard_cleanup EXIT
+guard_tmp="$QUALITY_TMPDIR/guards"
+mkdir -p "$guard_tmp"
 
 declare -A guard_pids=( )
 run_guard() {
@@ -203,7 +493,11 @@ run_guard() {
 
 run_guard adhoc bash "$script_dir/check-adhoc-goroutines.sh"
 run_guard regex bash "$script_dir/regex-hotpath-check.sh"
-run_guard protobuf bash "$script_dir/proto-check.sh"
+if [[ "$QUALITY_MODE" != "staged" || "$STAGED_PROTOBUF" == true ]]; then
+	run_guard protobuf bash "$script_dir/proto-check.sh"
+else
+	echo "Skipping protobuf checks: no staged protobuf or pinned-tool inputs changed."
+fi
 if [ "${LIP_SKIP_LINT:-}" != "1" ]; then
 	run_guard lint bash "$script_dir/lint-all-modules.sh" --changed
 fi

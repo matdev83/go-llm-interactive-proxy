@@ -1,6 +1,7 @@
 package openresponses
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -43,14 +44,43 @@ func FormatSSEEvent(evt StreamEvent) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to marshal stream event: %v", ErrEncodeFailed, err)
 	}
+	return frameSSEEvent(evt.Type, dataBytes), nil
+}
 
-	// SSE data is line-oriented: every physical payload line must carry its
-	// own data: prefix, even when a RawMessage contains literal CR/LF bytes.
-	data := strings.ReplaceAll(string(dataBytes), "\r\n", "\n")
-	data = strings.ReplaceAll(data, "\r", "\n")
-	data = strings.ReplaceAll(data, "\n", "\ndata: ")
-	res := fmt.Sprintf("event: %s\ndata: %s\n\n", evt.Type, data)
-	return []byte(res), nil
+// frameSSEEvent builds one SSE frame ("event: <type>\\ndata: <payload>\\n\\n")
+// from already-marshaled payload bytes. SSE data is line-oriented: every
+// physical payload line must carry its own data: prefix.
+func frameSSEEvent(eventType string, dataBytes []byte) []byte {
+	// The common case needs no rewrite: build the frame directly instead of
+	// copying the payload through a string and fmt.Sprintf.
+	const headerPrefix = "event: "
+	const dataPrefix = "\ndata: "
+	const terminator = "\n\n"
+	if bytes.IndexByte(dataBytes, '\n') < 0 && bytes.IndexByte(dataBytes, '\r') < 0 {
+		out := make([]byte, 0, len(headerPrefix)+len(eventType)+len(dataPrefix)+len(dataBytes)+len(terminator))
+		out = append(out, headerPrefix...)
+		out = append(out, eventType...)
+		out = append(out, dataPrefix...)
+		out = append(out, dataBytes...)
+		out = append(out, terminator...)
+		return out
+	}
+	normalized := bytes.ReplaceAll(dataBytes, []byte("\r\n"), []byte("\n"))
+	normalized = bytes.ReplaceAll(normalized, []byte("\r"), []byte("\n"))
+	lines := bytes.Split(normalized, []byte("\n"))
+	out := make([]byte, 0, len(headerPrefix)+len(eventType)+len(dataPrefix)+len(dataBytes)+len(terminator)+(len(lines)-1)*len(dataPrefix))
+	out = append(out, headerPrefix...)
+	out = append(out, eventType...)
+	for i, line := range lines {
+		if i == 0 {
+			out = append(out, dataPrefix...)
+		} else {
+			out = append(out, "\ndata: "...)
+		}
+		out = append(out, line...)
+	}
+	out = append(out, terminator...)
+	return out
 }
 
 // FormattedDONE returns the literal terminal SSE payload:

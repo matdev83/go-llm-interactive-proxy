@@ -35,23 +35,70 @@ than repeating the logic.
 ### Commit runs an affected-scope gate; CI runs the full suite
 
 `scripts/hooks/pre-commit` builds, vets, tests and lints only the packages whose
-files are staged (about 40 seconds for a one-package change on `agent-dev`).
+files are staged. Timings depend on the package, cache state and host load.
 It does not test their consumers: nearly every package reaches the
 repository-wide suites through reverse dependencies, which made a
 reverse-dependency scope cost as much as the full suite. Config-source
 certification runs only when a config-source path is staged. CI's `Go suite (Linux)` and `Lint (Linux)` jobs run the complete
 tagged root suite and lint on every PR, and the required `Repo hygiene` check
 fails when either does. The module-wide owner-callback escape gate
-(`TestRuntimebundle_NoCompleteOwnerCallbackEscapes`, ~2 min) runs in its own
-parallel `Owner callback gate (Linux)` job instead of inside the suite, and the suite itself runs
+(`TestRuntimebundle_NoCompleteOwnerCallbackEscapes`, ~2 min cold, seconds with a warm
+cache) runs in its own parallel `Owner callback gate (Linux)` job with its own `ci-owner-gate` cache
+lane (it type-checks the module for Linux and Windows, so it cannot share the suite's Linux-only lane)
+instead of inside the suite, and the suite itself runs
 as two shards (`heavy`: the few slow packages named in `ci.yml`; `rest`: everything else) so no single runner compiles and runs
 every package. `LIP_PRECOMMIT_FULL=1 git commit` (or
 `make precommit-full`) runs the old complete local gate. `scripts/hooks/pre-push`
 re-checks release cleanliness and change size.
 
+The fast hook uses `quality-checks.sh --staged`: formatting checks only existing
+staged Go files, and tidy checks affected modules with `go mod tidy -diff`,
+without rewriting metadata. Build and full vet run on direct packages in their
+own modules; test-only packages retain vet and tests. Metadata changes check the
+whole affected module, and removing a module with surviving sources expands
+checks to its parent module. Root metadata still triggers all-module tidy.
+Feature-plane and protobuf generation run when their inputs or checking scripts
+change. The cheap goroutine and regex guardrails remain repository-wide.
+Standalone quality checks and full pre-commit mode retain their previous scope.
+
+Measured against `eef98f56` on Linux `agent-dev`, Go 1.26.6, golangci-lint
+2.14.0, a two-CPU quota, stable shared caches, and the normal host Go guard:
+
+| Staged change | Baseline hook | Scoped hook |
+| --- | ---: | ---: |
+| `connectors/localstub/service_test.go` comment | 44.13 / 44.00 s | 5.63 / 5.20 s |
+| `internal/core/jsonpresence/null.go` comment | 21.68 / 19.71 s | 7.11 / 7.34 s |
+| `connectors/localstub/go.mod` comment | 49.84 s | 4.57 / 4.35 s |
+
+These are complete `bash scripts/hooks/pre-commit` wall times with identical
+staged edits before and after; every reported run passed. Source cases ran twice
+per version, sequentially, with normal build/test/lint cache reuse. No cache was
+cleared and no forced rebuild or fresh-test flag was added. The initial connector
+baseline took 564.75 seconds while warming a new worktree and competing with
+indexing; it is excluded from the warm comparison. These observations do not
+predict broad-package, cold-cache, or Windows timings. Raw timestamped hook logs
+and elapsed-time JSON remain in `~/.cache/local-commit-speed/`.
+
+`bash scripts/test-quality-checks.sh` checks staged isolation, module/package
+selection, renames/deletions, tool failures, generator inputs and standalone
+compatibility using fake tools, plus offline Go build semantics. PR preflight
+runs it so the fast path cannot silently return to a whole-root fallback.
+
 A commit touching many packages still takes minutes, so run commits as a background command
 with no tool timeout: a harness timeout that kills the gate mid-run leaves the
 commit unapplied and the index still staged.
+
+### Merging with auto-merge
+
+`main` requires branches to be up to date, and this repository has no merge
+queue (that needs an organization-owned repository). Instead, enable
+auto-merge on a ready PR (`gh pr merge <n> --auto --squash`, maintainer
+decision). `.github/workflows/auto-update-prs.yml` then updates the oldest
+auto-merge PR that is behind `main`, one at a time; when its required checks
+pass, GitHub merges it and the next one is updated. It needs the
+`AUTO_UPDATE_TOKEN` repository secret (fine-grained token, this repository,
+Contents and Pull requests read/write), because branch updates made with
+`GITHUB_TOKEN` do not start CI.
 
 When a gate fails, fix the cause. `--no-verify` also skips secret scanning.
 

@@ -29,8 +29,13 @@
     "job": "lint",
     "workflow": "CI"
   },
+  "ci-owner-gate": {
+    "build_mib": 4096,
+    "job": "owner-gate",
+    "workflow": "CI"
+  },
   "ci-suite": {
-    "build_mib": 3072,
+    "build_mib": 4096,
     "job": "suite",
     "workflow": "CI"
   },

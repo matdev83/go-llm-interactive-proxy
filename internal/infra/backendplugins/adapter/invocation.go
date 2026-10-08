@@ -197,12 +197,39 @@ func mapOptions(o lipapi.GenerationOptions) backendplugin.GenerationOptions {
 		ResponseSchemaJSON: backendplugin.RawJSONAbsentValue(),
 	}
 	if o.MaxOutputTokens != nil && *o.MaxOutputTokens > 0 {
-		v := uint32(*o.MaxOutputTokens)
-		out.MaxOutputTokens = &v
+		v := *o.MaxOutputTokens
+		// Clamp before narrowing: uint32(int) wraps modulo 2^32, so a huge
+		// client-controlled value would silently become a small limit (e.g.
+		// 1<<40 -> 0) and pass downstream validation. Saturate to MaxUint32
+		// so oversized values fail closed in CallFromInvocation (MaxUint32 >
+		// lipapi MaxInt32) instead of wrapping.
+		if int64(v) > int64(math.MaxUint32) {
+			v = int(math.MaxUint32)
+		}
+		uv := uint32(v)
+		out.MaxOutputTokens = &uv
 	}
-	if o.Temperature != nil && !math.IsNaN(*o.Temperature) {
-		ms := int32(*o.Temperature * 1000)
-		out.TemperatureMillis = &ms
+	if o.Temperature != nil {
+		t := *o.Temperature
+		if math.IsNaN(t) {
+			// Preserve existing fail-open skip for NaN; int32(NaN) is
+			// implementation-defined and would corrupt wire options.
+		} else if math.IsInf(t, 1) {
+			ms := int32(math.MaxInt32)
+			out.TemperatureMillis = &ms
+		} else if math.IsInf(t, -1) {
+			ms := int32(math.MinInt32)
+			out.TemperatureMillis = &ms
+		} else {
+			mf := t * 1000
+			if mf > float64(math.MaxInt32) {
+				mf = float64(math.MaxInt32)
+			} else if mf < float64(math.MinInt32) {
+				mf = float64(math.MinInt32)
+			}
+			ms := int32(mf)
+			out.TemperatureMillis = &ms
+		}
 	}
 	if s := strings.TrimSpace(o.ReasoningEffort); s != "" {
 		out.ReasoningEffort = &s
