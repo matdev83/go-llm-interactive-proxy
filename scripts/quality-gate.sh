@@ -24,8 +24,13 @@ if ! grep -qE '\.go$' <<< "$staged_files"; then
 		if grep -qE '^\.kiro/specs/' <<< "$staged_files"; then
 			echo "No staged Go files; validating Kiro spec and ownership contracts."
 			echo ""
-			go test -count=1 -tags=precommit ./internal/qa/ -run '^TestQAFastPreflight_Kiro'
-			go test -count=1 ./tools/kiro/speccheck/
+			# go run is not a heavy Go-guard command, so this never queues for a slot.
+			go run ./tools/kiro/kirocheck
+			# speccheck only certifies the specs it registers; skip it otherwise.
+			speccheck_specs="$(sed -nE 's/.*\{name: "([^"]+)".*/\1/p' tools/kiro/speccheck/*_test.go | paste -sd'|' -)"
+			if grep -qE "^tools/kiro/speccheck/|^\.kiro/specs/(archive/)?(${speccheck_specs:-^})/" <<< "$staged_files"; then
+				go test -count=1 ./tools/kiro/speccheck/
+			fi
 			exit 0
 		fi
 		echo "No staged Go files or module metadata detected; skipping quality gate checks."
