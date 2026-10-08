@@ -49,7 +49,7 @@ Run this first; it decides how much the rest of the review has to cover. Budgets
 ## Mechanical Checks
 
 Before applying judgment, verify these mechanically:
-- **Budget**: At most 5 requirement areas and 25 acceptance criteria. Count them.
+- **Budget**: At most 5 requirement areas and 25 acceptance criteria. Check with `go run ./tools/kiro/kirocheck` (pre-commit and CI run it too).
 - **Deferred section present**: `V1 Slice` and `Deferred` sections exist and are filled in.
 - **Numeric IDs present**: Every requirement heading has a numeric ID (1, 1.1, 2, etc.). Scan the draft for headings without IDs.
 - **Acceptance criteria exist**: Every requirement has at least one EARS-format acceptance criterion. Scan for requirements with no "When/If/While/Where" acceptance statements.

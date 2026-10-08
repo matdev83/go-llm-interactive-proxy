@@ -123,10 +123,10 @@ jobs:
       # Kiro specification changes still need the repository's lifecycle policy,
       # but spec-only PRs must not pay for formatting, fixture tidies, vet,
       # architecture package loading, runtime tests, or database parity.
-      - name: Kiro lifecycle policy
+      - name: Kiro spec policy
         if: needs.changes.result == 'success' && needs.changes.outputs.kiro == 'true' && needs.changes.outputs.test != 'true'
         shell: bash
-        run: go test -count=1 -tags=precommit ./internal/qa -run '^TestQAFastPreflight_KiroLifecycle$'
+        run: go run ./tools/kiro/kirocheck
 
       # Main publishes complete QA baselines; all PRs can restore them.
       - name: Restore bounded qa Go cache

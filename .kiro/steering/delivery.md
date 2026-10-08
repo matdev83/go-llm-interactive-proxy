@@ -26,6 +26,8 @@ The leading word is **slice**: the smallest change that delivers observable valu
 | PR | at most ~1,500 lines of non-test Go and ~40 changed files |
 | Tests in a feature PR | at most ~2x the production lines they cover |
 
+`go run ./tools/kiro/kirocheck` enforces the Spec row (and a Deferred section in `requirements.md`) for every active spec; the pre-commit hook and CI run it. Specs that predate the check have shrink-only ceilings in `internal/qa/kirospec/budget.go`.
+
 When a budget is exceeded, split the work into slices and report the split. A budget is a design signal, not a gate to argue past: the slice is wrong, not the budget.
 
 ## Tests Serve The Slice
