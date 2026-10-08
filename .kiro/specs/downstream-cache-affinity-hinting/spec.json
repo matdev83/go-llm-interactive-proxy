@@ -1,7 +1,7 @@
 {
   "feature_name": "downstream-cache-affinity-hinting",
   "created_at": "2026-09-01T16:45:00+02:00",
-  "updated_at": "2026-10-08T21:48:00+02:00",
+  "updated_at": "2026-10-08T23:30:00+02:00",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
@@ -19,6 +19,6 @@
     }
   },
   "ready_for_implementation": true,
-  "execution_gate": "Core-feature ownership closure is already implemented/archived (#598/#599/#600), as is bulk-provider marker-aware lifecycle (#619/#622). Revalidate the current-main ownership and provider-profile boundaries, run RED PCK-writer and wire-fast-path activation gates, and implement only on the scheduled post-split milestone; no competing profile lifecycle, default-on canonical plane, or cache-specific core path.",
-  "project_description": "Complete opt-in provider-facing downstream prompt-cache locality hinting without regrowing generic core. Reuse the completed core-ownership/featurehost architecture and marker-aware provider-profile lifecycle; add only a bounded immutable generic backend-feature list if still absent, feature-owned HMAC derivation/fill-only attempt transform/telemetry, generic domain-key derivation with a validated NUL-free label and exact frozen trailing-NUL HMAC input, direct OpenAI Responses prompt_cache_key repair, typed cache-affinity profile projection, and the frozen xAI/Mistral/Fireworks/RunInfra/OpenRouter behavior matrix. Preserve existing source config and compiled capability semantics; augment three current catalog profiles and add the two missing ones. Enforce explicit generation opt-in (absent/disabled feature contributes no canonical-required attempt-transform occupant) to protect the large-payload wire fast path; enabled canonical fallback must not bypass synthesis. Reuse existing executable plugin PCK ABI with negotiated feature at min minor 6 and no new protobuf value fields/minor, updating both current host offer lists. Resolve OpenRouter body session_id precedence against generic extra-body collisions. Keep session authority, continuation, cache residency and keep-warm separate. The frozen generated wire value remains aipca1_ plus full SHA-256 base64url digest (50 characters). All requirements/design/tasks stay ready for implementation after RED revalidation; this PR is spec-only and does not implement the feature."
+  "execution_gate": "Single V1 slice within delivery.md budgets. Implement only on the scheduled post-split milestone. No changes to core, pkg/lipsdk, execbackend.Backend, AttemptMeta, runtimebundle, featurehost or the backend-plugin protocol; Deferred items need their own issues.",
+  "project_description": "Opt-in standard feature (downstream-cache-affinity) that fills an empty canonical PromptCacheKey with aipca1_ + base64url(SHA-256(domain || BackendID || 0 || AuthoritativeSessionID)) via the existing PlaneAttemptTransforms; explicit client PCK always wins; absent/disabled feature leaves the plane empty and wire fast path unchanged. Direct OpenAI Responses/Chat serializers forward PCK; the OpenAI-compatible family forwards it only for provider profiles declaring the openai.prompt_cache_key quirk (fireworks, mistral after doc recheck). xAI, RunInfra, OpenRouter, capability metadata, keyed derivation, metrics and wire-path synthesis are deferred."
 }
