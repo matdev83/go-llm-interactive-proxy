@@ -30,7 +30,7 @@
     "workflow": "CI"
   },
   "ci-lint": {
-    "build_mib": 1536,
+    "build_mib": 4096,
     "job": "lint",
     "workflow": "CI"
   },
