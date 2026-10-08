@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
 	adminkeepwarm "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/keepwarm"
@@ -61,6 +62,7 @@ type CorePorts struct {
 	CompactionDetector            runtime.CompactionDetector
 	ConversationReader            conversationprojection.Reader
 	ConversationReaderStockOrigin bool
+	ConversationBootstrap         runtime.ConversationBootstrap
 	InterleavedProcessor          runtime.InterleavedProcessor
 	PromptCacheMaintenance        runtime.PromptCacheMaintenance
 	TerminalPolicyReader          runtime.TerminalPolicyReader
@@ -84,19 +86,20 @@ type GenerationInput struct {
 	// reasoning option sources. The facade merges them internally (Task 2.4,
 	// Requirement 8.3); generic runtimebundle must never merge or interpret
 	// reasoning policy itself, so no merged ReasoningOpts field exists here.
-	ReasoningProdOpts  ReasoningCompressionOptions
-	ReasoningTestOpts  ReasoningCompressionOptions
-	InterleavedConfig  interleavedthinking.Config
-	ConfigInterleaved  config.InterleavedConfig
-	KeepwarmConfig     keepwarm.Config
-	NowFn              func() time.Time
-	KeepwarmAccounting billing.ProviderMaintenanceUsageObserver
-	ConfigDir          string
-	AccessMode         accessmode.Mode
-	SecretEnv          SecretGuardEnvironment
-	SecretInputs       SecretGuardInputs
-	DecisionObserver   SecretDecisionObserver
-	FaultInject        error
+	ReasoningProdOpts    ReasoningCompressionOptions
+	ReasoningTestOpts    ReasoningCompressionOptions
+	InterleavedConfig    interleavedthinking.Config
+	ConfigInterleaved    config.InterleavedConfig
+	KeepwarmConfig       keepwarm.Config
+	NowFn                func() time.Time
+	KeepwarmAccounting   billing.ProviderMaintenanceUsageObserver
+	ConfigDir            string
+	AccessMode           accessmode.Mode
+	SecretEnv            SecretGuardEnvironment
+	SecretInputs         SecretGuardInputs
+	DecisionObserver     SecretDecisionObserver
+	FaultInject          error
+	ConversationObserver conversationview.Observer
 }
 
 // GenerationOutput represents the compiled output of standard-distribution features

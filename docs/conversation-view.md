@@ -21,6 +21,8 @@ client-visible local   ──X    (removed by projection)
 
 * `persistent steering`: complete proxy-owned messages persisted under the A-leg (role+text). The client never sees them and never returns them, so the proxy reinjects them on **every** later B-leg from durable state.
 
+The opt-in [model-system-prompt producer](model-system-prompt.md) selects ordered system overlays once at the first eligible inference; its guide covers configuration, frozen empty decisions, reload/removal and PTB capture exposure.
+
 No client or data-plane field can mark its own content `never_backend` or create steering. Only trusted in-process producers via `pkg/lipsdk/nonforwardable`, `pkg/lipsdk/steering`, and `pkg/lipsdk/localturn` may mutate state. Frontend wire DTOs and canonical `lipapi.Call`/`Message`/`Item` carry no visibility flag.
 
 ## Whole-message granularity

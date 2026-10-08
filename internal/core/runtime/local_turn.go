@@ -124,17 +124,25 @@ func buildLocalEventStream(replyText string) lipapi.EventStream {
 	return localstream.NewTextStream(replyText)
 }
 
-// runLocalTurnStage executes the two-phase local-turn protocol against the
-// preserved ingress view. It is pure Match against ingress, validates source
-// indexes, tags source before Handle, merges tags into request-local snapshot,
-// invokes Handle with panic recovery, tags reply before stream release, and
-// returns a finite stream. No second store read, no billing/route/B-leg.
-func (e *Executor) runLocalTurnStage(ctx context.Context, ingress lipapi.Call, snap conversationprojection.Snapshot, handlers []localturn.Handler, tagger ConversationViewTagger, aLegID string, traceID string) (localTurnOutcome, error) {
-	if len(handlers) == 0 || tagger == nil {
-		return localTurnOutcome{}, nil
+// localTurnSelection retains the validated pre-snapshot decision, including a
+// decline (nil handler), so later preparation never matches against steering.
+type localTurnSelection struct {
+	handler        localturn.Handler
+	match          localturn.MatchResult
+	meta           localturn.Meta
+	sourceRequests []TagRequest
+}
+
+func (e *Executor) selectLocalTurn(ctx context.Context, ingress lipapi.Call, aLegID, traceID string) (localTurnSelection, error) {
+	handlers := e.localTurnHandlers()
+	if len(handlers) == 0 {
+		return localTurnSelection{}, nil
+	}
+	if e.conversationViewTagger() == nil {
+		return localTurnSelection{}, fmt.Errorf("executor: conversation view tagger not available for localturn")
 	}
 	if strings.TrimSpace(aLegID) == "" {
-		return localTurnOutcome{}, fmt.Errorf("executor: localturn: missing aLegID")
+		return localTurnSelection{}, fmt.Errorf("executor: localturn: missing aLegID")
 	}
 	msgCount := normalizedMessageCount(ingress)
 	meta := localturn.Meta{TraceID: traceID, MessageCount: msgCount}
@@ -151,63 +159,71 @@ func (e *Executor) runLocalTurnStage(ctx context.Context, ingress lipapi.Call, s
 			if h.FailureMode() == localturn.FailOpen {
 				continue
 			}
-			return localTurnOutcome{}, fmt.Errorf("executor: localturn match %s: %w", h.ID(), merr)
+			return localTurnSelection{}, fmt.Errorf("executor: localturn match %s: %w", h.ID(), merr)
 		}
 		if !mr.Claimed {
 			continue
 		}
 		// Validate claimed result
 		if err := mr.Validate(meta); err != nil {
-			return localTurnOutcome{}, fmt.Errorf("executor: localturn %s invalid match: %w", h.ID(), err)
+			return localTurnSelection{}, fmt.Errorf("executor: localturn %s invalid match: %w", h.ID(), err)
 		}
 		// Build source tag requests and validate identities before Handle
 		srcReqs, err := localTurnSourceRequests(ingress, mr)
 		if err != nil {
-			return localTurnOutcome{}, fmt.Errorf("executor: localturn %s source identity: %w", h.ID(), err)
+			return localTurnSelection{}, fmt.Errorf("executor: localturn %s source identity: %w", h.ID(), err)
 		}
-		// Persist source tags BEFORE Handle; merge without second store read
-		tagRes, err := tagger.TagNeverBackend(ctx, aLegID, srcReqs)
-		if err != nil {
-			return localTurnOutcome{}, fmt.Errorf("executor: localturn %s source tag: %w", h.ID(), err)
-		}
-		merged := mergeTagsIntoSnapshot(snap, tagRes)
-		// Invoke Handle with panic recovery; after claim any error/panic/invalid reply fails request with no fallback
-		var reply localturn.Reply
-		var herr error
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					herr = fmt.Errorf("executor: localturn %s panic: %v", h.ID(), r)
-				}
-			}()
-			reply, herr = h.Handle(ctx, localturn.HandleInput{Call: ingress, Meta: meta, Match: mr})
-		}()
-		if herr != nil {
-			return localTurnOutcome{}, fmt.Errorf("executor: localturn %s handle: %w", h.ID(), herr)
-		}
-		if err := reply.Validate(); err != nil {
-			return localTurnOutcome{}, fmt.Errorf("executor: localturn %s invalid reply: %w", h.ID(), err)
-		}
-		// Construct canonical assistant message and tag reply BEFORE releasing event
-		cmsg := canonicalReplyMessage(reply.Text)
-		rid, err := conversationprojection.MessageIdentityOf(cmsg)
-		if err != nil {
-			return localTurnOutcome{}, fmt.Errorf("executor: localturn %s reply identity: %w", h.ID(), err)
-		}
-		replyReq := []TagRequest{{Identity: rid, Reason: conversationprojection.ReasonCode(mr.Reason)}}
-		replyTagRes, err := tagger.TagNeverBackend(ctx, aLegID, replyReq)
-		if err != nil {
-			return localTurnOutcome{}, fmt.Errorf("executor: localturn %s reply tag: %w", h.ID(), err)
-		}
-		merged2 := mergeTagsIntoSnapshot(merged, replyTagRes)
-		stream := buildLocalEventStream(reply.Text)
-		return localTurnOutcome{
-			claimed:      true,
-			mergedSnap:   merged2,
-			stream:       stream,
-			handlerID:    h.ID(),
-			sourceReason: mr.Reason,
-		}, nil
+		mr.Indexes = append([]int(nil), mr.Indexes...)
+		return localTurnSelection{handler: h, match: mr, meta: meta, sourceRequests: srcReqs}, nil
 	}
-	return localTurnOutcome{}, nil
+	return localTurnSelection{}, nil
+}
+
+// runLocalTurnStage consumes the retained selection at the existing Handle seam.
+// Source and reply tagging precede Handle and stream release respectively.
+func (e *Executor) runLocalTurnStage(ctx context.Context, ingress lipapi.Call, snap conversationprojection.Snapshot, selection localTurnSelection, tagger ConversationViewTagger, aLegID string) (localTurnOutcome, error) {
+	h, mr, meta, srcReqs := selection.handler, selection.match, selection.meta, selection.sourceRequests
+	// Persist source tags BEFORE Handle; merge without second store read
+	tagRes, err := tagger.TagNeverBackend(ctx, aLegID, srcReqs)
+	if err != nil {
+		return localTurnOutcome{}, fmt.Errorf("executor: localturn %s source tag: %w", h.ID(), err)
+	}
+	merged := mergeTagsIntoSnapshot(snap, tagRes)
+	// Invoke Handle with panic recovery; after claim any error/panic/invalid reply fails request with no fallback
+	var reply localturn.Reply
+	var herr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				herr = fmt.Errorf("executor: localturn %s panic: %v", h.ID(), r)
+			}
+		}()
+		reply, herr = h.Handle(ctx, localturn.HandleInput{Call: ingress, Meta: meta, Match: mr})
+	}()
+	if herr != nil {
+		return localTurnOutcome{}, fmt.Errorf("executor: localturn %s handle: %w", h.ID(), herr)
+	}
+	if err := reply.Validate(); err != nil {
+		return localTurnOutcome{}, fmt.Errorf("executor: localturn %s invalid reply: %w", h.ID(), err)
+	}
+	// Construct canonical assistant message and tag reply BEFORE releasing event
+	cmsg := canonicalReplyMessage(reply.Text)
+	rid, err := conversationprojection.MessageIdentityOf(cmsg)
+	if err != nil {
+		return localTurnOutcome{}, fmt.Errorf("executor: localturn %s reply identity: %w", h.ID(), err)
+	}
+	replyReq := []TagRequest{{Identity: rid, Reason: conversationprojection.ReasonCode(mr.Reason)}}
+	replyTagRes, err := tagger.TagNeverBackend(ctx, aLegID, replyReq)
+	if err != nil {
+		return localTurnOutcome{}, fmt.Errorf("executor: localturn %s reply tag: %w", h.ID(), err)
+	}
+	merged2 := mergeTagsIntoSnapshot(merged, replyTagRes)
+	stream := buildLocalEventStream(reply.Text)
+	return localTurnOutcome{
+		claimed:      true,
+		mergedSnap:   merged2,
+		stream:       stream,
+		handlerID:    h.ID(),
+		sourceReason: mr.Reason,
+	}, nil
 }

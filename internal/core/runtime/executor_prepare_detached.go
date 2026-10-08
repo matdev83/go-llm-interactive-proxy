@@ -78,6 +78,18 @@ func (e *Executor) prepareSubmitAndALegDetached(
 		return nil, nil, outCtx, fmt.Errorf("executor: create identity bound turn: %w", err)
 	}
 	workingCall = &work
+	// Establish private child views before any submit/local selection can read
+	// the inherited context. General identity projection preserves view labels,
+	// so it must never be given the parent's session/attempt/annotations here.
+	outCtx = execctx.WithViews(outCtx, execctx.Views{
+		Principal: ibt.principal,
+		Scope:     ibt.scope,
+		Session:   ibt.preSession,
+		Attempt:   execview.AttemptView{TraceID: ibt.traceID},
+		Annotations: map[string]string{
+			"execution_mode": "detached",
+		},
+	})
 
 	if e.Log != nil {
 		outCtx = corehooks.WithDiagnosticsLogger(outCtx, e.Log)
@@ -92,9 +104,10 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	if outCtx, err = e.admitRequestAuthorityOnce(outCtx, workingCall.ID, ibt.aLeg.ALegID, ibt.traceID, ibt.scope); err != nil {
 		return nil, nil, outCtx, err
 	}
+	guard := &preStreamGuard{executor: e, ctx: outCtx, requestAuthorityAdmitted: true}
+	defer guard.Close()
 	submitMeta := &sdkhooks.SubmitMeta{TraceID: ibt.traceID, Annotations: map[string]string{}}
 	if err := bus.RunSubmit(outCtx, workingCall, submitMeta); err != nil {
-		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, err
 	}
 	// --- Task 3.2 seam: snapshot once after A-leg resolution ---
@@ -102,11 +115,13 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	// fail closed on snapshot/projection errors.
 	ingressClone := lipapi.CloneCall(*workingCall)
 	ibt.ingressCall = &ingressClone
+	if err := e.selectLocalAndBootstrap(outCtx, ibt, *workingCall); err != nil {
+		return nil, nil, outCtx, err
+	}
 	backendClone := lipapi.CloneCall(*workingCall)
 	originalForFilter := lipapi.CloneCall(backendClone)
 	snapView, projEv, projected, perr := e.snapshotAndProject(outCtx, ibt.aLeg.ALegID, backendClone)
 	if perr != nil {
-		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, perr
 	}
 	ibt.conversationSnapshot = snapView
@@ -116,7 +131,6 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	if filtered, ferr := conversationprojection.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
 		ibt.conversationFilteredBaseline = &filtered
 	} else {
-		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, ferr
 	}
 	backendClone = projected
@@ -134,14 +148,6 @@ func (e *Executor) prepareSubmitAndALegDetached(
 		workingCall = &bk
 	}
 	outCtx = diag.EnsureCallDiag(outCtx, ibt.traceID, ibt.aLeg.ALegID)
-	outCtx = execctx.WithViews(outCtx, execctx.Views{
-		Principal: ibt.principal,
-		Scope:     ibt.scope,
-		Session:   ibt.preSession,
-		Attempt:   execview.AttemptView{TraceID: ibt.traceID},
-		Annotations: map[string]string{
-			"execution_mode": "detached",
-		},
-	})
+	guard.Handoff()
 	return ibt, workingCall, outCtx, nil
 }

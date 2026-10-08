@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/modelsystemprompt"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	pathvirtualizationconfig "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
@@ -159,6 +160,7 @@ func StandardBundle() Bundle {
 			{ID: reasoningpreservation.ID, Factory: featureReasoningOutputPreservation},
 			{ID: compactioncontinuity.ID, Factory: featureCompactionContinuity},
 			{ID: interleavedthinking.ID, Factory: featureInterleavedThinking},
+			{ID: modelsystemprompt.ID, Factory: featureModelSystemPrompt},
 			{ID: keepwarm.ID, Factory: featureKeepwarm},
 			{ID: sessionclassification.ID, Factory: featureSessionClassification},
 		},

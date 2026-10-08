@@ -233,6 +233,18 @@ plugins:
       enabled: false
       config: {}
   features:
+    # Opt-in persistent backend-only steering; see docs/model-system-prompt.md.
+    # Match the accepted logical model, not the provider-native model ID.
+    - id: model-system-prompt
+      enabled: false
+      config:
+        rules:
+          - id: concise
+            model_pattern: '^gpt-4o(-mini)?$'
+            append: 'Keep explanations concise and state uncertainty explicitly.'
+          - id: mini-checks
+            model_pattern: '^gpt-4o-mini$'
+            append: 'Check assumptions before proposing a change.'
     - id: submit-noop
       enabled: true
       config: {}

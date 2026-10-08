@@ -4,7 +4,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 2. Configuration and ordered matcher
 
-- [ ] 2.1 Implement strict enabled feature configuration and immutable ordered matcher
+- [x] 2.1 Implement strict enabled feature configuration and immutable ordered matcher
   - Decode existing `plugins.features` row `model-system-prompt`; compile during construction. Validate unknown fields, required unique bounded ASCII/derived IDs, Go regex, UTF-8/NUL/whitespace text, per-overlay/rule-count/total-text limits; preserve append bytes.
   - Produce canonical SDK PutRequests in config order with stable IDs and system stable-prefix/fallback semantics. No runtime regexp compilation, core imports, rendering or route/provider policy.
   - RED/GREEN claim tables for no/single/multiple matches/order/exact bytes and each distinct invalid boundary. Scoped dev-test/dev-build for `./internal/plugins/features/modelsystemprompt/...` and affected registration/config consumers.
@@ -26,7 +26,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 4. Producer and runtime seam
 
-- [ ] 4.1 Integrate generation producer before one normal inference snapshot
+- [x] 4.1 Integrate generation producer before one normal inference snapshot
   - Compose enabled matcher/store adapter in featurehost CompileGeneration; reject missing/mismatched authority/reader/atomic capability before publication. Pass only a generic consumer-owned port through CorePorts/executor wiring; no concrete feature imports in core/runtimebundle and no public plane.
   - Resolve accepted default/alias intent with shared pure routing compilation and frozen A-leg override, all leaves, logical not NativeModel, no candidate choice. Lazy intent resolution and regex matching occur only inside undecided store callback.
   - Split local Match from Handle; retain selected/declined result and validated source requests before bootstrap. Later Handle preserves existing source/reply tag order, failure behavior and release. Never second Match or model/view snapshot. Use same seam for secure/detached private A-leg, no parent mutation.
@@ -37,7 +37,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 5. Generation and conservative fast path
 
-- [ ] 5.1 Preserve frozen decisions across reload/removal and block first-turn wire bypass
+- [x] 5.1 Preserve frozen decisions across reload/removal and block first-turn wire bypass
   - Occupy existing conservative steering dependency for nonnil generic bootstrap port before overlays exist. Stored steering retains its existing authority blocker after removal; never deactivate on generation retirement.
   - RED/GREEN matched/no-match/ambiguous/preexisting freeze on reload/later model change, new legs use new config, invalid candidate retains old generation, removal preserves selected overlays, first-turn large-body canonical fallback bootstraps once.
   - Scoped dev-test/dev-build for featurehost/runtimebundle/runtime/largebody and changed host-generation consumers.
@@ -47,7 +47,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 6. Client and family boundaries
 
-- [ ] 6.1 Prove hidden client truth and model-visible canonical instruction trajectory
+- [x] 6.1 Prove hidden client truth and model-visible canonical instruction trajectory
   - Extend existing tests: three-turn stable prefix/original bytes, ingress/CTP/continuation/frontend output/structural records exclude steering while PTB includes it; fix exact recorder input to preserved client view only if regression proves contamination.
   - Prove frozen retry/failover/parallel snapshot and final reassertion after late removal/movement; bounded OpenAI/Anthropic/Gemini family sentinels, no provider-specific feature code or Cartesian matrix. Sentinel plaintext absent from normal diagnostics/metrics.
   - RED/GREEN focused added claims; reused evidence must identify executable tests/commands, not merely cite infrastructure. Update scratch issue-AC evidence covering all 18 mandatory criteria. Scoped dev-test/dev-build across changed runtime/family/host consumers.
@@ -57,7 +57,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 7. Documentation and delivery
 
-- [ ] 7.1 Add operator guide/config example and assemble final delivery evidence
+- [x] 7.1 Add operator guide/config example and assemble final delivery evidence
   - Explain regex order, bounds, activation/preexisting/ambiguity, frozen lifetime/reload/removal, canonical fallback, provider/model disclosure and explicit PTB capture exposure; do not test Markdown shape.
   - Inspect diff budget (≤1,500 non-test Go lines/about 40 files, tests about 2x production, hard 100 Go files); split/reassess on overflow, no override. Record attributable versus baseline failures separately.
   - Final coherent-SHA evidence sequentially: `make regex-hotpath-check`, `make quality-checks`, `make test`, `make test-db-parity`; ext4 TMPDIR at scratch path, mandatory usable PostgreSQL. Scoped `make dev-build PKGS='./cmd/lipstd'` then `go run ./cmd/lipstd --help` docs smoke.
@@ -65,3 +65,10 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
   - _Boundary:_ `docs/model-system-prompt.md`, `docs/conversation-view.md`, existing tracked config example, task-owned scratch delivery evidence; no unrelated gate fixes, commits or remote mutation by subagents.
   - _Depends:_ 2.1, 3.1, 4.1, 5.1, 6.1.
   - _Requirements:_ 3.5, 4.4, 4.5, 5.4.
+
+## Implementation Notes
+
+- All task implementations and attributable integration remediations passed independent review; local regex, quality, comprehensive tests, SQLite/PostgreSQL parity and built-service health smoke passed on the integrated production tree.
+- Architecture limits were preserved: measured copies 370, cleanup sites 23, convergence shrinkage -797 against the unchanged -795 threshold.
+- Delivery is proposed as persistence-only foundation plus matcher/runtime consumer, not the historical matcher-inclusive checkpoint; exact path sets, budgets and local command evidence are in the task-owned scratchpad.
+- Final feature certification remains pending remote race/fuzz evidence on the published final SHA. No push, PR, merge or local race was performed; implementation completion is not a FEATURE_GO claim.

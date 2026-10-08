@@ -99,7 +99,8 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	// - ConversationViewReader: on a clean stock baseline (no local_turn_handlers contributing
 	//   NeverBackend tags), snapshotAndProject is an identity no-op matching wire semantics.
 	// - ConversationViewTagger: tagger is only invoked by local_turn_handlers, otherwise idle.
-	// - SteeringWriterFactory: steering writers are only invoked by interleaved turns or
+	// - SteeringWriterFactory: interleaved/terminal producers and conversation bootstrap
+	//   require canonical execution, including before the first overlay is stored.
 	hasLocalTurn := contribs != nil && contribs.Has("local_turn_handlers")
 	hasSteeringPlanes := in.In.InterleavedProcessor != nil || (contribs != nil && contribs.Has("terminal_decision_provider"))
 
@@ -107,7 +108,7 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	census.Ports.ConversationViewReaderOccupied = in.In.ConversationReader != nil
 	census.Ports.ConversationReaderFreshALegSupported = in.In.ConversationReader != nil && in.In.ConversationReaderStockOrigin
 	census.Ports.ConversationViewTaggerOccupied = in.In.ConversationStore != nil && hasLocalTurn
-	census.Ports.SteeringWriterFactoryOccupied = in.In.ConversationStore != nil && hasSteeringPlanes
+	census.Ports.SteeringWriterFactoryOccupied = in.In.ConversationBootstrap != nil || (in.In.ConversationStore != nil && hasSteeringPlanes)
 	census.Ports.ExposureAdmissionOccupied = in.Prod.BillingExposureAdmission != nil
 	census.Ports.BillingIdentityCustomCallbacks = in.Prod.BillingIdentity.HasCustomCallCallbacks()
 	census.Ports.CapsResolverOccupied = in.RoutingRT.CapsResolver != nil

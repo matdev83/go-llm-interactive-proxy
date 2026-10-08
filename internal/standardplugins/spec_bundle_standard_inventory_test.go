@@ -55,6 +55,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"compaction-continuity",
 		"interleaved-thinking",
 		"keepwarm",
+		"model-system-prompt",
 		"parts-noop",
 		"path_virtualization",
 		"pre-request-policy",

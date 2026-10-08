@@ -9,6 +9,13 @@
     "tasks": { "generated": true, "approved": true }
   },
   "approval_basis": "User explicitly approved the execution plan recorded in /home/mateusz/.cache/tmp/opencode/feature-735/approved-plan.md and requested faithful spec materialization and sequential delegated implementation/review. Approval does not authorize scope expansion.",
-  "ready_for_implementation": true,
-  "completed": false
+  "ready_for_implementation": false,
+  "implementation_complete": true,
+  "completed": false,
+  "validation": {
+    "decision": "manual_verify_required",
+    "local_gates": "regex, quality, comprehensive tests, SQLite/PostgreSQL parity, build and service health passed",
+    "remote_race_fuzz": "not run; final branch has not been published",
+    "evidence": "/home/mateusz/.cache/tmp/opencode/feature-735/delivery-evidence.md"
+  }
 }

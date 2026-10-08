@@ -39,6 +39,7 @@ type Runtime struct {
 	compactionParentPort   *compaction.ParentPort
 	conversationStore      conversationview.Store
 	conversationStoreStock bool
+	bootstrapAuthority     bool
 	keepwarmPolicy         *keepwarm.PolicyStore
 	keepwarmRegistry       *keepwarm.ManagerRegistry
 	keepwarmMetrics        *keepwarm.PrometheusCollector
