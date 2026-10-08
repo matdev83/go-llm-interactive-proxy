@@ -1,6 +1,7 @@
 package dbparity
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // RunnerMode defines the execution mode of the dbparity runner.
@@ -24,7 +26,7 @@ const (
 	ModeSQLite RunnerMode = "sqlite"
 	// ModePostgresDirect executes the canonical PostgreSQL-direct parity wrappers in fail-closed mode.
 	ModePostgresDirect RunnerMode = "postgres-direct"
-	// ModeAll executes SQLite parity wrappers followed by PostgreSQL-direct parity wrappers.
+	// ModeAll executes the SQLite and PostgreSQL-direct parity wrappers concurrently.
 	ModeAll RunnerMode = "all"
 )
 
@@ -569,23 +571,98 @@ func Run(ctx context.Context, mode RunnerMode, opts PlanOptions, stdout, stderr 
 		}
 	}
 
+	if validatedMode == ModeAll {
+		return runConcurrentByBackend(ctx, plans, opts.BaseEnv, runner, stdout, stderr)
+	}
+	return runPlans(ctx, plans, opts.BaseEnv, runner, stdout, stderr)
+}
+
+// runPlans executes plans in order and stops at the first failure.
+func runPlans(ctx context.Context, plans []CommandPlan, baseEnv []string, runner func(*exec.Cmd) error, stdout, stderr io.Writer) error {
 	for _, plan := range plans {
-		cmd := plan.Cmd(ctx, opts.BaseEnv)
+		cmd := plan.Cmd(ctx, baseEnv)
 		cmd.Stdout = stdout
 		cmd.Stderr = stderr
-		if runErr := runner(cmd); runErr != nil {
-			wrappedErr := runErr
-			if ctx.Err() != nil {
-				wrappedErr = ctx.Err()
-			}
-			return &RunStepError{
-				Component: plan.ComponentID,
-				Package:   plan.Package,
-				Backend:   plan.Backend,
-				Err:       wrappedErr,
-			}
+		if err := runStep(ctx, plan, cmd, runner); err != nil {
+			return err
 		}
 	}
-
 	return nil
+}
+
+func runStep(ctx context.Context, plan CommandPlan, cmd *exec.Cmd, runner func(*exec.Cmd) error) error {
+	runErr := runner(cmd)
+	if runErr == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		runErr = ctx.Err()
+	}
+	return &RunStepError{
+		Component: plan.ComponentID,
+		Package:   plan.Package,
+		Backend:   plan.Backend,
+		Err:       runErr,
+	}
+}
+
+// runConcurrentByBackend runs each backend's plans in order, with the backends
+// concurrent: the SQLite and PostgreSQL halves share no state (PostgreSQL
+// tests isolate on per-test schemas), so there is no reason to serialize them.
+// Each command's output is written as one block, so concurrent commands never
+// interleave. The first failure cancels the other backend and is returned.
+func runConcurrentByBackend(ctx context.Context, plans []CommandPlan, baseEnv []string, runner func(*exec.Cmd) error, stdout, stderr io.Writer) error {
+	var order []string
+	groups := make(map[string][]CommandPlan)
+	for _, plan := range plans {
+		if _, ok := groups[plan.Backend]; !ok {
+			order = append(order, plan.Backend)
+		}
+		groups[plan.Backend] = append(groups[plan.Backend], plan)
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		outMu    sync.Mutex
+		errOnce  sync.Once
+		firstErr error
+		wg       sync.WaitGroup
+	)
+	fail := func(err error) {
+		errOnce.Do(func() {
+			firstErr = err
+			cancel()
+		})
+	}
+	for _, backend := range order {
+		wg.Go(func() {
+			for _, plan := range groups[backend] {
+				if runCtx.Err() != nil {
+					// Stopped by the other backend's failure (already reported)
+					// or by the caller (report that, as the sequential path does).
+					if ctx.Err() != nil {
+						fail(&RunStepError{Component: plan.ComponentID, Package: plan.Package, Backend: plan.Backend, Err: ctx.Err()})
+					}
+					return
+				}
+				var outBuf, errBuf bytes.Buffer
+				cmd := plan.Cmd(runCtx, baseEnv)
+				cmd.Stdout = &outBuf
+				cmd.Stderr = &errBuf
+				err := runStep(runCtx, plan, cmd, runner)
+				outMu.Lock()
+				_, _ = stdout.Write(outBuf.Bytes())
+				_, _ = stderr.Write(errBuf.Bytes())
+				outMu.Unlock()
+				if err != nil {
+					fail(err)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	return firstErr
 }
