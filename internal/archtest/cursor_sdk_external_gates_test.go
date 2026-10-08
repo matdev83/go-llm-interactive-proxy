@@ -10,8 +10,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// Cursor SDK delivery is an external connectors/cursorsdk artifact. These gates
-// keep the forbidden root-tree path absent and optional composition honest.
+// Host independence guard: the standard host has no active Cursor build/CI
+// dependency. These gates keep the forbidden root-tree path absent and optional
+// composition honest while the in-tree connectors/cursorsdk fallback remains
+// buildable until cutover task 6.2.
 
 func TestCursorSDK_forbiddenInternalPathAbsent(t *testing.T) {
 	t.Parallel()

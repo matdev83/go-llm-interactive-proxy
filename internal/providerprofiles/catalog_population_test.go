@@ -2075,7 +2075,6 @@ var dedicatedBackendAndConnectorIDs = map[string]bool{
 	"commandcode-anthropic":   true,
 	"commandcode-openai":      true,
 	"cursorcliacp":            true,
-	"cursorsdk":               true,
 	"geminicliacp":            true,
 	"huggingface":             true,
 	"llamacpp":                true,

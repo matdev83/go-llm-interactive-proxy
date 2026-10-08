@@ -18,7 +18,6 @@ func TestHostMultiUserBackendPolicy_defaultDeniesUnlistedFactories(t *testing.T)
 		"new-acp-agent-runtime",
 		"totally-bogus-factory",
 		"openai-codex-app-server",
-		"cursorsdk",
 		"acp",
 		"minimax-oauth",
 		"qwen-oauth",
@@ -94,7 +93,7 @@ func TestHostMultiUserBackendPolicy_neverApprovesLocalOrPersonalAuth(t *testing.
 			t.Fatalf("personal/subscription-auth factory %q must never be approved for multi_user", a.FactoryKind)
 		}
 	}
-	for _, kind := range []string{"acp", "agycliacp", "cursorcliacp", "geminicliacp", "cursorsdk"} {
+	for _, kind := range []string{"acp", "agycliacp", "cursorcliacp", "geminicliacp"} {
 		if policy.IsApproved(kind) {
 			t.Fatalf("agent-runtime factory %q must not be approved", kind)
 		}

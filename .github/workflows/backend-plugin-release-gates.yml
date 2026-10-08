@@ -2,9 +2,8 @@
 # installed-plugin release aggregation runs on Ubuntu after all lanes pass.
 # Full Windows runners fail intentional Windows admin-user refusals, CRLF gofmt
 # drift, and Markdown fence parsing; connector manifests do not advertise Darwin.
-# Native Windows/macOS coverage remains in focused cross-platform, process-tree,
-# and Cursor SDK smoke workflows (backend-plugin-cross-platform, ACP process-tree,
-# Cursor SDK Platform Smoke). Complements (does not replace) make qa.
+# Native Windows/macOS coverage remains in focused cross-platform and process-tree
+# workflows (backend-plugin-cross-platform, ACP process-tree). Complements (does not replace) make qa.
 name: Backend plugin release gates
 
 on:

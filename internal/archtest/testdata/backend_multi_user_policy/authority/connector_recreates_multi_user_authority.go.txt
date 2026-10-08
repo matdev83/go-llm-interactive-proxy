@@ -6,7 +6,7 @@
 package fixture
 
 // multiUserEligibilityTable re-creates the host approval registry in a connector.
-var multiUserEligibilityTable = map[string]bool{"cursorsdk": true}
+var multiUserEligibilityTable = map[string]bool{"synthetic-external-connector": true}
 
 // IsApprovedForMultiUser invents a local eligibility decision.
 func IsApprovedForMultiUser(kind string) bool { return multiUserEligibilityTable[kind] }

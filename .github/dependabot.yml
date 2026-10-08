@@ -22,7 +22,6 @@ updates:
       - /connectors/commandcode-anthropic
       - /connectors/commandcode-openai
       - /connectors/cursorcliacp
-      - /connectors/cursorsdk
       - /connectors/databricks
       - /connectors/geminicliacp
       - /connectors/gitlabduo
