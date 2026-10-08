@@ -14,9 +14,10 @@ const nodeIndependenceWorkflow = "node-independence.yml"
 
 // The No-Node lane costs about 7 minutes. It guards one property: the root build
 // must never need Node. Module/packaging inputs and the guard's own files always
-// run it; edits to the Makefile, scripts and tools run it only when the changed
-// lines mention a Node toolchain, so a one-line unrelated edit no longer costs
-// every PR the lane (the daily schedule still replays it).
+// run it; edits to the Makefile, scripts, tools and composite actions run it only
+// when the changed lines mention a Node toolchain, so a one-line unrelated edit
+// (a cache budget, a cache-action tweak) no longer costs every PR the lane (the
+// daily schedule still replays it).
 func TestNodeIndependenceScope_ContentJudgedFiles(t *testing.T) {
 	t.Parallel()
 	var workflow ciWorkflow
@@ -35,13 +36,14 @@ func TestNodeIndependenceScope_ContentJudgedFiles(t *testing.T) {
 
 	baseline := newQAGitFixture(t)
 	for path, text := range map[string]string{
-		"Makefile":                           ".PHONY: help\nhelp:\n\t@echo usage\n",
-		"scripts/helper.sh":                  "#!/usr/bin/env bash\necho helper\n",
-		"tools/devcheck/main.go":             "package main\n",
-		"internal/core/example.go":           "package core\n",
-		"docs/example.md":                    "doc\n",
-		"scripts/check-node-independence.sh": "#!/usr/bin/env bash\necho guard\n",
-		"go.mod":                             "module example\n",
+		"Makefile":                            ".PHONY: help\nhelp:\n\t@echo usage\n",
+		"scripts/helper.sh":                   "#!/usr/bin/env bash\necho helper\n",
+		"tools/devcheck/main.go":              "package main\n",
+		".github/actions/go-cache/action.yml": "name: cache\n",
+		"internal/core/example.go":            "package core\n",
+		"docs/example.md":                     "doc\n",
+		"scripts/check-node-independence.sh":  "#!/usr/bin/env bash\necho guard\n",
+		"go.mod":                              "module example\n",
 	} {
 		baseline.write(t, path, text)
 	}
@@ -55,11 +57,13 @@ func TestNodeIndependenceScope_ContentJudgedFiles(t *testing.T) {
 		{"unrelated makefile target", "Makefile", "lint:\n\t@echo lint\n", "false"},
 		{"unrelated script edit", "scripts/helper.sh", "echo more\n", "false"},
 		{"unrelated tool edit", "tools/devcheck/main.go", "// comment\n", "false"},
+		{"composite action edit", ".github/actions/go-cache/action.yml", "description: more\n", "false"},
 		{"go source edit", "internal/core/example.go", "// comment\n", "false"},
 		{"docs edit", "docs/example.md", "more\n", "false"},
 		{"makefile adds npm", "Makefile", "docs-site:\n\tnpm run build\n", "true"},
 		{"script adds npx", "scripts/helper.sh", "npx tsc\n", "true"},
 		{"tool references node", "tools/devcheck/main.go", "// uses node\n", "true"},
+		{"composite action adds node", ".github/actions/go-cache/action.yml", "run: npm ci\n", "true"},
 		{"guard script edit", "scripts/check-node-independence.sh", "echo changed\n", "true"},
 		{"module file edit", "go.mod", "// dep\n", "true"},
 	} {
