@@ -74,6 +74,29 @@ These are separate sequential observations, not averaged benchmark results.
 Lowering the default would have regressed this host. Leave the optional package
 budget unset unless measurements on the target machine justify an override.
 
+## Connector fixture executable size
+
+The two staged connector-fixture build helpers pass `-ldflags=-w` when building
+their real executable fixtures. Private copies and executable hash checks are
+unchanged; production build flags are unchanged. On Go 1.26.6/Linux/amd64 with
+`GOMAXPROCS=2`, two matched pairs in ABBA order of the ordinary runtimebundle
+suite used `-tags=precommit -ldflags=-w` test binaries and warmed the six fixed
+fixture build actions. Each run used `-test.parallel=2`, excluded
+only `TestRuntimebundle_NoCompleteOwnerCallbackEscapes`, and passed all 983
+reported top-level tests. The fixture checks and unprofiled frozen-generation
+leak check remained enabled and passed.
+The suite also exercises the shared helper through dogfood local-stub staging.
+
+| Mean of two fresh suite runs | Baseline | `-w` fixture builds | Change |
+| --- | ---: | ---: | ---: |
+| Wall time | 42.727 s | 38.896 s | −9.0% |
+| Process CPU | 53.514 s | 47.701 s | −10.9% |
+
+Peak RSS was higher and variable for the candidate, so this is not a memory
+improvement claim. A representative Codex fixture shrank from 34,587,590 to
+29,279,324 bytes (−15.35%). Build-time observations were unstable and are not
+claimed as a result.
+
 ## Local lint scope
 
 The selector regression fixtures use real Git repositories and Go import graphs.

@@ -97,7 +97,7 @@ func buildConnectorBinary(spec connectorBuildSpec) (builtBinary, error) {
 		return builtBinary{}, err
 	}
 	dst := filepath.Join(dir, binName)
-	cmd := exec.Command("go", "build", "-o", dst, spec.buildPkg)
+	cmd := exec.Command("go", "build", "-ldflags=-w", "-o", dst, spec.buildPkg)
 	cmd.Dir = filepath.Join(repo, filepath.FromSlash(spec.buildDir))
 	if spec.goWorkOff {
 		cmd.Env = append(os.Environ(), "GOWORK=off")
