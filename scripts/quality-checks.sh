@@ -226,7 +226,7 @@ collect_staged_scope() {
 
 	for file in "${STAGED_PATHS[@]}"; do
 		case "$file" in
-			pkg/lipsdk/feature/*|internal/archtest/*|scripts/generate-feature-planes.go|go.mod|go.sum|scripts/quality-checks.sh)
+			pkg/lipsdk/feature/*|internal/archtest/*|internal/featureplanegen/*|scripts/generate-feature-planes.go|go.mod|go.sum|scripts/quality-checks.sh)
 				STAGED_FEATURE_PLANES=true
 				;;
 		esac
@@ -336,8 +336,8 @@ staged_root_arch_scope_allows_generator_trimpath() {
 
 if [[ "$QUALITY_MODE" != "staged" || "$STAGED_FEATURE_PLANES" == true ]]; then
 	echo "[1/8] Checking generated feature planes..."
-	# The generator imports internal/archtest, so share the scoped arch build
-	# variant only when staged packages explicitly include that root package.
+	# The generator and archtest share featureplanegen, so match the scoped arch
+	# build variant when staged packages explicitly include that root package.
 	feature_generator_trim_flags=()
 	if staged_root_arch_scope_allows_generator_trimpath; then
 		feature_generator_trim_flags=(-trimpath)
