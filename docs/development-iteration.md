@@ -6,6 +6,26 @@ tests, builds, linting, cache lifecycle, and the automated cost watchdog.
 
 ## Use during development
 
+### Delivery command lookup
+
+| Scope | Existing command |
+| --- | --- |
+| Focused regression | `go test -run TestName ./path/to/pkg` |
+| One default root-module pass | `make test-quick` (one `go test ./...`); default unit target `make test-unit` |
+| Quality gate | `make quality-checks` |
+| Full default delivery | `make test` |
+| SQLite/PostgreSQL parity | `make test-db-parity`; dialect lanes `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct` |
+| Cross-protocol/backend matrix | `make parity-checks` |
+| Wide/release-grade change | `make qa` |
+| Explicit Windows cost ratchet | `make test-cost` (opt-in, not part of `make test`) |
+| Parser/decoder fuzz | `make test-fuzz` or targeted `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path` |
+
+Run focused checks during edits and applicable comprehensive gates after a
+coherent change. Include affected consumers when contracts change. A fresh final
+regression invocation may use `-count=1`; ordinary iterations preserve native
+caches and avoid forced rebuilds. Race execution remains remote-only under root
+`AGENTS.md`; this table grants no alternate local race path.
+
 ### Contract feedback and delivery slicing
 
 Before accepting a task that changes shared runtime/state, composition, persistence

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/execviewfixture"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -165,16 +166,14 @@ func TestWithViews_ProjectsAuthoritativeSessionToPublicSDKContext(t *testing.T) 
 func TestWithViews_DetachedChildMasksParentSessionAuthority(t *testing.T) {
 	t.Parallel()
 
-	parent := execctx.WithViews(context.Background(), execctx.Views{
-		Session: session.SessionView{AuthoritativeSessionID: "parent-session"},
-	})
+	parent := execctx.WithViews(context.Background(), execviewfixture.PoisonedParent("parent-a-leg"))
 	child := execctx.WithDetachedSession(parent, execctx.DetachedSession{ParentSessionID: "parent-session"})
 	child = execctx.WithViews(child, execctx.Views{Session: session.SessionView{ALegID: "child-a-leg"}})
 	got, ok := session.SessionViewFromContext(child)
 	if !ok {
 		t.Fatal("detached child session view missing")
 	}
-	if got.AuthoritativeSessionID != "" {
+	if got.AuthoritativeSessionID != "" || len(got.Labels) != 0 || got.TurnID != "" {
 		t.Fatalf("detached child inherited primary session authority: %+v", got)
 	}
 }
@@ -220,9 +219,7 @@ func TestWithViews_ProjectsPinnedWorkspaceToPublicSDKContext(t *testing.T) {
 func TestWithViews_EmptyWorkspaceStillOverwritesInheritedAuthority(t *testing.T) {
 	t.Parallel()
 
-	parent := execctx.WithViews(context.Background(), execctx.Views{
-		Workspace: workspace.WorkspaceView{ID: "ws-parent", ProjectRoot: "/parent/repo"},
-	})
+	parent := execctx.WithViews(context.Background(), execviewfixture.PoisonedParent("parent-a-leg"))
 	child := execctx.WithViews(parent, execctx.Views{Session: session.SessionView{ALegID: "child-a-leg"}})
 	got, ok := workspace.WorkspaceViewFromContext(child)
 	if !ok {

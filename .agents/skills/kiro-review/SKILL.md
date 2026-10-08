@@ -32,7 +32,7 @@ Provide:
 - Relevant requirement section numbers
 - Relevant design section numbers
 - Spec file paths (`requirements.md`, `design.md`, optionally `tasks.md`)
-- The implementer's status report
+- The implementation artifact path (see `docs/agent-handoffs.md`)
 - The task `_Boundary:_` scope constraints
 - Validation commands discovered by the controller
 - Relevant steering excerpts when applicable
@@ -67,7 +67,7 @@ Run these checks and use the result as primary signal.
 
 ### 1. Regression Safety
 - Run the project's canonical test suite using the validation commands discovered by the controller.
-- If tests fail, reject.
+- Reject attributable failures. Failures that also reproduce on `origin/main` are recorded under delivery steering, not treated as this task's regressions.
 
 ### 2. No Residual Placeholder Markers
 - Check changed files for `TBD`, `TODO`, `FIXME`, `HACK`, `XXX`.
@@ -83,7 +83,7 @@ Run these checks and use the result as primary signal.
 - Reject if the implementation introduces hidden cross-boundary coordination inside what should be a local task.
 
 ### 5. RED Phase Evidence
-- For behavioral tasks, verify that the implementer status report includes `RED_PHASE_OUTPUT`.
+- For behavioral tasks, inspect the implementation artifact's RED command/log under `docs/agent-handoffs.md`.
 - Reject if RED evidence is missing, empty, or unrelated to the task's acceptance criteria.
 
 ### 6. Runtime-Sensitive Static Checks
@@ -115,6 +115,7 @@ Run these checks and use the result as primary signal.
 - Reject if downstream-specific behavior is pushed into an upstream boundary for convenience.
 - Reject if the implementation creates new hidden dependencies, shared ownership, or undeclared coupling across adjacent boundaries.
 - Reject if a task that is not an explicit integration task now behaves like one.
+- When a stage moves across an authority/context/lifecycle seam, compare its old/new inputs: what becomes visible, disappears or changes provenance? Require conflict-seeded behavioral evidence for that changed boundary, not an exhaustive matrix. `internal/testkit/execviewfixture.PoisonedParent` seeds distinguishable request views; existing execctx and detached-runtime tests show how to prove masking while preserving trusted attribution. This is a judgment audit, not a syntactic lint rule.
 
 ### 11. Test Quality
 - Confirm tests prove the required behavior rather than only scaffolding.
@@ -151,21 +152,9 @@ Escalate instead of papering over the issue when:
 
 ## Output Format
 
-```md
-## Review Verdict
-- VERDICT: APPROVED | REJECTED
-- TASK: <task-id>
-- MECHANICAL_RESULTS:
-  - Tests: PASS | FAIL (command and exit code)
-  - TBD/TODO grep: CLEAN | <count> matches
-  - Secrets grep: CLEAN | <count> matches
-  - Static checks: PASS | FAIL | SPOT_CHECKED
-  - Boundary: WITHIN | <files outside boundary>
-  - Boundary audit: CLEAN | <spillover / hidden dependency findings>
-  - RED phase: VERIFIED | MISSING | N/A
-- FINDINGS:
-  1. <specific finding with exact files/spec refs>
-- REMEDIATION: <mandatory if REJECTED>
-- SUMMARY: <one sentence>
-```
+Write and validate the assigned reviewer JSON artifact using
+`docs/agent-handoffs.md`. Include independently executed checks, actual exit
+codes/logs, source identity, severity/location/spec references and actionable
+remediation for rejection. Return its path and a short summary; formatting is not
+a protocol and schema validity is not an approval decision.
 </instructions>
