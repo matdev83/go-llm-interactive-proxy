@@ -145,6 +145,11 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: go run ./tools/changesize --base "$BASE_SHA" --head HEAD
 
+      - name: Validate staged commit quality checks
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        shell: bash
+        run: bash scripts/test-quality-checks.sh
+
       - name: Validate test quarantine
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
         run: go run ./tools/devcheck -task=quarantine
