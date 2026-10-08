@@ -1,5 +1,5 @@
 # Monthly Go modernization / vulnerability hygiene.
-# Runs the modernize linter suite and govulncheck on a schedule.
+# Reports advisory modernization findings and enforces govulncheck on a schedule.
 name: Modernize monthly
 
 on:
@@ -29,11 +29,22 @@ jobs:
         with:
           lane: qa
 
-      - name: golangci-lint (modernize only)
+      # Modernize is advisory under .golangci.yml; tool/configuration failures
+      # still fail this step. Keep findings visible in a downloadable report.
+      - name: golangci-lint (modernize advisory report)
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.12.2
-          args: --timeout=10m --enable-only=modernize
+          args: --timeout=10m --enable-only=modernize --issues-exit-code=0 --output.text.path=${{ runner.temp }}/modernize-report.txt
+
+      - name: Upload modernization report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: modernization-report
+          path: ${{ runner.temp }}/modernize-report.txt
+          if-no-files-found: warn
 
       - name: govulncheck
+        if: ${{ !cancelled() }}
         run: go tool govulncheck ./...

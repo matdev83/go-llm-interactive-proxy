@@ -9,7 +9,6 @@ import (
 	"maps"
 	"os"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 
@@ -32,19 +31,6 @@ type gateSpec struct {
 
 // defaultMakeGateTimeout bounds a `make` gate that does not declare a budget.
 const defaultMakeGateTimeout = 20 * time.Minute
-
-// raceScanGateTimeout is the operational deadline the release-gates runner
-// applies to `make test-race`. scripts/race-check.sh runs the broad, billing,
-// support, runtime and architecture lanes sequentially inside one process,
-// while the Release workflow runs those same lanes as parallel matrix jobs and
-// picks each budget from a workflow expression. No single workflow job budget
-// therefore describes this scan. This deadline bounds one sequential execution
-// and is not a certification guarantee that the scan completes: a sequential
-// run that outlasts it is reported as a gate failure, and the Linux race
-// evidence for that SHA is then the partitioned Release lanes' responsibility.
-// Raise it only against a measured sequential run, never from the sum of the
-// per-lane CI budgets.
-const raceScanGateTimeout = 60 * time.Minute
 
 func (g gateSpec) makeTimeout() time.Duration {
 	if g.Timeout > 0 {
@@ -83,7 +69,7 @@ func rootGateCatalog() []gateSpec {
 		{Name: "backend_plugin_absence_checks", Kind: "make", Args: []string{"backend-plugin-absence-checks"}},
 		{Name: "isolated_root_qa", Kind: "make", Args: []string{"isolated-root-qa"}},
 		{Name: "installed_plugin_smoke", Kind: "make", Args: []string{"installed-plugin-smoke"}},
-		{Name: "race_scan", Kind: "make", Args: []string{"test-race"}, Timeout: raceScanGateTimeout, Notes: "windows skip recorded as external_blocker; linux/macOS execute"},
+		{Name: "race_scan", Kind: "external", Notes: "strict Linux race matrix must pass for this SHA before the release-gates aggregate runs"},
 		{Name: "security_fuzz_subset", Kind: "builtin", Notes: "covered by backend-plugin-security-checks FuzzManifest/FuzzServerFrame; full make test-fuzz not required in this gate"},
 
 		{Name: "security_external_ci", Kind: "external", Notes: "phase9-task93 linux race/security + darwin peer-cred"},
@@ -268,13 +254,6 @@ func runGate(root string, g gateSpec, observed map[string]gateResult) gateResult
 			res.Detail = stableOK
 		}
 	case "make":
-		if g.Name == "race_scan" && runtime.GOOS == "windows" {
-			res.Status = "external_blocker"
-			res.OK = true
-			res.Detail = "windows race detector skipped; linux/macOS CI must observe make test-race"
-			res.Command = "make test-race"
-			break
-		}
 		result := runner.Run(context.Background(), runner.Request{
 			Argv:    append([]string{"make"}, g.Args...),
 			Dir:     root,
