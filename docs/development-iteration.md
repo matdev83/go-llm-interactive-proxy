@@ -387,6 +387,14 @@ PR code or consumes PR artifacts. Cleanup also runs periodically. This bounds
 obsolete accumulation, but cannot guarantee that the repository's configured
 capacity fits all simultaneously active lanes and PRs.
 
+Evictions are otherwise silent, so two diagnostics surface them. The retention
+run summary (workflow `Go cache retention`) lists repository cache usage against
+the 10 GiB cap and the newest main snapshot of every lane, and warns when usage
+passes 80%, when retention removes the only main snapshot of a lane, or when a
+lane in `policy.json` has none. Any job whose lane restores no compiler snapshot
+emits a `Go cache <lane> restored no compiler snapshot` warning annotation:
+a slow job with that warning is a cold lane, not a regression.
+
 ## Regression prevention
 
 - QA guards require source-advancing, toolchain/job-isolated cache keys, matching
