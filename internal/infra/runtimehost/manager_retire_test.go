@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -520,5 +521,40 @@ func TestManagerRetire_ObserverReceivesLifecycleTelemetry_NoManagerStatusCache(t
 	}
 	if st1.GenerationID != g1.ID() || st2.GenerationID != g1.ID() {
 		t.Fatalf("status generation id mismatch: %+v / %+v", st1, st2)
+	}
+}
+
+// 8. The last lease released while the async retirement of a just-replaced
+// generation is starting must still close it. Release moves a Retiring
+// generation straight to Drained; a retirement that had already read the
+// Retiring state used to fail its Retiring->Quiescing step on that and give up,
+// so nothing ever closed the generation. The release is issued from its own
+// goroutine after 0-7 scheduler yields to land it at different points of the
+// retirement's start-up.
+func TestManagerRetire_LastLeaseReleasedAsRetirementStartsStillCloses(t *testing.T) {
+	t.Parallel()
+	for i := 0; i < 2000; i++ {
+		m := runtimehost.NewManager(2, nil)
+		closed := make(chan struct{})
+		owned := &ledgerOwned{closeFn: func() error { close(closed); return nil }}
+		g1 := m.PrepareOwned("g1", owned)
+		mustPublish(t, m, g1)
+		lease, ok := m.Acquire()
+		if !ok {
+			t.Fatal("acquire g1 lease")
+		}
+		yields := i % 8
+		go func() {
+			for j := 0; j < yields; j++ {
+				runtime.Gosched()
+			}
+			lease.Release() // races with g1's background retirement
+		}()
+		mustPublish(t, m, m.Prepare("g2")) // starts g1's background retirement
+		select {
+		case <-closed:
+		case <-time.After(retireWait):
+			t.Fatalf("iteration %d: g1 never closed (lifecycle=%v refs=%d quiesces=%d)", i, g1.Lifecycle(), g1.Refs(), owned.quiesces.Load())
+		}
 	}
 }

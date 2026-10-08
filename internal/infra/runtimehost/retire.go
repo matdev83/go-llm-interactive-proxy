@@ -76,12 +76,13 @@ func retireGeneration(ctx context.Context, g *Generation, policy CleanupPolicy, 
 	owned := generationQuiesceCloser(g)
 	var out error
 
-	switch st {
-	case GenRetiring:
-		if err := g.BeginQuiesce(); err != nil {
+	if st == GenRetiring { // the last lease can drain first: Retiring -> Drained
+		if err := g.BeginQuiesce(); err != nil && g.Lifecycle() == GenRetiring {
 			return status, errors.Join(out, err)
 		}
-		fallthrough
+		st = g.Lifecycle()
+	}
+	switch st {
 	case GenQuiescing:
 		out = errors.Join(out, runQuiesce(ctx, owned, observer, &status))
 		if err := g.MarkQuiesced(); err != nil {
