@@ -24,6 +24,7 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
   - Record pre-existing failures separately from rebranding regressions; do not normalize a red baseline into acceptance.
   - Confirm the standard distribution currently builds in the baseline tree.
   - Record the exact baseline commit SHA.
+  - Reconcile the spec's path/package examples against that exact tree before assigning work: current owners win over historical file examples, and completed architecture moves (including standard feature composition under `internal/standardplugins/featurehost`) must be preserved rather than recreated.
   - Observable completion: a short implementation log identifies the exact baseline commit and green/failing commands before mutations start.
   - _Requirements: 8.1, 10.1_
   - _Boundary: tests / repository quality_
@@ -33,8 +34,9 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
 - [ ] 1.2 Capture nested-module and release-producer baseline
   - Run the repository's existing all-module checks with the same `GOWORK` behavior used by CI/scripts.
   - Identify connector-support modules separately from connector modules and record every root, support-to-support, and connector-to-support dependency edge.
+  - Record the complete maintained module set discovered by the canonical validator, including non-connector fixture modules under `testdata/**` or successor locations; current `scripts/check-all-modules.sh` explicitly includes the enterprise/external fixture modules.
   - Inventory build/release/package/container producers that can create artifacts outside the tracked tree, including release tooling and standard executable outputs.
-  - Observable completion: every nested module is classified as clean or as a documented pre-existing exception, and every producible artifact family has an identified producer.
+  - Observable completion: every maintained independent module—not only connector modules—is classified as clean or as a documented pre-existing exception, and every producible artifact family has an identified producer.
   - _Requirements: 2.5, 3.4, 8.1_
   - _Boundary: connector modules / release producers / tests_
   - _Depends: 1.1_
@@ -574,16 +576,16 @@ This is a **sequential refactor on the critical path**. Do not merge major tasks
 - [ ] 11.4 Run complete nested-module and parity/integration-oriented gates
   - Run the full platform-appropriate all-module validation after final cleanup using the same `GOWORK` behavior as CI/scripts.
   - Run repository parity/contract gates using configured external services where applicable; existing environment-gated skips remain valid when dependencies are unavailable.
-  - Observable completion: root/support/every connector agree on the target namespace and contract suites pass.
+  - Observable completion: root/support/every connector **and every maintained external fixture module** agree on the target namespace and contract suites pass.
   - _Requirements: 3.5, 8.5, 10.3, 10.6_
-  - _Boundary: complete connector/support module graph / contract tests_
+  - _Boundary: complete maintained module graph / contract tests_
   - _Depends: 11.3_
   - _Validation: platform-appropriate full all-module check script plus `make parity-checks`_
 
 - [ ] 11.5 Run final QA and full clean-clone target-host convergence
   - Run the repository's full QA target in the migration workspace.
   - Clone a fresh working copy from `github.com/aiproxer/aiproxer` with no local replacement state or migration helper carried from the migration workspace.
-  - In the clean clone, run the **same platform-appropriate full all-module validation script with CI-equivalent `GOWORK` behavior**, covering root, every connector-support module, and every connector module. Do not substitute representative nested modules.
+  - In the clean clone, run the **same platform-appropriate canonical dynamic all-module validation with CI-equivalent `GOWORK` behavior**, covering root, every connector-support module, every connector module, and every maintained external fixture module discovered/injected by that validator. Do not substitute representative nested modules.
   - Build/test `./cmd/aipstd` and run the standard distribution/release/configuration smoke using target names only.
   - Regenerate the mandatory artifact set from the frozen manifest in the clean clone and repeat all artifact probes.
   - Re-run the same frozen source/artifact Legacy Token Set scan in the clean clone and verify provenance/checksums match Task 11.2.

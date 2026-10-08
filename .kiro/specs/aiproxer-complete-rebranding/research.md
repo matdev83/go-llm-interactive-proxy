@@ -2,7 +2,7 @@
 
 ## Scope and source of truth
 
-This specification implements Issue #429 as a complete rebranding of the existing product to **AIProxer** for human-readable product presentation, with `aiproxer` as the lowercase machine/repository/module slug. The issue is the authoritative source for the legacy-name set and the target naming scheme. The durable specification intentionally refers to the source names as the **Legacy Token Set** rather than reproducing them: the requested end state is a tracked tree with no remaining source-brand references, so embedding those spellings in the new specification would make the specification itself violate the completion condition.
+This specification implements the rebranding defined by Issue #429 under the active execution work order #641. Issue #429 is now historical planning/specification evidence; #641 is the authoritative implementation tracker and direct OSS Base gate. The product becomes **AIProxer** for human-readable product presentation, with `aiproxer` as the lowercase machine/repository/module slug. Issue #429 remains the authoritative source for the legacy-name set and target naming scheme. The durable specification intentionally refers to the source names as the **Legacy Token Set** rather than reproducing them: the requested end state is a tracked tree with no remaining source-brand references, so embedding those spellings in the new specification would make the specification itself violate the completion condition.
 
 The target identities are:
 
@@ -39,7 +39,7 @@ The root `go.mod` declares the current repository namespace as the module path. 
 
 ### 2. The repository contains independent nested Go modules
 
-Connector-support modules and many connector modules have their own `go.mod` files. They require the root module and, in some cases, shared connector-support modules; local development uses relative `replace` directives. There is no repository `go.work` coordinating them.
+Connector-support modules and many connector modules have their own `go.mod` files. They require the root module and, in some cases, shared connector-support modules; local development uses relative `replace` directives. There is no repository `go.work` coordinating them. Current `main` also maintains independent external/architecture fixture modules under `testdata/**`; `scripts/check-all-modules.sh` explicitly injects those fixtures into the discovered module set before validating all discovered modules with `GOWORK=off`.
 
 **Consequence:** the module-path migration has an internal dependency order:
 
@@ -111,9 +111,23 @@ An out-of-tree pattern source avoids committing retired spellings, but an unspec
 
 ### 10. Clean-clone validation must cover the whole module graph
 
-A representative connector subset is insufficient for final proof because every connector/support module has independent module metadata and local replacement edges.
+A representative connector subset is insufficient for final proof because every connector/support module has independent module metadata and local replacement edges. The current validation contract is broader still: maintained external fixture modules participate in the all-module gate and therefore must migrate and validate with the rest of the graph.
 
 **Consequence:** the final clean clone must run the same platform-appropriate all-module validation used by CI, with the same `GOWORK` behavior, in addition to root QA, standard-distribution build/release smoke, artifact scanning, and the zero-legacy scan.
+
+## Current-main revalidation — 2026-10-08
+
+The repository has materially advanced since the original SDD baseline and since the September path-coverage repair. The implementation plan must therefore be treated as a **migration algorithm over current `main`**, not as a frozen map of the older tree.
+
+Observed current-main changes that affect execution:
+
+- the core-feature ownership work is completed and archived; standard feature composition is now explicitly centralized under `internal/standardplugins/featurehost`, while generic `internal/infra/runtimebundle` is expected to remain free of concrete feature ownership;
+- completed/archived baselines now include billing convergence, ingress self-defense, explicit completion, B-leg path virtualization, coding-agent session classification, BetterLeaks/secret guarding, and related follow-up repairs;
+- ACP support has expanded the nested module graph, including `connector-support/acp` and ACP-oriented connector modules;
+- the canonical all-module validator is dynamic (`scripts/check-all-modules.sh`) and explicitly includes maintained fixture modules under `testdata/enterprise_module`, `testdata/external_connector`, `testdata/external_feature_sdk`, and `testdata/external_billing_binding`;
+- CI and local validation have changed substantially, including merge-queue required-check wiring and bounded/parallelized heavy Go validation. Rebranding must update identities without undoing those current validation semantics.
+
+**Implication:** Task 1 must capture an exact current-main SHA, discover modules and functional paths from the repository's current tooling, and map renamed equivalents onto current owners. Old file/package examples in this SDD are directional only when the corresponding current owner has moved. No implementation task may recreate an older package/composition shape solely to match this document.
 
 ## Requirements gap analysis
 
