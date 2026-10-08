@@ -2,35 +2,11 @@ package bundle_test
 
 // Spec: b-leg-path-virtualization Task 12.1, requirements.md 7.3, 7.6, 7.7, 9.1 and 9.5.
 //
-// This file is the OPERATOR-FACING statement of the pass-breakdown fix, driven through the
-// SHIPPED composition seam exactly as the sibling audit suite does (config.Decode ->
-// bundle.FeatureBundleWithTelemetry -> telemetry.Snapshot). A fix that existed only in the
-// telemetry package would leave the wiring free to drop the dimension, and the wiring is
-// where the defect actually reached an operator.
-//
-// The defect: with the shipped two-pass composition, an AUDIT deployment's generation-wide
-// saving was exactly TWICE the rewrite deployment's for identical traffic, because the
-// rewrite publishes the alias and the late pass then measures nothing, while the audit
-// publishes nothing and the late pass measures the same figure again. Requirement 9.5 asks
-// for the realized per-candidate saving to be CALCULABLE, and a doubled total with no way
-// to see why is not calculable.
-//
-// What is pinned here:
-//
-//	THE GENERATION TOTAL IS NOW ASSERTED. The sibling suite deliberately left it
-//	    unasserted because no correct answer had been decided. There is one now, and it is
-//	    the arithmetic the two modes actually produce: a rewrite reports one pass's worth
-//	    and an audit reports two.
-//	THE PER-CANDIDATE FIGURE IS RECOVERABLE AND MODE-INDEPENDENT. The early pass's row is
-//	    the same figure in both modes, and it is exactly what the rewrite deployment
-//	    publishes as its total. That is the number requirement 9.5 asks an operator to be
-//	    able to calculate, and it is now readable rather than inferred.
-//	CARDINALITY IS BOUNDED AND CONTENT-FREE. The rows are a fixed-size series over a
-//	    closed label set, and the hostile private fixture's tool name, pointer, root,
-//	    alias, and tag appear in none of them.
-//
-// NOTHING HERE DEPENDS ON A HOST PATH OR A WALL CLOCK. Every figure is a count or a byte
-// total derived from the mapper's own decision, and every failure message is bounded.
+// Pass rows describe observations, not distinct candidates. Audit sees unchanged
+// paths in both passes; rewrite's second pass sees aliases and has no new saving.
+// The total therefore names pass opportunities explicitly. Late-shaping coverage
+// in opportunity_test.go prevents treating the early row as candidate savings.
+// Rows remain bounded and content-free through the reader-enabled bundle seam.
 
 import (
 	"strconv"
@@ -69,13 +45,9 @@ func savingsPassRowsSum(s telemetry.Snapshot) (saved, eligible int64) {
 	return saved, eligible
 }
 
-// TestThePerCandidateSavingIsRecoverableFromThePassRows is requirement 9.5 at the seam an
-// operator reads.
-//
-// The fixture drives the PRODUCTION ordering - one shared candidate seen by both passes -
-// because that is the only shape in which the two modes differ at all. Every occurrence tier
-// and flavor is run so the recovery rule cannot hold for one shape only.
-func TestThePerCandidateSavingIsRecoverableFromThePassRows(t *testing.T) {
+// TestPassRowsExposeRepeatedAuditOpportunities drives one unchanged candidate
+// through the two passes across the supported fixture flavors and sizes.
+func TestPassRowsExposeRepeatedAuditOpportunities(t *testing.T) {
 	t.Parallel()
 	for _, flavor := range auditSavingsFlavors {
 		for _, occurrences := range auditSavingsOccurrenceTiers {
@@ -121,8 +93,8 @@ func TestThePerCandidateSavingIsRecoverableFromThePassRows(t *testing.T) {
 					t.Errorf("%s: the rewrite late-pass row = %+v, want one report and no measurement",
 						name, late)
 				}
-				if got := mutated.final.Total.BytesSaved; got != perCandidate {
-					t.Errorf("%s: the rewrite generation saving = %d, want %d", name, got, perCandidate)
+				if got := mutated.final.Total.PassObservedOpportunityBytes; got != perCandidate {
+					t.Errorf("%s: rewrite pass opportunity sum = %d, want %d", name, got, perCandidate)
 				}
 
 				// An AUDIT measures the same unmutated candidate twice, and now says so:
@@ -139,29 +111,22 @@ func TestThePerCandidateSavingIsRecoverableFromThePassRows(t *testing.T) {
 					t.Errorf("%s: the audit rows saved %d and %d, want %d each",
 						name, auditEarly.BytesSaved, auditLate.BytesSaved, perCandidate)
 				}
-				if got, want := audit.final.Total.BytesSaved, 2*perCandidate; got != want {
-					t.Errorf("%s: the audit generation saving = %d, want %d: the late pass "+
+				if got, want := audit.final.Total.PassObservedOpportunityBytes, 2*perCandidate; got != want {
+					t.Errorf("%s: audit pass opportunity sum = %d, want %d: the late pass "+
 						"re-measured the same unmutated candidate", name, got, want)
 				}
 
-				// The requirement itself: the per-candidate figure is the attempt row, and
-				// it is the SAME number in both modes and equal to what a rewrite
-				// deployment publishes as its whole total.
+				// The early passes see identical input and measure the same opportunity.
 				if auditEarly.BytesSaved != mutatedEarly.BytesSaved {
-					t.Errorf("%s: the recoverable per-candidate saving differs by mode: audit %d, rewrite %d",
+					t.Errorf("%s: early opportunity differs by mode: audit %d, rewrite %d",
 						name, auditEarly.BytesSaved, mutatedEarly.BytesSaved)
 				}
-				if auditEarly.BytesSaved != mutated.final.Total.BytesSaved {
-					t.Errorf("%s: the audit deployment's recoverable figure %d is not the rewrite deployment's total %d",
-						name, auditEarly.BytesSaved, mutated.final.Total.BytesSaved)
-				}
-
 				// The breakdown partitions the same measurement rather than restating it.
 				for label, snapshot := range map[string]telemetry.Snapshot{"audit": audit.final, "rewrite": mutated.final} {
 					saved, eligible := savingsPassRowsSum(snapshot)
-					if saved != snapshot.Total.BytesSaved {
+					if saved != snapshot.Total.PassObservedOpportunityBytes {
 						t.Errorf("%s/%s: the rows sum to %d but the total is %d",
-							name, label, saved, snapshot.Total.BytesSaved)
+							name, label, saved, snapshot.Total.PassObservedOpportunityBytes)
 					}
 					if eligible != snapshot.Outbound.Virtualized.Eligible {
 						t.Errorf("%s/%s: the rows account for %d eligible occurrences but the tally is %d",

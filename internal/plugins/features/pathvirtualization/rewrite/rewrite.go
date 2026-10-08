@@ -95,7 +95,9 @@ func (r *Rewriter) RewriteCall(call *lipapi.Call) (*lipapi.Call, Stats, error) {
 		return call, Stats{}, walk.err
 	}
 	stats := walk.acc.stats()
-	if walk.out == nil {
+	// All surface handlers build the same candidate. Only this boundary can
+	// publish it, including wrapped arguments and legacy envelopes.
+	if walk.out == nil || !walk.publishes() {
 		return call, stats, nil
 	}
 	return walk.out, stats, nil
@@ -268,7 +270,7 @@ func (w *callWalker) rewriteToolCallItem(toolName string, arguments []byte, assi
 	if !changed {
 		return
 	}
-	rewrapped, err := json.Marshal(string(rewritten))
+	rewrapped, err := marshalJSONString(rewritten)
 	if err != nil {
 		w.err = err
 		return
@@ -328,7 +330,10 @@ func decodeFunctionCallEnvelope(content []byte) (functionCallEnvelope, bool) {
 	if err := json.Unmarshal(trimmed, &env); err != nil {
 		return env, false
 	}
-	if env.Type != "function_call" || env.Name == "" || env.CallID == "" || len(env.Arguments) == 0 {
+	if env.Type != "function_call" || env.Name == "" || env.CallID == "" {
+		return env, false
+	}
+	if _, wrapped := unwrapJSONString(env.Arguments); !wrapped {
 		return env, false
 	}
 	return env, true
@@ -349,10 +354,7 @@ func (w *callWalker) rewriteEnvelopePart(message, part int, value lipapi.Part) {
 	if !ok {
 		return
 	}
-	inner, wrapped := unwrapJSONString(env.Arguments)
-	if !wrapped {
-		inner = env.Arguments
-	}
+	inner, _ := unwrapJSONString(env.Arguments)
 	resolved := w.resolveToolCall(env.Name)
 	rewritten, changed, err := w.rewriter.rewriteDocument(inner, resolved.ArgPointers, &w.acc)
 	if err != nil {
@@ -362,18 +364,19 @@ func (w *callWalker) rewriteEnvelopePart(message, part int, value lipapi.Part) {
 	if !changed {
 		return
 	}
-	arguments, err := marshalJSONString(rewritten)
+	// Splice only the arguments string; keep outer whitespace, member order,
+	// escaping, and unrelated identity literals exactly as received.
+	selector, _ := pathvirtualization.ParseSelector("/arguments")
+	out, pass, err := ApplySelectedValues(value.Content, pathvirtualization.SelectorSet{selector}, func(string) ValueDecision {
+		return ValueDecision{Replacement: string(rewritten), Eligible: true}
+	})
 	if err != nil {
 		w.err = err
 		return
 	}
-	env.Arguments = arguments
-	out, err := json.Marshal(env)
-	if err != nil {
-		w.err = err
-		return
+	if pass.Changed && !pass.Refused {
+		w.working().Messages[message].Parts[part].Content = out
 	}
-	w.working().Messages[message].Parts[part].Content = out
 }
 
 // unwrapJSONString reports whether raw is a JSON string and, when it is, the
@@ -573,7 +576,7 @@ func (w *callWalker) rewritePayload(payload []byte, pointers pathvirtualization.
 		w.err = err
 		return
 	}
-	if changed && w.publishes() {
+	if changed {
 		assign(rewritten)
 	}
 }
@@ -590,22 +593,13 @@ func (w *callWalker) rewriteOpaque(text string, mode pathvirtualization.OpaqueRe
 		return
 	}
 	rewritten, changed := w.rewriter.rewriteOpaqueText(text, mode, &w.acc)
-	if changed && w.publishes() {
+	if changed {
 		assign(rewritten)
 	}
 }
 
-// publishes reports whether a detected replacement reaches the published call.
-//
-// This is the only reader of the rollout mode in the package, and it is
-// deliberately the only difference between the two modes. Detection, selector
-// resolution, the mapping decision, and the opaque recognizers all run
-// unconditionally, so an audit walk and a rewrite walk over one input read the same
-// bytes and reach the same verdict (requirement 7.3).
-//
-// Failing closed on an undefined mode is the safe direction: a mode value this build
-// does not define measures rather than mutates, so a misconfigured generation can
-// never publish a request rewritten under an unstated policy.
+// publishes is the single outbound publication policy. Undefined modes measure
+// without publishing, just like audit.
 func (w *callWalker) publishes() bool { return w.rewriter.mode == ModeRewrite }
 
 // declaredSchema returns the declared argument schema of the exact-named tool, or

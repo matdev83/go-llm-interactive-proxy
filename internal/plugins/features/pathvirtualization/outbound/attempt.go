@@ -191,34 +191,7 @@ func (t *AttemptTransform) HandleAttempt(
 	// disagree with the turn's root, because a cache can outlive the value it was built
 	// from. Re-deriving cannot disagree with the pin it reads, and every participant of
 	// one logical turn reads the same pinned view.
-	mapping, rootReason := pathvirtualization.DeriveMapping(meta.Workspace.ProjectRoot)
-	if rootReason != pathvirtualization.SkipReasonNone {
-		t.record(Report{Pass: PassAttempt, Outcome: OutcomeProjectRootUnusable, RootReason: rootReason})
-		return request.AttemptDecision{Kind: request.AttemptContinue}, nil
-	}
-
-	published, stats, err := t.bind(mapping).RewriteCall(call)
-	if err != nil {
-		// Fail open (requirements.md 8.2). Nothing is written back: the candidate
-		// keeps the exact value the runtime built, so the real path reaches the
-		// backend and no partially rewritten call can escape. The statistics the
-		// rewriter returned alongside its error describe work it did not publish, so
-		// they are deliberately dropped rather than reported.
-		t.record(Report{Pass: PassAttempt, Outcome: OutcomeTransformationFailed})
-		return request.AttemptDecision{Kind: request.AttemptContinue}, nil
-	}
-	// The rewriter publishes the input pointer itself when nothing changed, which is
-	// what makes reapplication free (requirements.md 2.9, and the precondition for
-	// Task 5.2's idempotent request-part pass). Publishing only a different pointer
-	// therefore cannot disturb an already virtualized candidate.
-	//
-	// There is nothing to publish onto without a call, and the rewriter answers a nil
-	// call with a nil publication, so the guard is what keeps an absent call from
-	// becoming a nil dereference on the hot path.
-	if call != nil && published != nil && published != call {
-		*call = *published
-	}
-	t.record(Report{Pass: PassAttempt, Outcome: OutcomeRewriterRan, Stats: stats})
+	t.record(apply(call, meta.Workspace.ProjectRoot, PassAttempt, t.bind))
 	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
 }
 

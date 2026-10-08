@@ -231,36 +231,7 @@ func (h *RequestPartHook) HandleRequestParts(
 		h.record(Report{Pass: PassRequestPart, Outcome: OutcomeWorkspaceUnresolved})
 		return nil
 	}
-	mapping, rootReason := pathvirtualization.DeriveMapping(root)
-	if rootReason != pathvirtualization.SkipReasonNone {
-		h.record(Report{Pass: PassRequestPart, Outcome: OutcomeProjectRootUnusable, RootReason: rootReason})
-		return nil
-	}
-
-	published, stats, err := h.bind(mapping).RewriteCall(call)
-	if err != nil {
-		// Fail open (requirements.md 8.2). Nothing is written back: the request keeps
-		// the exact value the runtime built, so the real path reaches the backend and
-		// no partially rewritten call can escape. The statistics the rewriter returned
-		// alongside its error describe work it did not publish, so they are
-		// deliberately dropped rather than reported.
-		h.record(Report{Pass: PassRequestPart, Outcome: OutcomeTransformationFailed})
-		return nil
-	}
-	// The rewriter publishes the input pointer itself when nothing changed, which is
-	// exactly what an already virtualized call produces and what makes this pass free
-	// on the common path (requirements.md 2.9). Publishing only a different pointer
-	// therefore cannot disturb a request the early pass already virtualized, and it
-	// cannot alias a payload byte the runtime still owns, because the published value
-	// is a deep copy.
-	//
-	// There is nothing to publish onto without a call, and the rewriter answers a nil
-	// call with a nil publication, so the guard is what keeps an absent call from
-	// becoming a nil dereference on the hot path.
-	if call != nil && published != nil && published != call {
-		*call = *published
-	}
-	h.record(Report{Pass: PassRequestPart, Outcome: OutcomeRewriterRan, Stats: stats})
+	h.record(apply(call, root, PassRequestPart, h.bind))
 	return nil
 }
 

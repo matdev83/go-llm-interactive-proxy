@@ -125,10 +125,7 @@ func (t *Telemetry) ObserveExpansion(report expansion.Report) {
 	t.total.reports++
 	t.total.eligible += int64(stats.Eligible)
 	t.total.rewritten += int64(stats.Rewritten)
-	// The inbound delta deliberately does NOT reach t.total.saved. See
-	// [totalCounters.saved]: it is negative by construction, so folding it in would
-	// report a heavily virtualizing deployment as losing bytes on every expansion. The
-	// growth is published instead, on [InboundCounters.BytesGrown].
+	// Inbound growth is separate from outbound pass opportunities.
 	t.total.skipped += t.in.restore.record(stats)
 	t.in.recordOutcome(report.Outcome, report.Reason)
 	if report.ArgsOverDeclaredBound {

@@ -565,9 +565,9 @@ func assertSavingsMeasured(t *testing.T, tc auditSavingsCase, snapshot telemetry
 	}
 	// The generation-wide figure is the OUTBOUND saving, and this fixture drives no
 	// inbound pass, so it must be the same number rather than a net of two directions.
-	if snapshot.Total.BytesSaved != virtualized.BytesSaved {
+	if snapshot.Total.PassObservedOpportunityBytes != virtualized.BytesSaved {
 		t.Errorf("%s: generation saving = %d, want the outbound figure %d",
-			tc.name, snapshot.Total.BytesSaved, virtualized.BytesSaved)
+			tc.name, snapshot.Total.PassObservedOpportunityBytes, virtualized.BytesSaved)
 	}
 	if tc.eligible && virtualized.BytesSaved <= 0 {
 		t.Errorf("%s: the fixture measured no saving, so the parity assertion above would be vacuous",
@@ -759,7 +759,7 @@ func TestAReappliedOutboundPassMeasuresZeroOnlyAfterARewrite(t *testing.T) {
 			got, want)
 	}
 	// The generation total is now ASSERTED rather than left open.
-	if got, want := mutated.final.Total.BytesSaved, perPass*int64(tc.occurrences); got != want {
+	if got, want := mutated.final.Total.PassObservedOpportunityBytes, perPass*int64(tc.occurrences); got != want {
 		t.Errorf("the rewrite generation total = %d, want %d", got, want)
 	}
 	// The late pass ran and found nothing, and says so with a report count rather than an
@@ -784,7 +784,7 @@ func TestAReappliedOutboundPassMeasuresZeroOnlyAfterARewrite(t *testing.T) {
 	// The audit total is the sum of two equal per-pass contributions, and it is stated as
 	// exactly that: the figure an operator recovers is the early row, which the
 	// sibling suite proves equals the rewrite deployment's total.
-	if got, want := audit.final.Total.BytesSaved, 2*perPass*int64(tc.occurrences); got != want {
+	if got, want := audit.final.Total.PassObservedOpportunityBytes, 2*perPass*int64(tc.occurrences); got != want {
 		t.Errorf("the audit generation total = %d, want %d: two passes each measured the same candidate",
 			got, want)
 	}
@@ -875,9 +875,9 @@ func TestInboundExpansionIsPublishedAsGrowthAndNeverAsANegativeSaving(t *testing
 			}
 			// The inbound delta must never reach the generation-wide saving figure. A
 			// deployment whose operator reads that number is sizing a rollout from it.
-			if snapshot.Total.BytesSaved != 0 {
+			if snapshot.Total.PassObservedOpportunityBytes != 0 {
 				t.Errorf("generation saving = %d, want 0: the inbound delta is a cost, not a saving",
-					snapshot.Total.BytesSaved)
+					snapshot.Total.PassObservedOpportunityBytes)
 			}
 			// And the mode really did differ: rewrite published the expansion, audit
 			// published nothing and said so with the bounded audit-mode reason.
@@ -954,8 +954,8 @@ func TestANegativeDeltaIsClampedRatherThanPublishedInEitherDirection(t *testing.
 	if got, want := snapshot.Inbound.BytesGrown(), int64(89); got != want {
 		t.Errorf("inbound growth = %d, want %d", got, want)
 	}
-	if snapshot.Total.BytesSaved != 0 {
-		t.Errorf("generation saving = %d, want 0", snapshot.Total.BytesSaved)
+	if snapshot.Total.PassObservedOpportunityBytes != 0 {
+		t.Errorf("generation opportunity = %d, want 0", snapshot.Total.PassObservedOpportunityBytes)
 	}
 
 	// And the generation total clamps PER OBSERVATION rather than summing raw
@@ -968,7 +968,7 @@ func TestANegativeDeltaIsClampedRatherThanPublishedInEitherDirection(t *testing.
 		},
 	})
 	snapshot = tel.Snapshot()
-	if got, want := snapshot.Total.BytesSaved, int64(60); got != want {
+	if got, want := snapshot.Total.PassObservedOpportunityBytes, int64(60); got != want {
 		t.Errorf("generation saving = %d, want the genuine %d: a clamped negative must not subtract from it", got, want)
 	}
 	// And nothing the projection publishes reads negative, in either direction, after
@@ -1001,7 +1001,7 @@ func auditSavingsCounters(s telemetry.Snapshot) []savingsCounter {
 		{name: "total.reports", value: s.Total.Reports},
 		{name: "total.eligible", value: s.Total.Eligible},
 		{name: "total.rewritten", value: s.Total.Rewritten},
-		{name: "total.bytes_saved", value: s.Total.BytesSaved},
+		{name: "total.pass_observed_opportunity_bytes", value: s.Total.PassObservedOpportunityBytes},
 		{name: "total.skipped", value: s.Total.Skipped},
 	}
 	for _, direction := range []struct {
