@@ -179,49 +179,49 @@ func TestSSE_WriteDONEAfterFailedTerminal(t *testing.T) {
 	}
 }
 
-func TestSSE_MultilinePayloadLinesCarryDataPrefix(t *testing.T) {
-	opaques := []json.RawMessage{
-		json.RawMessage("{\n\"x\": 1\n}"),
-		json.RawMessage("{\r\n\"x\": 1\r\n}"),
-		json.RawMessage("{\r\"x\": 1\r}"),
-		json.RawMessage("{}"),
-		json.RawMessage("{\"trailing\": true}\n"),
+func TestSSEFrame_PayloadLinesCarryDataPrefix(t *testing.T) {
+	payloads := []string{
+		`{"type":"response.delta"}`,
+		"{\n\"x\": 1\n}",
+		"{\r\n\"x\": 1\r\n}",
+		"{\r\"x\": 1\r}",
+		"{\"trailing\": true}\n",
+		"line1\nline2\nline3",
 	}
-	for _, opaque := range opaques {
-		evt := StreamEvent{Type: "response.output_text.delta", SequenceNumber: 7, Opaque: opaque}
-		framed, err := FormatSSEEvent(evt)
-		if err != nil {
-			t.Fatalf("FormatSSEEvent failed for opaque %q: %v", opaque, err)
-		}
+	for _, payload := range payloads {
+		framed := frameSSEEvent("response.output_text.delta", []byte(payload))
 		str := string(framed)
 		if !strings.HasPrefix(str, "event: response.output_text.delta\n") {
-			t.Fatalf("missing event header for opaque %q: %q", opaque, str)
+			t.Fatalf("missing event header for payload %q: %q", payload, str)
 		}
 		if !strings.HasSuffix(str, "\n\n") {
-			t.Fatalf("missing blank-line terminator for opaque %q: %q", opaque, str)
+			t.Fatalf("missing blank-line terminator for payload %q: %q", payload, str)
 		}
 		lines := strings.Split(strings.TrimSuffix(str, "\n"), "\n")
 		if last := lines[len(lines)-1]; last != "" {
-			t.Fatalf("expected blank terminator line for opaque %q, got %q", opaque, last)
+			t.Fatalf("expected blank terminator line for payload %q, got %q", payload, last)
 		}
 		lines = lines[:len(lines)-1]
 		var data []string
 		for i, line := range lines[1:] {
 			rest, ok := strings.CutPrefix(line, "data: ")
 			if !ok {
-				t.Fatalf("line %d missing data prefix for opaque %q: %q", i, opaque, line)
+				t.Fatalf("line %d missing data prefix for payload %q: %q", i, payload, line)
 			}
 			data = append(data, rest)
 		}
-		raw, err := json.Marshal(evt)
-		if err != nil {
-			t.Fatalf("reference marshal failed: %v", err)
-		}
-		want := strings.ReplaceAll(string(raw), "\r\n", "\n")
+		want := strings.ReplaceAll(payload, "\r\n", "\n")
 		want = strings.ReplaceAll(want, "\r", "\n")
 		if got := strings.Join(data, "\n"); got != want {
-			t.Fatalf("data lines do not rejoin to payload for opaque %q:\n got %q\nwant %q", opaque, got, want)
+			t.Fatalf("data lines do not rejoin to payload for %q:\n got %q\nwant %q", payload, got, want)
 		}
+	}
+}
+
+func TestSSE_MarshalError(t *testing.T) {
+	evt := StreamEvent{Type: "response.delta", Opaque: json.RawMessage("{invalid}")}
+	if _, err := FormatSSEEvent(evt); !errors.Is(err, ErrEncodeFailed) {
+		t.Fatalf("expected ErrEncodeFailed for unmarshable payload, got %v", err)
 	}
 }
 
