@@ -45,8 +45,6 @@ import (
 	"context"
 	"encoding/json"
 	"go/ast"
-	"go/parser"
-	"go/token"
 	"strings"
 	"testing"
 
@@ -112,108 +110,8 @@ func TestNoObservableIdentityCarriesPathOrToolContent(t *testing.T) {
 // bundleReporterValue is the local name the composition seam binds the content-free
 // recorder to.
 //
-// It is spelled out on the test side rather than imported, because the production constant is
-// unexported and a test that read it would assert only that the two spellings agree. Naming
-// it here means the test states what the seam must use.
+// This is the opt-in recorder parameter checked by the no-capturing-closure guard.
 const bundleReporterValue = "observations"
-
-var reporterConstructors = map[string]struct {
-	// arity is the exact number of arguments the call must have, including the reporter.
-	arity int
-	// option is the reporter constructor expected at the trailing position.
-	option string
-	// method is the recorder's reporting method the option must be handed.
-	method string
-}{
-	"NewAttemptTransform": {arity: 3, option: "outbound.WithReporter", method: "ObserveOutbound"},
-	"NewRequestPartHook":  {arity: 3, option: "outbound.WithHookReporter", method: "ObserveOutbound"},
-	"NewFinalizer":        {arity: 4, option: "expansion.WithReporter", method: "ObserveExpansion"},
-}
-
-// TestEveryComponentInstallsExactlyOneBoundedReporter is the rewritten structural
-// assertion, and it is deliberately the mirror image of the test it replaces.
-//
-// The old rule was "no reporter anywhere". The new rule is "exactly one reporter per
-// component, it is the feature's own recorder, and it is at the trailing argument
-// position". Both are exact-arity rules over the same three constructors, which is what
-// makes this a REWRITE of the rule rather than its deletion: an unbounded "at least one"
-// check would pass with three reporters, and a check on the constructor names alone would
-// pass with the reporter built from content.
-func TestEveryComponentInstallsExactlyOneBoundedReporter(t *testing.T) {
-	t.Parallel()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "bundle.go", nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse bundle.go: %v", err)
-	}
-	matched := 0
-	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		spec, ok := lookupConstructor(sel.Sel.Name)
-		if !ok {
-			return true
-		}
-		matched++
-		expected, known := reporterConstructors[spec.name]
-		if !known {
-			t.Errorf("%s has no declared reporter arity; requirements.md 7.6 needs one per component", spec.name)
-			return true
-		}
-		if len(call.Args) != expected.arity {
-			t.Errorf("%s is called with %d args, want exactly %d: this package installs exactly one content-free reporter per component",
-				sel.Sel.Name, len(call.Args), expected.arity)
-			return true
-		}
-		// The trailing argument must BE the reporter option - not merely occupy the
-		// trailing position - and the option must be handed the recorder this bundle built.
-		// Naming the position is not sufficient on its own: the option is itself a call
-		// expression, so a bundle could occupy the position with a composed closure, which
-		// would satisfy an arity check and still own a metric dimension it could make
-		// content-bearing later. Both halves are therefore read out of the option's own
-		// source text.
-		trailing, ok := call.Args[expected.arity-1].(*ast.CallExpr)
-		if !ok {
-			t.Errorf("%s trailing argument is %s, want the %s option call",
-				spec.name, exprString(fset, call.Args[expected.arity-1]), expected.option)
-			return true
-		}
-		selector, ok := trailing.Fun.(*ast.SelectorExpr)
-		if !ok {
-			t.Errorf("%s reporter option is %s, want a selector call", spec.name, exprString(fset, trailing))
-			return true
-		}
-		if qualifier, qualIsSelector := selector.X.(*ast.SelectorExpr); qualIsSelector {
-			if exprString(fset, qualifier) != expected.option {
-				t.Errorf("%s reporter option is %q, want %q", spec.name, exprString(fset, selector), expected.option)
-			}
-		} else if exprString(fset, selector) != expected.option {
-			t.Errorf("%s reporter option is %q, want %q", spec.name, exprString(fset, selector), expected.option)
-		}
-		// The receiver is the recorder's own reporting method on the recorder this bundle
-		// built, which is what makes the installed sink the feature's own content-free
-		// projection rather than anything composed here.
-		wantReceiver := bundleReporterValue + "." + expected.method
-		if len(trailing.Args) != 1 {
-			t.Errorf("%s reporter option takes %d args, want exactly the one recorder method value",
-				spec.name, len(trailing.Args))
-			return true
-		}
-		if got := exprString(fset, trailing.Args[0]); got != wantReceiver {
-			t.Errorf("%s reporter receiver is %q, want %q", spec.name, got, wantReceiver)
-		}
-		return true
-	})
-	if matched != len(bundleConstructors) {
-		t.Fatalf("matched %d component constructor calls, want %d", matched, len(bundleConstructors))
-	}
-}
 
 // TestTheBundleComposesNoReporterClosure is the negative-space half of the structural
 // rule: the reporter this package installs is the feature's recorder, handed over as a

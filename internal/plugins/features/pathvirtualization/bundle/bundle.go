@@ -44,16 +44,9 @@ package bundle
 //     default" a property of the compiled value rather than of a caller's
 //     discipline, and it is why the mode is read only after the enablement gate.
 //
-//  5. THE OBSERVABILITY IS THE FEATURE'S OWN RECORDER, HANDED OVER WHOLE. The three
-//     components each install one reporter, and it is the same telemetry.Telemetry
-//     value - built from the compiled configuration's SHAPE and holding nothing else -
-//     passed as a bare identifier. No closure is composed here, and no label is
-//     attached here, because requirements.md 7.7 asks for bounded observability and a
-//     label this package composed is the one dimension whose boundedness would be a
-//     matter of discipline rather than of construction. The recorder is reached through
-//     the reporting interfaces outbound.Reporter and expansion.Reporter, so this
-//     package depends on their types rather than on their contents: it cannot read an
-//     observation and it cannot re-label one.
+//  5. OBSERVABILITY IS OPT-IN. FeatureBundleWithTelemetry installs one bounded
+//     recorder and returns its reader handle. FeatureBundle installs no reporters
+//     because its registry caller has no diagnostics reader.
 //
 // The workspace authority deserves one more word, because it used to be the one input
 // this file could not decide for itself. It is now the runtime's, and deliberately so:
@@ -77,16 +70,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
-// bundleReporterValue is the local name the composition seam binds the content-free
-// recorder to.
-//
-// It is a named constant rather than an inferred spelling because the tests that read the
-// construction site need to assert the reporter argument is THIS value and nothing else: a
-// bundle that composed its own closure, or wrapped the recorder in an adapter of its own,
-// would satisfy an arity check while still owning a metric dimension whose boundedness is a
-// matter of discipline. Naming the value makes that a fact the test can check.
-const bundleReporterValue = "observations"
-
 // FeatureBundle builds the complete bundle from one compiled resolution.
 //
 // A disabled resolution returns an empty bundle with only the schema version set:
@@ -108,20 +91,15 @@ const bundleReporterValue = "observations"
 // other validation decision belongs to the configuration decoder, which owns the
 // operator-facing reasons.
 func FeatureBundle(resolved config.Resolved) (lipfeature.FeatureBundle, error) {
-	_, b, err := FeatureBundleWithTelemetry(resolved)
-	return b, err
+	return featureBundle(resolved, nil)
 }
 
 // FeatureBundleWithTelemetry builds the complete bundle and hands back the content-free
 // recorder it installed, so a caller that wants to read requirements.md 7.6's counters and
 // 7.8's inventory has a handle to read them from.
 //
-// The three-result form is not a convenience overload, it is the reason the recorder is
-// reachable at all. [FeatureBundle] exists because a registry factory's signature returns
-// only a bundle, and a factory cannot return a handle to anything - so the shipped
-// composition installs the recorder and nobody reads it, which is exactly right: a stock
-// deployment pays for the counters and a deployment that wires diagnostics calls this and
-// publishes them.
+// Unlike FeatureBundle, this entry point opts into accounting because the caller
+// can retain and consume the returned recorder.
 //
 // There is no third form and no configuration key that reaches the recorder. A global, a
 // registry, or an init-time sink would all make the feature's observability reachable from
@@ -135,8 +113,16 @@ func FeatureBundle(resolved config.Resolved) (lipfeature.FeatureBundle, error) {
 // point requirement 7.8's inventory exists to answer.
 func FeatureBundleWithTelemetry(resolved config.Resolved) (*telemetry.Telemetry, lipfeature.FeatureBundle, error) {
 	tel := telemetry.New(resolved.Shape())
+	b, err := featureBundle(resolved, tel)
+	if err != nil {
+		return nil, lipfeature.FeatureBundle{}, err
+	}
+	return tel, b, nil
+}
+
+func featureBundle(resolved config.Resolved, observations *telemetry.Telemetry) (lipfeature.FeatureBundle, error) {
 	if resolved.Disabled() {
-		return tel, lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
 	}
 
 	// The mode is read once, here, and handed to all three constructors as an
@@ -144,37 +130,37 @@ func FeatureBundleWithTelemetry(resolved config.Resolved) (*telemetry.Telemetry,
 	// leave a component on the engine's zero value.
 	mode := resolved.Mode()
 
-	// ONE recorder, handed to all three components as a bare identifier and reachable
-	// afterwards only through the returned handle. The two outbound passes take SEPARATE
-	// reporters rather than sharing one option type, so both are installed explicitly
-	// here; the recorder itself is shared, which is what makes the early and late passes'
-	// counters add up to one generation's total rather than to two populations.
-	observations := tel
+	var outboundReport outbound.Reporter
+	var expansionReport expansion.Reporter
+	if observations != nil {
+		outboundReport = observations.ObserveOutbound
+		expansionReport = observations.ObserveExpansion
+	}
 	finalizer, err := expansion.NewFinalizer(resolved.Resolver, mode, resolved.ExpansionPolicy(),
-		expansion.WithReporter(observations.ObserveExpansion))
+		expansion.WithReporter(expansionReport))
 	if err != nil {
-		return nil, lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
 	}
 
 	cs := lipfeature.NewContributionSet()
 	if err := lipfeature.Contribute(cs, lipfeature.PlaneAttemptTransforms, config.ID,
 		[]request.AttemptTransform{outbound.NewAttemptTransform(mode, resolved.Resolver,
-			outbound.WithReporter(observations.ObserveOutbound))}); err != nil {
-		return nil, lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
+			outbound.WithReporter(outboundReport))}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
 	}
 	if err := lipfeature.Contribute(cs, lipfeature.PlaneRequestPartHooks, config.ID,
 		[]hooks.RequestPartHook{outbound.NewRequestPartHook(mode, resolved.Resolver,
-			outbound.WithHookReporter(observations.ObserveOutbound))}); err != nil {
-		return nil, lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
+			outbound.WithHookReporter(outboundReport))}); err != nil {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
 	}
 	if err := lipfeature.Contribute(cs, lipfeature.PlaneToolCallFinalizers, config.ID,
 		[]toolcall.Finalizer{finalizer}); err != nil {
-		return nil, lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
 	}
 
 	b := lipfeature.BundleFromPlanes(cs.Freeze(), nil)
 	if err := b.Validate(); err != nil {
-		return nil, lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
+		return lipfeature.FeatureBundle{}, fmt.Errorf("%s: %w", config.ID, err)
 	}
-	return tel, b, nil
+	return b, nil
 }
