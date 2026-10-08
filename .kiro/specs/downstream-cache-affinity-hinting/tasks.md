@@ -1,11 +1,11 @@
 # Implementation Plan
 
-This plan targets the **post-`core-feature-ownership-full-closure` topology** and is written for a smaller instruction-following implementation model. Follow it literally. Do not recreate package ownership from the previous cache-affinity revision.
+This plan targets **current `main` as audited on 2026-10-08 at `79a608632a1583b685f938103685ec34a78d5fa9`**, after both core-feature-ownership closure and bulk-provider expansion were merged. Written for an implementation agent: follow this updated plan, recheck changed code on your actual branch, and never rebuild the completed profile lifecycle.
 
 ## Mandatory Execution Rules
 
-1. **Hard predecessor gate:** no production work before `.kiro/specs/core-feature-ownership-full-closure/` is implemented/certified on `main` and its final zero-debt ownership census/core-admission ratchets exist.
-2. If #429 rebranding already landed, use mechanically renamed `aip*` paths/symbols. Never recreate retired `lip*` names solely because this SDD was authored before that rename.
+1. **Completed predecessor / verify-only gate:** `core-feature-ownership-full-closure` was implemented by #598, archived by #599, remediated by #600 and lives at `.kiro/specs/archive/core-feature-ownership-full-closure/`. Verify its live core-admission ratchets on the implementation branch; do not wait for or redo its work.
+2. Rebranding implementation is tracked by #641 (#429 was planning). Use actual package names on the implementation branch if #641 has landed; do not proactively rename unrelated symbols or alter the frozen unimplemented `aipca1_`/HMAC domains.
 3. Do not create `internal/core/cacheaffinity`, a cache-specific executor stage/field, a cache-specific `SecurityRuntime` field, `execbackend.Backend.ResolveDownstreamCacheAffinity`, a cache-specific `ProcessServices` field, or a new cache-affinity extension plane.
 4. Reuse existing `PlaneAttemptTransforms`; cache-affinity derivation/policy/telemetry lives in `internal/plugins/features/downstreamcacheaffinity` and standard construction lives in `internal/standardplugins/featurehost`.
 5. The only permitted new core-facing capability is a **generic bounded immutable backend-feature ID list**, and only if Task 1 proves no equivalent post-closure carrier exists.
@@ -15,15 +15,17 @@ This plan targets the **post-`core-feature-ownership-full-closure` topology** an
 9. HMAC domains are exactly `aiproxer/downstream-cache-affinity/key/v1\x00` and `aiproxer/downstream-cache-affinity/value/v1\x00`.
 10. The feature never receives the secure-session fingerprint root. It receives only a 32-byte domain-derived subkey from a generic featurehost composition capability.
 11. Direct OpenAI Responses PCK forwarding must be repaired before its synthesis path is certified.
-12. The `provider-profile` production lifecycle must preserve compiled semantics before profile cache-affinity rows are accepted. Reuse an already-landed bulk-provider repair instead of duplicating it.
-13. No new backend-plugin value protobuf field/protocol minor. Add only negotiated `downstream_cache_affinity_v1` at existing semantic-extension minor 6.
-14. OpenRouter uses JSON body `session_id` only; explicit existing `openrouter.session_id` wins over effective PCK; no `x-session-id`.
+12. **Do not rebuild provider-profile lifecycle:** #619/#622 already delivered marker-aware expansion (`ExpandProviderProfileRowsWithCatalog`, `wrapCompatibleLifecycle`, `buildProviderProfileBackendWithNode`). Verify it and extend only its compiled-profile data/projection; prepared compatible-family row kind changes are intentional.
+13. No new backend-plugin value protobuf field/protocol minor. Add negotiated `downstream_cache_affinity_v1` at semantic-extension minimum minor 6 (current host minor 9); update protocol feature-minor registry **and both host negotiation offer feature lists**.
+14. OpenRouter uses JSON body `session_id` only; explicit existing `openrouter.session_id` wins over effective PCK; no `x-session-id`. Do not let the later generic extra-body extension loop silently overwrite `session_id`.
 15. TDD/characterization first for every brownfield seam. No unrelated cleanup/refactor.
-16. If a STOP condition fires, stop that wave and repair the SDD; do not invent another framework or core exception.
+16. An enabled `PlaneAttemptTransforms` occupant is canonical-required for the large-payload fast path. Cache-affinity must be **explicit generation opt-in**, default absent/disabled with zero plane occupancy; enabled calls use canonical fallback when the wire assessor declines. Never bypass that safety gate.
+17. The generic domain-key capability takes a **NUL-free domain label**. Its secure-session owner appends the single terminal `\x00` byte inside HMAC input; do not pass a literal NUL to a validator that rejects controls. The frozen HMAC message remains byte-for-byte unchanged.
+18. If a STOP condition fires, stop that wave and repair the SDD; do not invent another framework or core exception.
 
 ## Target File Map
 
-Use these post-full-closure targets or their direct post-#429 renames:
+Use these verified October 8 paths or the actual mechanically renamed equivalents after #641:
 
 | Concern | Target |
 |---|---|
@@ -31,40 +33,38 @@ Use these post-full-closure targets or their direct post-#429 renames:
 | Generic executor backend feature value | `internal/core/execbackend/backend.go` |
 | Generic attempt metadata projection | `pkg/lipsdk/request/attempt_transform.go`, `internal/core/runtime/executor_attempt_transform.go` |
 | Feature implementation | `internal/plugins/features/downstreamcacheaffinity/` |
-| Standard composition | `internal/standardplugins/featurehost/cacheaffinity.go` + featurehost input file |
-| Generic secure-root domain-key adapter | post-closure secure-session/runtimebundle composition owner |
+| Standard composition / enablement | `internal/standardplugins/featurehost/cacheaffinity.go`, `featurehost/inputs.go`, `featurehost/generation.go`, existing feature-factory registration |
+| Generic secure-root domain-key adapter | `internal/infra/runtimebundle/secure_session.go`, `build_persistence.go`, `process_services.go` (root never exported) |
 | Direct OpenAI PCK | `internal/plugins/backends/openairesponses/invoke.go`, constructor |
-| Provider-profile lifecycle | `internal/standardplugins/provider_profile_binding.go`, `provider_profiles.go`, `standard_contributions.go` |
+| Completed provider-profile lifecycle (reuse only) | `internal/standardplugins/provider_profile_binding.go` (`ExpandProviderProfileRowsWithCatalog`, `wrapCompatibleLifecycle`, `buildProviderProfileBackendWithNode`); `standard_contributions.go` |
 | Provider schema/catalog | `internal/providerprofiles/schema.go`, `catalog.json` |
 | Profile-compatible projection | `internal/standardplugins/provider_profile_binding.go`, `internal/plugins/backends/openaicompat/*` |
 | OpenRouter carrier | `connectors/openrouter/internal/service/body.go`, `service.go` |
-| Backend-plugin feature | `pkg/lipsdk/backendplugin/*`, `internal/infra/backendplugins/adapter/backend.go` |
+| Backend-plugin feature | `pkg/lipsdk/backendplugin/bounds.go`, `protocol.go`, `host/session.go` (two offer lists), `internal/infra/backendplugins/adapter/backend.go` |
 | Feature telemetry | feature observer + `internal/standardplugins/featurehost`/existing infra metrics adapter |
-| Reusable TCK | `internal/testkit/contract/cacheaffinity/` |
+| Reusable TCK | `internal/testkit/contract/cacheaffinity/`; wire parity in `internal/core/largebody`/`internal/infra/runtimebundle` |
 
 ---
 
-# 0. Hard Predecessor and Topology Gate
+# 0. Confirm Completed Predecessors and Rebaseline
 
-- [ ] 0.1 Verify full core-ownership closure is actually implemented
-  - Read the completed/archived `.kiro/specs/core-feature-ownership-full-closure/` from the implementation branch, not PR text.
-  - Record final predecessor SHA and ownership-census path in the implementation PR/evidence.
-  - Assert the predecessor's core-admission manifest/ratchets are green and `internal/standardplugins/featurehost` is the standard feature-aware composition owner.
-  - Assert `runtimebundle.ProcessServices` does not contain optional per-feature service fields except the single standard featurehost handle allowed by the predecessor.
-  - If predecessor is not complete, STOP. Do not implement this SDD on the old topology.
-  - _Boundary: architecture gate_
-  - _Depends: implemented/certified core-feature-ownership-full-closure_
-  - _Validation: predecessor final architecture tests; `make arch-report`; focused featurehost tests_
+- [ ] 0.1 Verify archived ownership closure against the live tree
+  - Read `.kiro/specs/archive/core-feature-ownership-full-closure/` and `final-ownership-census.md`; cite implementation #598, archive #599 and remediation #600, but independently test current main rather than trusting issue text.
+  - Record implementation-base SHA, existing core-admission manifest/ratchets, and standard `featurehost` composition owner in PR evidence.
+  - Assert no new optional cache-specific `ProcessServices`/`runtime.Executor`/`SecurityRuntime` fields; only the standard featurehost handle may cross the generic boundary.
+  - If the original closure contract is actually broken, STOP and repair that pre-existing architectural regression independently; do not reimplement completed closure as this feature.
+  - _Boundary: architecture rebaseline_
+  - _Validation: predecessor arch tests, `make arch-report`, focused featurehost tests_
 
-- [ ] 0.2 Re-inventory renamed/moved owners on current implementation branch
-  - Map the file targets above to current names after any rebranding/closure moves.
-  - Record current `PlaneAttemptTransforms` declaration, attempt metadata builder, standard featurehost generation composition, secure-session fingerprint-root composition owner, backend-plugin adapter, provider-profile lifecycle, direct OpenAI serializer and OpenRouter body code.
-  - Record whether a generic backend feature/capability ID carrier already exists. If equivalent bounded immutable metadata exists, mark Tasks 2.1-2.3 as reuse/adaptation work and do not create another carrier.
+- [ ] 0.2 Re-inventory current implementation owners and already-completed work
+  - Pin `PlaneAttemptTransforms`, `candidateAttemptMeta`, `featurehost.GenerationInput.Registrations`, `buildSecureSessionRuntime` fingerprint root, `process_services.go` featurehost construction, direct OpenAI Responses serializer, OpenRouter body loop, backendplugin dual host offers and protocol feature-minor list.
+  - Prove `execbackend.Backend` and `request.AttemptMeta` still lack an equivalent bounded generic backend-feature carrier before adding Task 2.
+  - Identify compiled-profile marker-aware path: `ExpandProviderProfileRowsWithCatalog` -> prepared family row with reserved marker -> `wrapCompatibleLifecycle` -> `buildProviderProfileBackendWithNode`.
+  - Capture catalog inventory: existing `fireworks`/`mistral`/`xai`; missing `xai-responses`/`runinfra` on audited main. Recheck before editing data.
+  - Recheck provider docs for the exact proposed wire carriers and bounds; do not assume external API compatibility just because catalog rows exist.
   - _Boundary: brownfield inventory_
   - _Depends: 0.1_
-  - _Validation: repository import/symbol scan; `go list` where relevant_
-
----
+  - _Validation: repository symbol/import scan, targeted provider/profile/host tests_
 
 # 1. RED Characterization Before Production Changes
 
@@ -97,25 +97,31 @@ Use these post-full-closure targets or their direct post-#429 renames:
   - _Boundary: OpenAI Responses backend_
   - _Depends: 0.2_
 
-- [ ] 1.4 Characterize real `provider-profile` production binding
-  - Start from config `kind: provider-profile`, `config.profile: <fixture>`.
-  - Drive through `PrepareProviderProfiles` and the same standard registry/lifecycle/candidate construction used in production.
-  - Pin a compiled-only disabled capability, a safe static header and representative quirk/dialect so lossy lowering is observable.
-  - If bulk-provider work already fixed the path, make this GREEN proof authoritative and mark Tasks 6.1-6.4 production repair as verification-only.
-  - If still lossy, keep RED and implement Task 6.
-  - Source config immutability is mandatory.
+- [ ] 1.4 Certify the existing marker-aware `provider-profile` production path
+  - Configure `kind: provider-profile`, `config.profile: <fixture>` and drive through `PrepareProviderProfiles`, the real standard compatible-family `wrapCompatibleLifecycle`, registry and candidate build.
+  - Require the *operator source row* to stay untouched, while the prepared clone intentionally changes to a compatible-family kind carrying a reserved YAML anchor/head-comment marker.
+  - Pin a compiled-only disabled capability, a static safe header and representative quirk/dialect; prove the marker-aware builder restores them all and an arbitrary unmarked custom-compatible row remains unaffected.
+  - Exercise forged/reserved marker, wrong family, unknown profile, and invalid catalog-handle refusal. If lifecycle semantics are lost, repair the existing wrapper/compiled owner only and STOP on attempts to add a second profile factory.
   - _Requirements: 6.8,6.10,7.10_
-  - _Boundary: provider profile production lifecycle_
+  - _Boundary: completed provider profile production lifecycle (verification)_
   - _Depends: 0.2_
 
 - [ ] 1.5 Capture baseline cost and ownership evidence
   - Record non-test core LOC/budget/manifest status from predecessor before this feature.
   - Benchmark an empty/no-op AttemptTransform baseline and current PCK serializers with `-benchmem`.
-  - Record that no cache-affinity-specific production package/symbol exists in core.
+  - Record that no cache-affinity-specific production package/symbol exists in core; baseline with large-payload fast path enabled both with empty plane occupancy and with a controlled occupied canonical-required attempt-transform plane.
   - Final Task 12 must prove core feature-specific LOC remains unchanged except for the generic backend-feature metadata seam if Task 2 is required.
   - _Requirements: 2,9,11_
   - _Boundary: performance/architecture evidence_
   - _Depends: 0.2_
+
+- [ ] 1.6 RED characterization of large-payload wire eligibility and feature activation
+  - With `server.large_payload_fast_path.enabled`, prove `PlaneAttemptTransforms` is `RequestBodyCanonicalRequired`; an occupied transform makes the wire authority gate decline, while an empty plane preserves existing eligibility.
+  - Pin one canonical candidate and a wire-compatible control with feature absent/disabled. Any feature-enabled candidate must not open via raw wire while skipping HMAC synthesis.
+  - Define the smallest existing-registry/featurehost registration path for generation-scoped opt-in and validate disable/reload/parallel-generation no-occupant behavior.
+  - _Requirements: 2.11,5.9,9.6-9.7_
+  - _Depends: 0.2_
+  - _Validation: `internal/core/largebody`, featurehost/standard runtime integration tests_
 
 ---
 
@@ -167,7 +173,7 @@ Use these post-full-closure targets or their direct post-#429 renames:
 
 - [ ] 3.2 Add feature-owned observer and fill-only candidate transform
   - Create `observer.go`, `transform.go`.
-  - Frozen ID `downstream-cache-affinity`; `TransformOrder = 1_000_000`; failure mode fail-closed for canonical PCK conflicts/internal impossible errors.
+  - Frozen ID `downstream-cache-affinity`; `TransformOrder = 1_000_000`; failure mode fail-closed for canonical PCK conflicts/internal impossible errors. Confirm any newly added standard transforms do not sort after it.
   - Algorithm exactly from design: existing PCK -> preserve; missing generic backend feature -> unsupported; invalid/no prefix -> no synthesis; nil deriver/no authoritative session -> disabled; otherwise derive from `BackendPrefixes[0]` + `Session.AuthoritativeSessionID` and set only `call.PromptCacheKey`.
   - Never read `ClientSessionHint`, A-leg, principal/scope/workspace/trace/model for derivation.
   - Unsupported/disabled/invalid backend support does not exclude candidate; PCK alias conflict returns error.
@@ -177,9 +183,9 @@ Use these post-full-closure targets or their direct post-#429 renames:
   - _Validation: feature transform table + race-safe observer tests_
 
 - [ ] 3.3 Build an ordinary `FeatureBundle`
-  - Create `bundle.go` that contributes exactly one transform to existing `PlaneAttemptTransforms`.
-  - No new plane, lifecycle, goroutine, state store, config decoder or service registry.
-  - Prove disabled/no-deriver composition can omit the transform cleanly.
+  - Create `bundle.go` with exactly one runtime transform for an **enabled** generation. Use the existing standard feature registration/factory convention for a minimal enabled config if required; do not duplicate contribution between ordinary registration and `featurehost` binding.
+  - No new plane, lifecycle, goroutine, state store, generic service registry or cache-specific core config field. A small typed feature config decoder is allowed only to validate opt-in, not to create a second provider framework.
+  - Prove absent/disabled/no-deriver composition adds **zero** cache-affinity attempt-transform occupants (especially on wire-eligible requests), not a disabled no-op transform.
   - Add bundle plane-parity/typed-nil tests per repository conventions.
   - _Requirements: 2.1-2.4,11.2_
   - _Depends: 3.2_
@@ -189,32 +195,32 @@ Use these post-full-closure targets or their direct post-#429 renames:
 
 # 4. Compose the Feature Through Standard `featurehost`
 
-- [ ] 4.1 Add/reuse a generic domain-key derivation capability
-  - In post-closure featurehost process input add a narrow internal `DomainKeyDeriver func(domain string) ([32]byte,error)` (or reuse an existing equivalent).
-  - In the existing secure-session/runtimebundle key owner, build the capability from already-resolved fingerprint root `fp` using one HMAC-SHA256 over the validated domain.
-  - Domain bound <=128; reject empty/control/NUL. Nil capability when no root authority exists.
-  - Generic runtimebundle code must contain no cache-affinity feature ID, PCK logic or provider names.
-  - Never expose/copy raw `fp` into featurehost/feature.
+- [ ] 4.1 Derive a generic feature subkey from the existing secure-session root
+  - In `internal/infra/runtimebundle/secure_session.go:buildSecureSessionRuntime` retain only a narrow generic domain-key derivation capability over the already-resolved fingerprint root `fp`; persistence builds it before `featurehost.NewProcess` in `process_services.go`.
+  - Add/reuse `featurehost.ProcessInput.DomainKeyDeriver func(domainLabel string) ([32]byte,error)` (or an equivalent narrow generic function). Validate a **NUL-free** ASCII domain label <=128 bytes, reject empty/embedded controls, then HMAC-SHA256 over `domainLabel || "\x00"` in the secure-session owner. This preserves frozen on-wire derivation while avoiding a contradictory validate-NUL call.
+  - Pass this one generic process capability through existing build-persistence/process-services/featurehost ownership, not a cache-specific `ProcessServices` field. The feature/featurehost never receive root bytes.
+  - Test exact frozen HMAC byte vector, missing capability, process-local ephemeral vs durable key lifetime, safe errors, and key isolation. No new process secret.
   - _Requirements: 2,4.4-4.7,9_
   - _Depends: 0.1,1.5_
-  - _Validation: generic domain-key deterministic/separation tests; security ownership tests_
+  - _Validation: secure-session owner/featurehost key-domain tests_
 
 - [ ] 4.2 Add standard featurehost cache-affinity adapter
   - Create `internal/standardplugins/featurehost/cacheaffinity.go` (or post-rebrand equivalent).
-  - Ask the generic key capability exactly once for `aiproxer/downstream-cache-affinity/key/v1\x00` during process/standard-feature construction.
+  - Ask the generic key capability exactly once for **NUL-free label** `aiproxer/downstream-cache-affinity/key/v1` during process/standard-feature construction; the key owner appends the single terminal NUL inside the HMAC input.
   - Construct `downstreamcacheaffinity.Deriver` from returned subkey.
-  - Construct safe feature observer backed by existing infra metrics and merge the feature's ordinary bundle into standard generation composition.
-  - Missing generic key capability => no synthesis transform; do not fail base proxy startup merely for this optimization.
+  - Construct safe feature observer backed by the existing generic `featurehost.ProcessInput.MetricsRegistry`, and merge one runtime-bound transform into standard generation composition **only for an explicitly enabled registration** in `featurehost.GenerationInput.Registrations`. Use existing feature factory/registration validation rather than an unconditional process-wide transform.
+  - Missing generic key capability, absent/disabled registration, and disabled/reloaded generation => no synthesis transform; do not fail base proxy startup merely for this optimization.
   - No cache-specific field in `ProcessServices`/Executor/SecurityRuntime.
   - _Requirements: 2,4,10_
   - _Depends: 3.3,4.1_
-  - _Validation: featurehost process/generation tests + overlapping generation test_
+  - _Validation: featurehost process/generation tests, absent/disabled opt-in, overlapping/reloaded generation test, and no double contribution_
 
 - [ ] 4.3 Prove standard integration and raw-session scrub
   - End-to-end standard distribution test: authoritative session + capable fake backend -> exact deterministic generated PCK reaches backend `Open`; every session field is empty there.
   - Existing explicit PCK -> unchanged.
   - Client hint without authoritative session -> no generated PCK.
   - Two backend prefixes -> namespace follows each selected backend; parallel copies do not share mutable state.
+  - With wire fast path enabled, absent/disabled feature preserves wire eligibility; enabled generation correctly declines the wire path and invokes canonical synthesis. Re-enable after reload and verify a single transform, not stale/double occupancy.
   - _Requirements: 1,3,5,9_
   - _Depends: 4.2_
   - _Validation: featurehost/runtime integration tests under race_
@@ -241,35 +247,30 @@ Use these post-full-closure targets or their direct post-#429 renames:
 
 ---
 
-# 6. Repair or Verify Real `provider-profile` Lifecycle
+# 6. Reuse and Certify the Existing `provider-profile` Lifecycle
 
-- [ ] 6.1 Implement one real `ProviderProfileKind` lifecycle factory if still missing
-  - In `provider_profile_binding.go`, add `LifecycleProviderProfile(instanceID,n,upstream,deps)`.
-  - Exact flow: `profileReference` -> `ProviderProfileCatalog` -> exact lookup -> `CompileProviderProfile` -> `BuildProviderProfileBackend` -> `BackendBuildResult`.
-  - Do not duplicate profile validation/capability/header/quirk/dialect policy.
+- [ ] 6.1 Verify production preparation and reserved marker ownership
+  - In `provider_profile_binding.go`, retain `ExpandProviderProfileRowsWithCatalog` and its existing `lip_profile_` anchor / `lip:provider-profile:` comment handoff; verify prepared rows are compatible-family clones, **not** retained source `provider-profile` kinds.
+  - Confirm original config rows are immutable and arbitrary unmarked custom-compatible configs take the existing plain family lifecycle.
+  - Do NOT create `LifecycleProviderProfile`, a second backend kind contribution, or a duplicate profile catalog; these would regress the completed #619/#622 contract.
   - _Requirements: 6.8,6.10_
-  - _Depends: 1.4 RED unless already GREEN from bulk-provider implementation_
+  - _Depends: 1.4_
 
-- [ ] 6.2 Register one lifecycle contribution
-  - Register exactly one `ProviderProfileKind` standard backend contribution with normal inference/static-credential metadata.
-  - Keep compatible-family contributions/profile IDs; no factory per profile/provider.
+- [ ] 6.2 Verify the existing `wrapCompatibleLifecycle` registration and compiled semantics
+  - Prove the four registered compatible families in `standard_contributions.go` wrap their existing lifecycle only once and resolve marker to `CompiledProfile` before constructing a backend through `buildProviderProfileBackendWithNode`.
+  - Pin compiled disabled capabilities, headers, quirks, dialects, prefixes and live candidate construction. Repair **only** the existing owner if any already-supported semantic is lost.
   - _Depends: 6.1_
 
-- [ ] 6.3 Stop profile rows from being rewritten to generic compatible YAML
-  - Change preparation/expansion into validation + clone preservation.
-  - Validate profile reference and compile it, but do not change `row.Kind` and do not replace `row.Config`.
-  - Arbitrary custom-compatible rows unchanged; source config immutable.
-  - `ProfileConfigNode` remains family-builder/test helper only.
+- [ ] 6.3 Guard marker misuse and source-config immutability
+  - Add regression tests for forged/reserved marker on custom-compatible rows, wrong-family marker, unknown/missing catalog profile, round-trip anchor/comment, and valid test-catalog handle.
+  - The prepared-row kind/config rewrite is **allowed** only on the clone and only with a marker that the wrapper validates. Unknown markers must not silently degrade to generic backend semantics.
   - _Depends: 6.2_
 
-- [ ] 6.4 Make the production-path regression GREEN
-  - Run Task 1.4 fixture through actual registry/lifecycle/candidate build.
-  - Prove row remains `provider-profile` and complete compiled disabled capability/header/quirk/dialect semantics survive.
-  - If Tasks 6.1-6.3 were already implemented by bulk-provider work, this task still runs and certifies them; do not change production code unnecessarily.
-  - _Validation: provider-profile standardplugins + runtimebundle candidate tests_
-  - _Depends: 6.3 or pre-existing equivalent repair_
-
----
+- [ ] 6.4 GREEN certification of current live production path
+  - Run Task 1.4 fixture through actual registry/lifecycle/candidate build; prove source row remains `provider-profile`, prepared row carries validated marker, backend retains compiled-only semantics, and no second provider-profile factory exists.
+  - This is verification and cache-projection extension readiness, **not** a request to replace the already-merged lifecycle.
+  - _Validation: standardplugins provider-profile + runtimebundle candidate tests_
+  - _Depends: 6.3_
 
 # 7. Add Typed `cache_affinity` Profile Schema
 
@@ -291,8 +292,8 @@ Use these post-full-closure targets or their direct post-#429 renames:
 # 8. Thread Profile Projection Through Compatible Family Builders
 
 - [ ] 8.1 Preserve complete cache-affinity projection in profile-aware build
-  - Pass the validated selected flavor projection through the existing profile-aware OpenAI-compatible builder.
-  - Do not serialize it into generic compatible YAML.
+  - Thread the validated selected flavor projection from `CompiledProfile` through `wrapCompatibleLifecycle` -> `buildProviderProfileBackendWithNode` -> existing profile-family builder to the corresponding OpenAI-compatible serializer.
+  - Never reconstruct typed affinity policy solely from the prepared generic compatible YAML node; preserve existing compiled capability/header/quirk/dialect behavior.
   - `Enabled && AllowProxySynthesis` appends `backendfeature.DownstreamCacheAffinityV1` to the constructed backend features.
   - Profile/backend prefix remains synthesis namespace; no provider-specific value in feature code.
   - _Requirements: 6,7_
@@ -306,8 +307,8 @@ Use these post-full-closure targets or their direct post-#429 renames:
   - _Depends: 8.1_
 
 - [ ] 8.3 Add real production-path cache-affinity assertion
-  - Extend Task 6.4 fixture with a profile cache-affinity projection and run through config preparation + registry/lifecycle/candidate construction.
-  - Prove generic backend feature is present and the real serializer projects PCK.
+  - Extend Task 6.4 fixture with typed profile cache-affinity projection and run through prepared marker -> compatible-family wrapper -> registry/lifecycle/candidate construction.
+  - Prove generic backend feature is present only for compiled profile enabling synthesis, real serializer projects PCK, source config is immutable, and arbitrary custom-compatible row never inherits typed cache affinity.
   - Direct `BuildProviderProfileBackend` unit alone is not acceptance evidence.
   - _Depends: 8.2_
 
@@ -317,7 +318,7 @@ Use these post-full-closure targets or their direct post-#429 renames:
 
 - [ ] 9.1 Add/augment `fireworks`, `xai`, `xai-responses`, `mistral`, `runinfra`
   - Use exact family/base/env/projection matrix in design/research.
-  - If a row already exists from bulk provider work, augment it; preserve stricter static inventory and disabled capabilities.
+  - **Known current catalog state:** `fireworks`, `mistral`, `xai` exist; augment in place. `xai-responses`, `runinfra` are missing; add them. Recheck current catalog before editing. Preserve strict disabled capabilities, static inventory, endpoints and auth.
   - Do not broaden unrelated model capabilities/tokenizers.
   - Do not create dedicated provider Go packages.
   - _Requirements: 7.2-7.6,7.9-7.10_
@@ -333,22 +334,23 @@ Use these post-full-closure targets or their direct post-#429 renames:
 # 10. OpenRouter and Executable-Backend Feature Negotiation
 
 - [ ] 10.1 Add backend-plugin feature ID without value DTO/minor bump
-  - Add `FeatureDownstreamCacheAffinity = "downstream_cache_affinity_v1"` at existing semantic-extension minimum minor 6.
-  - Host supports negotiation; no new invocation field/protobuf message and no protocol minor increment.
+  - Add `FeatureDownstreamCacheAffinity = "downstream_cache_affinity_v1"` at semantic-extension minimum minor 6. Current host minor is 9 (`ProtocolMinorAccountingEvidenceV2`), not 6.
+  - Add centralized feature-minor metadata in `pkg/lipsdk/backendplugin/protocol.go`; advertise the optional feature in **both** `pkg/lipsdk/backendplugin/host/session.go` lists (`ProtocolOffer.Features` and actual `NegotiateRequest.HostFeatures`) with explicit parity/legacy tests.
+  - No new invocation field/protobuf message and no protocol minor increment.
   - _Requirements: 8_
   - _Depends: 2.1_
 
 - [ ] 10.2 Map negotiated plugin feature to generic backend feature metadata
-  - In backend-plugin adapter, successful negotiated new feature **and at least one stable route/backend prefix** => append generic `backendfeature.DownstreamCacheAffinityV1`.
-  - No feature/no prefix/old peer => absent.
+  - In backend-plugin adapter, only successful new feature negotiation **and a usable existing PCK carrier under the negotiated minor/feature set** and at least one stable route/backend prefix => append generic `backendfeature.DownstreamCacheAffinityV1`.
+  - No feature/no carrier/no prefix/old peer => absent. Never mistake plugin advertisement alone for negotiated enablement.
   - Do not add a cache-specific `execbackend.Backend` resolver.
   - _Depends: 10.1,2.2_
 
 - [ ] 10.3 Implement OpenRouter body precedence and advertise feature
   - `Describe`: existing required features + new cache-affinity feature.
-  - Body: explicit existing `openrouter.session_id` > `call.PromptCacheKeyValue()` > omit.
-  - Max256; JSON `session_id` only; no `x-session-id`.
-  - Add explicit/generated/absent/conflict/oversize tests.
+  - Body: explicit existing `openrouter.session_id` > `call.PromptCacheKeyValue()` > omit; enforce after/before the `extraBodyPrefix` loop so a generic extra-body `session_id` cannot silently overwrite it.
+  - Max256; JSON `session_id` only; no `x-session-id`; validate conflicts, invalid type/empty and oversize before upstream I/O.
+  - Add explicit/generated/absent/conflict/extra-body-collision/oversize tests.
   - _Depends: 10.2_
 
 ---
@@ -364,7 +366,7 @@ Use these post-full-closure targets or their direct post-#429 renames:
 
 - [ ] 11.2 Add reusable cache-affinity TCK
   - Create/refresh `internal/testkit/contract/cacheaffinity/`.
-  - Cover deterministic derivation, explicit precedence, capability gating, no-session, namespace separation, serializer bounds, connector negotiation, session scrub and unknown/custom negatives.
+  - Cover deterministic derivation, explicit precedence, capability gating, no-session, namespace separation, serializer bounds, connector negotiation (dual host offer parity), session scrub, compiled profile-marker lifecycle, wire eligibility/default-off/canonical fallback and unknown/custom negatives.
   - Offline only; no frontend×provider Cartesian suite.
   - _Depends: 5,8,10_
 
@@ -381,7 +383,7 @@ Use these post-full-closure targets or their direct post-#429 renames:
 # 12. Performance, Architecture, QA and Closeout
 
 - [ ] 12.1 Add permanent lean-core architecture ratchets
-  - Reject: `internal/core/cacheaffinity`; cache-specific Executor/SecurityRuntime/ProcessServices/execbackend fields/callbacks; cache-specific new plane; direct runtimebundle concrete feature construction; feature imports of core/runtimebundle; providerprofiles import of feature; provider wire literals in generic core/feature policy; new plugin value DTO/minor; raw session backend wire; generated PCK residency/session/continuation use; lossy provider-profile rewriting.
+  - Reject: `internal/core/cacheaffinity`; cache-specific Executor/SecurityRuntime/ProcessServices/execbackend fields/callbacks; cache-specific new plane; direct runtimebundle concrete feature construction; feature imports of core/runtimebundle; providerprofiles import of feature; provider wire literals in generic core/feature policy; new plugin value DTO/minor; raw session backend wire; generated PCK residency/session/continuation use; duplicate provider-profile lifecycle or **loss of compiled semantics through the existing reserved-marker prepared-row rewrite**; disabled cache-affinity plane occupancy; wire-path bypass with active canonical transform.
   - Preserve predecessor core-admission manifest and budget. Generic backend feature metadata is explicitly classified as a generic extension mechanism, not cache ownership.
   - _Requirements: 2,11_
   - _Depends: all production tasks_
@@ -390,12 +392,12 @@ Use these post-full-closure targets or their direct post-#429 renames:
   - Bench feature transform: explicit PCK, generated, no backend feature, no authoritative session.
   - Bench direct OpenAI/profile serializers that consume PCK.
   - Assert no DB/network/filesystem/goroutine/timer and bounded allocations; subkey derivation absent from request benchmark.
-  - Compare against Task 1.5 baseline on same host/toolchain where practical.
+  - Compare against Task 1.5 baseline on same host/toolchain where practical. Benchmark optional activation's wire fast-path eligibility impact and canonical fallback against disabled wire-eligible controls; document the tradeoff rather than masking it.
   - _Requirements: 9_
   - _Depends: 11_
 
 - [ ] 12.3 Run full certification
-  - Focused feature/profile/OpenAI/OpenRouter/backendplugin tests.
+  - Focused feature/profile/OpenAI/OpenRouter/backendplugin tests, disabled/enabled generation reload and current wire-fast-path parity/authority tests.
   - Generated/check/arch/parity/database gates required by repository.
   - Exact Linux race scopes required by predecessor/current QA.
   - `make quality-checks`, `make test`, `make arch-report` and current aggregate parity gates.
@@ -411,7 +413,7 @@ Use these post-full-closure targets or their direct post-#429 renames:
 
 - [ ] 12.5 Merged-main certification and archive
   - Re-run required gates on merged `main`.
-  - Record exact merge SHA, provider-profile ownership outcome (this SDD vs bulk-provider), benchmark summary, architecture census and no-follow-up review.
+  - Record exact merge SHA, **reuse of completed #619/#622 provider-profile owner** (not a competing implementation), benchmark/wire-eligibility summary, architecture census and no-follow-up review.
   - Mark spec completed/ready false and archive according to Kiro workflow.
   - Completion means newly documented provider carriers are ordinary adapter/profile additions, not generic cache-affinity architecture work.
   - _Depends: 12.4_

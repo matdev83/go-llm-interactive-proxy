@@ -35,7 +35,8 @@ The generated value is advisory routing metadata only. It is never session autho
 7. The generic metadata seam, if needed, shall be projected into `request.AttemptMeta` and shall have independent justification from the already-existing executable-backend feature-negotiation model. Core shall not know provider wire names or cache-affinity policy.
 8. Feature-specific metrics shall be emitted by a feature-owned observer/adapter composed by `featurehost`; no `internal/core/runtime` metrics interface shall gain cache-affinity methods.
 9. The implementation shall add architecture ratchets forbidding reintroduction of `internal/core/cacheaffinity`, `SecurityRuntime.DownstreamCacheAffinity*`, `execbackend.Backend.ResolveDownstreamCacheAffinity`, and an executor-local cache-affinity helper/stage.
-10. Production implementation shall not begin until `core-feature-ownership-full-closure` is implemented/certified on `main`. Its final core-admission manifest/ratchets are authoritative over stale package assumptions in this SDD.
+10. The completed `core-feature-ownership-full-closure` (#598/#599, remediation #600; archive `.kiro/specs/archive/core-feature-ownership-full-closure/`) is the certified implementation baseline. Revalidate its surviving ratchets on the implementation branch; it is no longer a pending implementation dependency.
+11. The standard cache-affinity attempt-transform plane shall be **explicitly generation opt-in**. No enabled feature registration (or an explicitly disabled registration) means no cache-affinity `PlaneAttemptTransforms` occupant. When enabled, the existing canonical-required plane/wire eligibility contract must remain intact, with no cache-specific wire bypass.
 
 ## Requirement 3 — Use Only Trusted Proxy Conversation Scope
 
@@ -62,6 +63,7 @@ The generated value is advisory routing metadata only. It is never session autho
 5. No new user-facing secret shall be introduced. Standard feature composition shall request a feature subkey from a narrow domain-key derivation capability backed by the already-resolved secure-session fingerprint root; the feature shall not receive or retain that root.
 6. Changing the secure-session fingerprint root may change generated values and cache hit rate but shall not alter authorization/session correctness.
 7. Memory-store process-local key lifetime may reset generated affinity on restart consistently with the existing secure-session key lifetime.
+8. The generic key-derivation capability shall accept a validated NUL-free domain *label* (<=128 ASCII bytes, no controls/NUL), then the secure-session root owner shall append exactly one terminal zero byte **inside HMAC input**. For the frozen label `aiproxer/downstream-cache-affinity/key/v1`, the derived-key HMAC message remains the exact frozen `aiproxer/downstream-cache-affinity/key/v1\x00`. Never send a NUL-bearing label through a validator that rejects NUL.
 
 ## Requirement 5 — Preserve Explicit Intent Before Generated Fallback
 
@@ -75,8 +77,9 @@ The generated value is advisory routing metadata only. It is never session autho
 4. Otherwise no value shall be synthesized.
 5. Existing `PromptCacheKeyValue()` alias-conflict validation remains authoritative; the feature shall not invent new alias precedence.
 6. The attempt transform shall be ordered after existing standard attempt transforms and shall be **fill-only**: it never overwrites a non-empty effective PCK.
-7. Before implementation, characterization shall prove no current post-attempt-transform/request-part-hook stage writes or replaces `PromptCacheKey`. If such a later writer exists after the full-closure migration, STOP and revise the SDD rather than accepting generated-vs-explicit precedence inversion.
+7. Before implementation, characterization shall prove no current post-attempt-transform/request-part-hook stage writes or replaces `PromptCacheKey`. If such a later writer exists on the actual implementation branch, STOP and revise the SDD rather than accepting generated-vs-explicit precedence inversion.
 8. Tests shall prove the generated PCK survives normal request hooks, candidate adaptation and the final raw-session scrub to the selected backend serializer.
+9. Standard-distribution default is absent/disabled; enabling the feature is explicit and generation-frozen. Explicit PCK forwarding in backends remains independent of optional proxy synthesis. Disabling/reloading the feature must not leave stale transforms or generated hints in the next generation.
 
 ## Requirement 6 — Make Provider Projection and Synthesis Explicit Capabilities
 
@@ -91,9 +94,9 @@ The generated value is advisory routing metadata only. It is never session autho
 5. An enabled projection shall fail validation for invalid transport/wire name, a bound below 50 characters, or API-family mismatch.
 6. Unknown/undeclared profiles default disabled.
 7. Provider wire projection remains backend/profile/connector-owned; generic core and the cache feature shall contain no provider wire-name switches.
-8. Configured `kind: provider-profile` rows shall preserve complete compiled semantics through the actual production registry/lifecycle path. They shall not be reduced to lossy generic compatible YAML.
+8. Configured `kind: provider-profile` source rows shall preserve complete compiled semantics through the *existing marker-aware* production registry/lifecycle path: `ExpandProviderProfileRowsWithCatalog` creates a prepared compatible-family clone carrying reserved identity markers; `wrapCompatibleLifecycle` resolves the compiled profile and builds with `buildProviderProfileBackendWithNode`. This prepared-row rewrite is permitted, but source mutation or loss of compiled semantics is not.
 9. `internal/providerprofiles` shall remain declarative and shall not import the feature implementation. It may define local `MinCacheAffinityValueLength = 50`, with an architecture test pinning that value to the feature's generated length.
-10. If the bulk-provider implementation has already repaired the provider-profile lifecycle on the implementation base, this SDD shall verify/reuse that repair instead of duplicating it. If this SDD lands first, the corresponding bulk-provider task becomes verification-only.
+10. Bulk-provider implementation and remediation are already merged (#619/#622). Reuse and certify their single authoritative marker-aware profile lifecycle. Do **not** introduce an additional `LifecycleProviderProfile` factory, another standard backend contribution, or a second registry/bridge. Cache-affinity projection must survive the real expanded-row wrapper build without being reconstructed from lossy generic YAML.
 
 ## Requirement 7 — Complete the Initial Provider Matrix
 
@@ -107,10 +110,10 @@ The generated value is advisory routing metadata only. It is never session autho
 4. Mistral Chat profile: JSON `prompt_cache_key`, max 256, synthesis enabled.
 5. Fireworks Responses profile: JSON `prompt_cache_key`, max 256, synthesis enabled.
 6. RunInfra Chat profile: JSON `prompt_cache_key`, max 64, synthesis enabled; base `https://api.runinfra.ai/v1`, env `RUNINFRA_API_KEY`.
-7. OpenRouter: JSON body `session_id` only, max 256; explicit `openrouter.session_id` wins, otherwise effective PCK; no extra `x-session-id`.
+7. OpenRouter: JSON body `session_id` only, max 256; explicit `openrouter.session_id` wins, otherwise effective PCK; no extra `x-session-id`. The existing generic extra-body passthrough must not silently overwrite this chosen `session_id`: reject ambiguous collisions or prove explicit source priority deterministically.
 8. Direct Anthropic, direct Gemini and arbitrary unknown custom-compatible backends remain synthesis-disabled.
-9. Missing profile rows (`fireworks`, `xai`, `xai-responses`, `mistral`, `runinfra`) shall be added here; existing rows shall be augmented without weakening stricter inventory/capability data.
-10. Completion does not depend on later bulk-provider work and shall be certified through the real `provider-profile` production path.
+9. Current catalog already contains `fireworks`, `xai`, and `mistral`; augment these without weakening current disabled capabilities, inventory, auth or endpoint data. Add the still-missing `xai-responses` and `runinfra` only. Validate against the catalog on the implementation branch.
+10. Completed bulk-provider lifecycle/connector work is the reusable production baseline; this feature adds only cache-specific typed projection and certification through that established path. Current official provider wire/limit assumptions must be verified before asserting live production support.
 
 ## Requirement 8 — Preserve Executable-Backend Compatibility Without New Value DTOs
 
@@ -120,10 +123,11 @@ The generated value is advisory routing metadata only. It is never session autho
 
 1. No new protobuf invocation field and no protocol-minor bump shall be added for the generated value.
 2. The existing prompt-cache semantic/legacy carrier shall carry the already-generated PCK to an executable backend.
-3. Add optional negotiated feature `downstream_cache_affinity_v1` at the existing semantic-extension minimum minor (6); connectors advertise it only when they consume PCK as downstream affinity.
-4. The backend-plugin host adapter shall translate successful negotiation into the same generic immutable backend-feature metadata used by in-process backends; it shall not add a cache-specific `execbackend.Backend` callback.
+3. Add optional negotiated feature `downstream_cache_affinity_v1` at the existing semantic-extension minimum minor (6). The host currently offers protocol minor 9; maintain the existing version, the centralized feature-minor requirements and both host offer feature lists. Connectors advertise only when they actually consume PCK as downstream affinity.
+4. The backend-plugin host adapter shall translate successful, supported negotiation **and a usable negotiated existing PCK carrier** into the same generic immutable backend-feature metadata used by in-process backends; it shall not add a cache-specific `execbackend.Backend` callback.
 5. Old peers/lacking-feature peers remain synthesis-disabled.
 6. Raw authoritative session identity remains scrubbed before backend `Open` and is never sent to the connector for derivation.
+7. `pkg/lipsdk/backendplugin/host/session.go` must advertise the optional feature consistently in both `ProtocolOffer.Features` and `NegotiateRequest.HostFeatures`; protocol-minor tests must prove feature omission below 6 and negotiated enablement only where the PCK carrier is usable.
 
 ## Requirement 9 — Keep Hot-Path Work Bounded
 
@@ -136,6 +140,8 @@ The generated value is advisory routing metadata only. It is never session autho
 3. Backend-feature lookup uses immutable request-pinned metadata and is O(small bounded feature count).
 4. The feature shall not retain prompts, tools, request bodies, raw session IDs beyond existing request lifetime, credentials or cache contents.
 5. Metrics/logs shall never contain the raw generated hint, PCK, raw session ID, root/subkey, or residency handle.
+6. With cache-affinity disabled, wire fast-path eligibility shall be unchanged (no cache-affinity plane occupant). With the opt-in transform enabled, an occupied canonical-required attempt-transform plane must correctly decline wire bypass and run the canonical attempt, so synthesis cannot be silently skipped.
+7. Explicit feature activation and canonical fallback costs must be included in benchmark/rollout evidence; no global default-on canonicalization or unbounded per-attempt overhead is permitted.
 
 ## Requirement 10 — Observe Decisions Truthfully
 
@@ -155,9 +161,9 @@ The generated value is advisory routing metadata only. It is never session autho
 
 ### Acceptance Criteria
 
-1. Completion shall include: post-full-closure revalidation, generic backend-feature metadata only if still needed, feature-owned derivation/attempt transform/telemetry, featurehost composition/key derivation, direct OpenAI forwarding, non-lossy provider-profile lifecycle, typed profile projection, initial provider rows, OpenRouter negotiation/projection, tests/TCK, docs, performance and architecture gates.
+1. Completion shall include: revalidation of the already-completed full-closure baseline; generic backend-feature metadata only if still needed; feature-owned derivation/opt-in attempt transform/telemetry; featurehost composition/key derivation; direct OpenAI forwarding; **reuse and certification** of the existing marker-aware provider-profile lifecycle; typed profile projection; augmenting existing and adding missing initial provider rows; OpenRouter negotiation/projection; tests/TCK, docs, performance, wire-fast-path impact and architecture gates.
 2. No cache-specific production package/file/field/callback shall be added under `internal/core`, `runtimebundle.ProcessServices`, `runtime.SecurityRuntime`, `runtime.Executor`, or `execbackend.Backend`.
-3. Architecture tests shall prove provider wire literals stay outside generic core/feature policy, generated values never become session/residency authority, provider profiles do not depend upward on the feature, and lossy profile rewriting cannot return.
+3. Architecture tests shall prove provider wire literals stay outside generic core/feature policy, generated values never become session/residency authority, provider profiles do not depend upward on the feature, and the established marker-aware profile bridge cannot silently drop compiled projections or permit marker forgery.
 4. The final ownership census shall classify the cache-affinity feature outside core and preserve the full-closure zero-debt core-admission result.
 5. Final review shall resolve all TODOs/placeholders required by this feature before archive.
 6. After completion, a newly documented provider carrier shall be an ordinary profile/backend/connector addition against the completed contract, not generic architecture work.
