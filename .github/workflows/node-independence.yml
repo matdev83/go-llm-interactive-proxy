@@ -54,19 +54,21 @@ jobs:
           # The lane guards one property: the root build must never need Node. A
           # change can only break that by (a) altering the guard itself or module/
           # packaging inputs, or (b) introducing a Node toolchain reference in the
-          # Makefile, scripts or tools. A one-line edit that mentions neither used to
-          # cost every PR a 7 minute run; the daily schedule still replays the lane.
+          # Makefile, scripts, tools or composite actions. A one-line edit that
+          # mentions neither used to cost every PR a 7-14 minute run (cache policy
+          # budgets and cache-action edits are the common case); the daily schedule
+          # still replays the lane.
           node_ref='\b(node|npm|npx|yarn|pnpm|bun|deno)\b|\.(m|c)?js\b|\.ts\b'
           while IFS= read -r file; do
             case "$file" in
               go.mod|go.sum|go.work|go.work.sum|\
               .golangci.yml|.goreleaser.yaml|.goreleaser.yml|.release-files|\
               tools/backendplugin/node_independence/*|scripts/check-node-independence.*|\
-              .github/workflows/node-independence.yml|.github/actions/*)
+              .github/workflows/node-independence.yml)
                 host=true
                 break
                 ;;
-              Makefile|tools/*|scripts/*)
+              Makefile|tools/*|scripts/*|.github/actions/*)
                 if git diff --unified=0 "$BASE_SHA" HEAD -- "$file" \
                   | grep -E '^[+-]' | grep -vE '^(---|\+\+\+)' | grep -iE "$node_ref" >/dev/null; then
                   host=true
