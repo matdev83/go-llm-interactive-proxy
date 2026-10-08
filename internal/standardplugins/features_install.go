@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/compactioncontinuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/keepwarm"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/modelsystemprompt"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	pathvirtualizationbundle "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/bundle"
 	pathvirtualizationconfig "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/pathvirtualization/config"
@@ -334,6 +335,19 @@ func featureInterleavedThinking(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	}
 	if !cfg.Enabled {
 		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+	}
+	return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+}
+
+// The registry validates configuration only; generation-bound bootstrap
+// composition belongs to featurehost rather than a public feature plane.
+func featureModelSystemPrompt(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	cfg, err := modelsystemprompt.DecodeConfig(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	if _, err := modelsystemprompt.New(cfg); err != nil {
+		return lipfeature.FeatureBundle{}, err
 	}
 	return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
 }

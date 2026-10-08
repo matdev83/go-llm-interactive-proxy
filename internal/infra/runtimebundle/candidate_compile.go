@@ -182,6 +182,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 		GenerationRunner:              in.GenerationRunner,
 		TerminalPolicyReader:          opts.CorePorts.TerminalPolicyReader,
 		ConversationReader:            convReader,
+		ConversationBootstrap:         opts.CorePorts.ConversationBootstrap,
 		ConversationReaderStockOrigin: stockConvReader,
 		ConversationStore:             ps.StandardFeatures.ConversationStore(),
 		InterleavedProcessor:          opts.CorePorts.InterleavedProcessor,

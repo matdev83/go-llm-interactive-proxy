@@ -882,6 +882,7 @@ func EnsureSchema(ctx context.Context, db *bun.DB) error {
 			FOREIGN KEY(a_leg_id) REFERENCES a_legs(a_leg_id) ON DELETE CASCADE
 		)`,
 	}
+	stmts = append(stmts, BootstrapDDL)
 	for _, q := range stmts {
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			return fmt.Errorf("conversationview bun ensure schema: %w", err)

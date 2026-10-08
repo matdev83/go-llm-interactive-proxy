@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
@@ -121,6 +122,48 @@ func task51BaseConfig() *config.Config {
 	// Ensure default route selector picks openai
 	cfg.Routing.DefaultRoute = "openai:gpt-4"
 	return cfg
+}
+
+// The task-4 port must reach actual backend preparation in both typed compile
+// paths; this is not a reload or large-body occupancy test.
+func TestConversationBootstrap_CompiledPortReachesBackendOpen(t *testing.T) {
+	for _, generation := range []bool{false, true} {
+		t.Run(map[bool]string{false: "candidate", true: "generation"}[generation], func(t *testing.T) {
+			cfg := task51BaseConfig()
+			var node yaml.Node
+			require.NoError(t, yaml.Unmarshal([]byte("rules:\n  - id: first\n    model_pattern: '^openai/test-model$'\n    append: bootstrap instruction\n"), &node))
+			cfg.Plugins.Features = append(cfg.Plugins.Features, config.PluginConfig{ID: "model-system-prompt", Enabled: true, Config: node})
+			cfg.Routing.DefaultRoute = "openai:openai/test-model"
+			capture := &task51CaptureBackend{}
+			execute := func(ex *runtime.Executor) {
+				ex.Backends = map[string]execbackend.Backend{"openai": capture.Backend()}
+				call := &lipapi.Call{Route: lipapi.RouteIntent{Selector: cfg.Routing.DefaultRoute}, Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("client truth")}}}}
+				stream, err := ex.Execute(execPrincipalWithID(t.Context(), "bootstrap-owner"), call)
+				require.NoError(t, err)
+				defer func() { _ = stream.Close() }()
+				for {
+					event, err := stream.Recv(t.Context())
+					require.NoError(t, err)
+					if event.Kind == lipapi.EventResponseFinished {
+						break
+					}
+				}
+				backendCall, ok := capture.lastCall()
+				require.True(t, ok)
+				require.Len(t, backendCall.Instructions, 1)
+				require.Equal(t, "bootstrap instruction", backendCall.Instructions[0].Parts[0].Text)
+				require.Empty(t, call.Instructions, "client call must not acquire backend steering")
+			}
+			opts := &runtimebundle.BuildOptions{PluginRegistry: generationRegistry(t)}
+			if generation {
+				_, gen := mustProcessAndGeneration(t, cfg, opts)
+				execute(runtimebundle.GenerationExecutorOf(gen))
+			} else {
+				_, candidate := mustProcessAndCandidate(t, cfg, opts)
+				execute(candidate.Executor())
+			}
+		})
+	}
 }
 
 // TestTask51_GenerationReload_RuntimeBundleHarness proves conversation-view state is

@@ -197,18 +197,16 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		}
 	}
 
-	// Task 3.3: generic two-phase local-turn stage. Frozen ordered handler list
-	// in snapshot; pure Match against preserved ingress before credit/billing/route/B-leg.
+	// Consume the pre-snapshot selection; do not match or reread the view here.
 	if pr.identity.ingressCall != nil {
-		handlers := e.localTurnHandlers()
-		if len(handlers) > 0 {
+		if pr.identity.localSelection.handler != nil {
 			tagger := e.conversationViewTagger()
 			if tagger == nil {
 				err := fmt.Errorf("executor: conversation view tagger not available for localturn")
 				pr.finalize(err)
 				return nil, nil, noop, err
 			}
-			out, err := e.runLocalTurnStage(prepCtx, *pr.identity.ingressCall, pr.conversationSnapshot, handlers, tagger, pr.identity.aLeg.ALegID, pr.identity.traceID)
+			out, err := e.runLocalTurnStage(prepCtx, *pr.identity.ingressCall, pr.conversationSnapshot, pr.identity.localSelection, tagger, pr.identity.aLeg.ALegID)
 			if err != nil {
 				_ = e.releaseRequestAuthority(prepCtx)
 				pr.finalize(err)
@@ -357,6 +355,7 @@ type identityBoundTurn struct {
 	conversationSummary          conversationProjectionSummary
 	conversationFilteredBaseline *lipapi.Call
 	convSnapshotSet              bool
+	localSelection               localTurnSelection
 }
 
 func newIdentityBoundTurn(traceID string, call *lipapi.Call, principal execview.PrincipalView, scope scope.PrincipalScopeView, hasPrincipal bool, workspace lipworkspace.WorkspaceView, aLeg b2bua.ALegRecord, routeAuth routeAuthoritySnapshot, secureTurn execctx.SecureSessionTurn, secureTurnOK bool, preSession session.SessionView) (*identityBoundTurn, error) {
