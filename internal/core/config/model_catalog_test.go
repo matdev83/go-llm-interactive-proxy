@@ -439,6 +439,32 @@ model_catalog:
 	}
 }
 
+func TestLoadFile_modelCatalog_reportsInvalidDurationContainingRequiredWord(t *testing.T) {
+	t.Parallel()
+	cache := yamlPath(filepath.Join(t.TempDir(), "c.json"))
+	p := filepath.Join(t.TempDir(), "cfg.yaml")
+	body := minimalLoadableYAML + `
+model_catalog:
+  enabled: true
+  external_updates_enabled: true
+  update_interval: required
+  source_url: "https://example.com/models.json"
+  cache_path: "` + cache + `"
+`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.LoadFile(p)
+	if err == nil || !strings.Contains(err.Error(), "model_catalog.update_interval") {
+		t.Fatalf("want update_interval error, got %v", err)
+	}
+	// "required" is a non-empty invalid duration, so it must report an
+	// invalid-duration parse failure rather than the empty-value message.
+	if !strings.Contains(err.Error(), "invalid duration") {
+		t.Fatalf("want invalid-duration error for non-empty input, got %v", err)
+	}
+}
+
 func TestLoadFile_modelCatalog_rejectsNonPositiveFetchTimeout(t *testing.T) {
 	t.Parallel()
 	p := filepath.Join(t.TempDir(), "cfg.yaml")

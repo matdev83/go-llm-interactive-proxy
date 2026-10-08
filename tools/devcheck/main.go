@@ -39,6 +39,8 @@ func run() error {
 	task := flag.String("task", "doctor", "test, build, lint, doctor, or quarantine")
 	module := flag.String("module", ".", "repository-relative Go module directory")
 	packages := flag.String("packages", "", "explicit space-separated package patterns, e.g. ./pkg/lipapi")
+	var skipTest explicitTestSkipFlag
+	flag.Var(&skipTest, "skip-test", "skip one exact top-level Test in an explicit task=test run")
 	jobs := flag.Int("jobs", min(4, runtime.GOMAXPROCS(0)), "Go package and analyzer concurrency")
 	fresh := flag.Bool("fresh", false, "disable test result reuse for a deliberate fresh execution")
 	repeat := flag.Int("repeat", 1, "repeat identical checks to distinguish warm reuse from execution cost")
@@ -49,6 +51,11 @@ func run() error {
 	flag.Parse()
 	if flag.NArg() != 0 || *jobs < 1 || *repeat < 1 {
 		return errors.New("jobs/repeat must be positive; use named flags for scope")
+	}
+	if err := validateExplicitTestSkip(
+		skipTest.set, skipTest.name, *task, *scope, *full, *base, *planOnly,
+	); err != nil {
+		return err
 	}
 	root, err := os.Getwd()
 	if err != nil {
@@ -93,7 +100,24 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	command = withQuarantine(command, quarantine)
+	if skipTest.set {
+		goFlags, err := effectiveGOFlags(dir, append(os.Environ(), "GOWORK=off"))
+		if err != nil {
+			return err
+		}
+		pattern, err := combinedTestSkipPattern(goFlags, quarantine, skipTest.name)
+		if err != nil {
+			return fmt.Errorf("combine test skip patterns: %w", err)
+		}
+		command = withExplicitTestSkip(command, pattern)
+		fmt.Fprintf(
+			os.Stderr,
+			"Excluding top-level test %s from this development run.\n",
+			skipTest.name,
+		)
+	} else {
+		command = withQuarantine(command, quarantine)
+	}
 	// Do not substitute staticcheck for the mandatory multi-linter gate, or
 	// report success when the requested analyzer is absent.
 	if _, err := exec.LookPath(command[0]); err != nil {
