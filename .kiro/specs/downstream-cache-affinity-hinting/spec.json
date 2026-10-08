@@ -1,15 +1,24 @@
 {
   "feature_name": "downstream-cache-affinity-hinting",
   "created_at": "2026-09-01T16:45:00+02:00",
-  "updated_at": "2026-09-01T23:05:00+02:00",
+  "updated_at": "2026-10-08T23:30:00+02:00",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
-    "requirements": {"generated": true,"approved": true},
-    "design": {"generated": true,"approved": true},
-    "tasks": {"generated": true,"approved": true}
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
   },
   "ready_for_implementation": true,
-  "execution_gate": "Implement only after core-feature-ownership-full-closure is implemented/certified and its final ownership census/core-admission ratchets are present on main.",
-  "project_description": "Complete provider-facing prompt-cache locality hinting without regrowing generic core. The revised post-core-closure architecture moves HMAC derivation, fill-only synthesis policy and telemetry into a standard downstreamcacheaffinity feature, composes it through standardplugins/featurehost, reuses the existing candidate-aware PlaneAttemptTransforms seam, and permits only bounded generic immutable backend-feature metadata if the final post-closure tree still lacks an equivalent carrier. It explicitly forbids a cache-specific core package, executor/security-runtime/process-services fields, execbackend resolver, core metrics callback or new feature plane. The SDD retains direct OpenAI Responses prompt_cache_key repair, the non-lossy provider-profile lifecycle repair/reuse, typed profile projection, frozen xAI/Mistral/Fireworks/RunInfra/OpenRouter matrix, executable connector negotiation without new protobuf value fields/minor, and strict separation from session authority, continuation and prompt-cache residency/keep-warm. Because no production wire compatibility exists yet, the generated value starts with the planned AIProxer branding: aipca1_ plus a full SHA-256 raw-base64url digest (50 chars), with aiproxer/... HMAC domains. Tasks are execution-grade for a weaker instruction-following model and include a hard RED gate proving no later PCK writer invalidates use of the existing attempt-transform seam."
+  "execution_gate": "Single V1 slice within delivery.md budgets. Implement only on the scheduled post-split milestone. No changes to core, pkg/lipsdk, execbackend.Backend, AttemptMeta, runtimebundle, featurehost or the backend-plugin protocol; Deferred items need their own issues.",
+  "project_description": "Opt-in standard feature (downstream-cache-affinity) that fills an empty canonical PromptCacheKey with aipca1_ + base64url(SHA-256(domain || BackendID || 0 || AuthoritativeSessionID)) via the existing PlaneAttemptTransforms; explicit client PCK always wins; absent/disabled feature leaves the plane empty and wire fast path unchanged. Direct OpenAI Responses/Chat serializers forward PCK; the OpenAI-compatible family forwards it only for provider profiles declaring the openai.prompt_cache_key quirk (fireworks, mistral after doc recheck). xAI, RunInfra, OpenRouter, capability metadata, keyed derivation, metrics and wire-path synthesis are deferred."
 }
