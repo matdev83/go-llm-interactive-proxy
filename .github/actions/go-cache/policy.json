@@ -69,11 +69,6 @@
     "job": "coverage",
     "workflow": "OpenResponses coverage evidence"
   },
-  "cursorsdk": {
-    "build_mib": 768,
-    "job": "platform-smoke",
-    "workflow": "Cursor SDK Platform Smoke"
-  },
   "modules": {
     "build_mib": 768,
     "job": "modules",

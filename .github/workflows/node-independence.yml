@@ -7,6 +7,7 @@ on:
     # labeled/unlabeled so applying or removing the exemption actually re-runs the
     # gate it unblocks, instead of waiting for the next push to notice.
     types: [opened, synchronize, reopened, labeled, unlabeled]
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -42,10 +43,10 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]] || [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0{40}$ ]]; then
+          if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "merge_group" && "$EVENT_NAME" != "push" ]] || [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0{40}$ ]]; then
             echo "host=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

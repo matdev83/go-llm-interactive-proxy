@@ -126,7 +126,7 @@ Cost classification remains available as metadata, but default CI
 and the weekly/manual watchdog no longer execute the remote comparison. Initial branch pushes
 retain full validation, and an invalid predecessor fails closed. Executable QA
 fixtures cover production, documentation, cost policy and both predecessor cases.
-Security and the native ACP, Cursor, taskrunner and backend gates also
+Security and the native ACP, taskrunner and backend gates also
 use the actual push predecessor. Ordinary main merges no longer widen a selected
 connector to the full native matrix or run Go scans for documentation alone.
 Fifty-three Git fixtures execute the ten lane classifiers/selectors against relevant,

@@ -1,9 +1,7 @@
 package standardplugins
 
 import (
-	"fmt"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -108,12 +106,6 @@ func standardBackendBuildYAML(id string) string {
 		return "backend_prefix: custom-anthropic\nbase_url: http://127.0.0.1:9/v1\n"
 	case CustomOpenResponsesCompatibleID:
 		return "backend_prefix: custom-openresponses\nbase_url: http://127.0.0.1:9/openresponses/v1\n"
-	case "cursorsdk":
-		exe, err := os.Executable()
-		if err != nil {
-			exe = os.Args[0]
-		}
-		return fmt.Sprintf("api_key: test\nbridge_executable: %q\n", exe)
 	default:
 		return ""
 	}

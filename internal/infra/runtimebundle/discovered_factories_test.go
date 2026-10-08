@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/backendplugins/trust"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	bpkit "github.com/matdev83/go-llm-interactive-proxy/internal/testkit/backendplugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/backendplugin"
@@ -371,34 +372,128 @@ func TestDiscovered_SharedGenerationInvalidation(t *testing.T) {
 
 func TestDiscovered_NoConnectorSpecificSwitchInInstaller(t *testing.T) {
 	t.Parallel()
+	body := readDiscoveredInstaller(t)
+	kinds := discoveredInstallerForbiddenKinds(t)
+	if len(kinds) == 0 {
+		t.Fatal("derived no forbidden kinds; census must never be silently empty")
+	}
+	if detectDiscoveredSwitchViolation(string(body), kinds) {
+		t.Fatal("discovered installer must not contain connector switch")
+	}
+	// Negative control: a meaningful temp copy with one derived kind injected
+	// must trip the same detector, proving the gate is not vacuous.
+	injected := string(body) + "\n// negative control\nswitch kind {\n" + "case \"" + kinds[0] + "\":\n}\n"
+	if !detectDiscoveredSwitchViolation(injected, kinds) {
+		t.Fatalf("detector failed to reject injected kind %q", kinds[0])
+	}
+	tmp := filepath.Join(t.TempDir(), "discovered_factories.go")
+	if err := os.WriteFile(tmp, []byte(injected), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !detectDiscoveredSwitchViolation(string(raw), kinds) {
+		t.Fatal("detector failed on temp copy with injected switch")
+	}
+}
+
+func readDiscoveredInstaller(t *testing.T) []byte {
+	t.Helper()
 	candidates := []string{
 		"discovered_factories.go",
 		filepath.Join("internal", "infra", "runtimebundle", "discovered_factories.go"),
 	}
-	var body []byte
-	var err error
 	for _, path := range candidates {
-		body, err = os.ReadFile(path)
-		if err == nil {
-			break
+		if body, err := os.ReadFile(path); err == nil {
+			return body
 		}
 	}
+	// Fall back to repo-root resolution when run from the package directory.
+	root := discoveredRepoRoot(t)
+	body, err := os.ReadFile(filepath.Join(root, "internal", "infra", "runtimebundle", "discovered_factories.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := strings.ToLower(string(body))
-	for _, forbidden := range []string{
-		`case "openai-codex"`,
-		`case "codex"`,
-		`case "opencode"`,
-		`case "opencode-go"`,
-		`case "acp"`,
-		`case "cursor-sdk"`,
-	} {
-		if strings.Contains(src, forbidden) {
-			t.Fatalf("discovered installer must not contain connector switch %s", forbidden)
+	return body
+}
+
+func discoveredRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("could not find repo root with go.mod")
+		}
+		dir = parent
+	}
+}
+
+// discoveredInstallerForbiddenKinds derives the union of essential bundle IDs
+// and on-disk connector release.yaml factory kinds. The installer must not
+// switch on any of them; deriving keeps the gate exact without hardcoding.
+func discoveredInstallerForbiddenKinds(t *testing.T) []string {
+	t.Helper()
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(kind string) {
+		kind = strings.TrimSpace(kind)
+		if kind == "" {
+			return
+		}
+		if _, ok := seen[kind]; ok {
+			return
+		}
+		seen[kind] = struct{}{}
+		out = append(out, kind)
+	}
+	for _, e := range standardplugins.EssentialBackendBundle(standardplugins.UpstreamAPIKeys{}).Backends {
+		add(e.ID)
+	}
+	root := discoveredRepoRoot(t)
+	entries, err := os.ReadDir(filepath.Join(root, "connectors"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(root, "connectors", e.Name(), "release.yaml"))
+		if err != nil {
+			continue
+		}
+		var rel struct {
+			FactoryKind string `yaml:"factory_kind"`
+		}
+		if err := yaml.Unmarshal(raw, &rel); err != nil {
+			continue
+		}
+		add(rel.FactoryKind)
+	}
+	return out
+}
+
+func detectDiscoveredSwitchViolation(src string, kinds []string) bool {
+	lower := strings.ToLower(src)
+	for _, kind := range kinds {
+		needle := "case \"" + strings.ToLower(strings.TrimSpace(kind)) + "\""
+		if kind == "" {
+			continue
+		}
+		if strings.Contains(lower, needle) {
+			return true
 		}
 	}
+	return false
 }
 
 func stubDialSession(t *testing.T) runtimebundle.DialSessionFunc {

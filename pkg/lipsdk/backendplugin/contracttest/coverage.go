@@ -28,7 +28,6 @@ var CurrentConnectorFamilyCoverage = []ConnectorFamilyCoverage{
 	{ModulePath: "connectors/snowflake", Family: "openai-compatible", Subject: "snowflake-cortex"},
 	{ModulePath: "connectors/databricks", Family: "openai-compatible", Subject: "databricks-ai"},
 	{ModulePath: "connectors/infomaniak", Family: "openai-compatible", Subject: "infomaniak-ai"},
-	{ModulePath: "connectors/cursorsdk", Family: "acp-sdk", Subject: "cursorsdk"},
 	{ModulePath: "connectors/llamacpp", Family: "openai-compatible", Subject: "llamacpp"},
 	{ModulePath: "connectors/lmstudio", Family: "openai-compatible", Subject: "lmstudio"},
 	{ModulePath: "connectors/vertex", Family: "vertex", Subject: "vertex"},
