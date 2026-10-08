@@ -90,7 +90,12 @@ if [[ "${LIP_PRECOMMIT_FULL:-}" != "1" ]]; then
 		for module in "${!test_packages[@]}"; do
 			packages=$(tr ' ' '\n' <<< "${test_packages[$module]}" | sed '/^$/d' | sort -u | tr '\n' ' ')
 			echo "Testing staged packages in module $module (CI runs the complete suite): $packages"
-			go run -buildvcs=false ./tools/devcheck -task=test -module="$module" -packages="$packages"
+			skip_test_args=()
+			if [[ "$module" == "." && " $packages " == *" ./internal/infra/runtimebundle "* ]]; then
+				skip_test_args=(-skip-test=TestRuntimebundle_NoCompleteOwnerCallbackEscapes)
+				echo "Fast staged hook excludes TestRuntimebundle_NoCompleteOwnerCallbackEscapes; full precommit and dedicated CI still run the whole-module owner-callback gate."
+			fi
+			go run -buildvcs=false ./tools/devcheck -task=test -module="$module" -packages="$packages" "${skip_test_args[@]}"
 		done
 	)
 

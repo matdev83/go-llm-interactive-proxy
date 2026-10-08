@@ -385,8 +385,10 @@ func loadOwnerReachablePackagesForContext(bc callbackBuildContext, overlay map[s
 
 func loadOwnerReachablePackagesForContextUncached(bc callbackBuildContext, overlay map[string][]byte) ([]*packages.Package, map[string]bool, error) {
 	analyzed := map[string]bool{}
+	// This graph pass needs package metadata and imports only; NeedCompiledGoFiles
+	// enters the build-action pipeline, which the typed load below needs separately.
 	graph, err := packages.Load(&packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+		Mode: packages.NeedName | packages.NeedFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedModule,
 		Tests: false, Env: callbackPackagesEnv(bc), Overlay: overlay,
 	}, runtimeModulePattern)

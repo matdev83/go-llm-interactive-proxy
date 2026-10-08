@@ -163,7 +163,9 @@ jobs:
       - name: Validate staged commit quality checks
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
         shell: bash
-        run: bash scripts/test-quality-checks.sh
+        run: |
+          bash scripts/test-quality-checks.sh
+          bash scripts/test-quality-gate-fast-owner-skip.sh
 
       - name: Validate test quarantine
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
@@ -522,7 +524,9 @@ jobs:
       - name: Owner callback escape gate
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         shell: bash
-        run: go test -tags=precommit -timeout=25m -run '^TestRuntimebundle_NoCompleteOwnerCallbackEscapes$' ./internal/infra/runtimebundle/
+        # Discovery in child go list processes can find a new owner-reaching
+        # importer without changing runtimebundle's test-result cache inputs.
+        run: go test -count=1 -tags=precommit -timeout=25m -run '^TestRuntimebundle_NoCompleteOwnerCallbackEscapes$' ./internal/infra/runtimebundle/
 
       - name: Save bounded ci-owner-gate Go cache
         if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'

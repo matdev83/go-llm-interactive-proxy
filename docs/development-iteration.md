@@ -51,6 +51,11 @@ every package. `LIP_PRECOMMIT_FULL=1 git commit` (or
 `make precommit-full`) runs the old complete local gate. `scripts/hooks/pre-push`
 re-checks release cleanliness and change size.
 
+Fast staged commits to runtimebundle also defer that whole-module owner gate to
+CI. The owner-callback fixture tests still run locally. Full pre-commit mode and
+ordinary scoped test commands retain the complete gate; the hook prints the
+exclusion explicitly.
+
 The fast hook uses `quality-checks.sh --staged`: formatting checks only existing
 staged Go files, and tidy checks affected modules with `go mod tidy -diff`,
 without rewriting metadata. Build and full vet run on direct packages in their
