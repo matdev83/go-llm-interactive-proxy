@@ -594,7 +594,8 @@ func TestPrometheusCollectorExercisesTheBoundedRemoteStoreVocabulary(t *testing.
 }
 
 // TestPrometheusCollectorIsSafeUnderConcurrentObservation keeps the collector
-// usable from concurrent request turns.
+// usable from concurrent request turns and proves no observation is lost: every
+// concurrent write is counted exactly once under the closed vocabulary.
 func TestPrometheusCollectorIsSafeUnderConcurrentObservation(t *testing.T) {
 	t.Parallel()
 
@@ -624,8 +625,42 @@ func TestPrometheusCollectorIsSafeUnderConcurrentObservation(t *testing.T) {
 	for range workers {
 		<-done
 	}
-	if _, err := registry.Gather(); err != nil {
+	if got := collector.DroppedObservations(); got != 0 {
+		t.Fatalf("dropped observations = %d, want 0 for bounded concurrent observations", got)
+	}
+	families, err := registry.Gather()
+	if err != nil {
 		t.Fatalf("Gather after concurrent observation: %v", err)
+	}
+	const total = float64(workers * perWorker)
+	evaluations := findFamily(t, families, "lip_session_classification_evaluations_total")
+	assertOnlyLabel(t, evaluations, "mode", "outcome")
+	if got := counterValues(t, evaluations)["heuristic|unknown"]; got != total {
+		t.Fatalf("evaluations_total{mode=heuristic,outcome=unknown} = %v, want %v", got, total)
+	}
+	storeFamily := findFamily(t, families, "lip_session_classification_store_total")
+	assertOnlyLabel(t, storeFamily, "operation", "outcome")
+	if got := counterValues(t, storeFamily)["load|miss"]; got != total {
+		t.Fatalf("store_total{operation=load,outcome=miss} = %v, want %v", got, total)
+	}
+	remoteCounter := findFamily(t, families, "lip_session_classification_remote_total")
+	assertOnlyLabel(t, remoteCounter, "outcome")
+	if got := counterValues(t, remoteCounter)["below_threshold"]; got != total {
+		t.Fatalf("remote_total{outcome=below_threshold} = %v, want %v", got, total)
+	}
+	histogram := findFamily(t, families, "lip_session_classification_remote_seconds")
+	assertOnlyLabel(t, histogram, "outcome")
+	var samples uint64
+	for _, metric := range histogram.GetMetric() {
+		series := metric.GetHistogram()
+		samples += series.GetSampleCount()
+		if len(series.GetBucket()) != wantRemoteLatencyBuckets {
+			t.Fatalf("remote_seconds{outcome=%q} bucket count = %d, want the fixed bounded bucket set",
+				metric.GetLabel()[0].GetValue(), len(series.GetBucket()))
+		}
+	}
+	if float64(samples) != total {
+		t.Fatalf("remote_seconds sample count = %d, want %v", samples, total)
 	}
 }
 

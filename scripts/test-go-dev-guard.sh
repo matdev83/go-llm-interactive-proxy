@@ -160,6 +160,7 @@ if [[ $(uname -s) == Linux ]]; then
 	[[ $(cat "$GUARD_TEST_SLOT") == 1 ]]
 	LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=1 bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err"
 	grep -q 'waiting for a slot' "$fixture/err" && grep -q 'running without one' "$fixture/err"
+	grep -q 'slot0 held for .* by pid' "$fixture/err"
 	[[ $(cat "$GUARD_TEST_SLOT") == none ]]
 	kill "$holder"; wait "$holder" 2>/dev/null || true
 	# A freed slot is taken without the timeout fallback.
