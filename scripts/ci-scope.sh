@@ -158,7 +158,7 @@ file_matches() {
     billing_schema)
       case "$file" in
         internal/core/billing/*|internal/infra/billing*/*|internal/testkit/billsem/*|pkg/lipsdk/metering/*|pkg/lipsdk/economics/*|pkg/lipsdk/billing/*|pkg/lipsdk/scope/*|go.mod|go.sum|go.work|go.work.sum|\
-        .github/actions/go-cache/*|scripts/ci-go-cache.py|scripts/ci-scope.sh|scripts/test-billing-*)
+        scripts/ci-scope.sh|scripts/test-billing-*)
           return 0 ;;
         *) return 1 ;;
       esac
@@ -218,10 +218,11 @@ classify_diff() {
   done < "$diff_file"
   rm -f "$diff_file"
 
-  # Makefile and ci.yml reach the billing certification only when the change
-  # itself concerns billing (its targets or its CI job).
+  # Makefile, ci.yml and the shared Go-cache plumbing reach the billing
+  # certification only when the change itself concerns billing (its targets, its
+  # CI job or its cache lane); a budget tweak for another lane does not.
   if [[ "$billing_schema" == false ]] \
-    && diff_mentions "$base" "$head" 'billing' Makefile .github/workflows/ci.yml; then
+    && diff_mentions "$base" "$head" 'billing' Makefile .github/workflows/ci.yml .github/actions/go-cache scripts/ci-go-cache.py; then
     billing_schema=true
   fi
 
@@ -415,8 +416,8 @@ self_test() {
   rm -rf "$tmp"
   trap - RETURN
 
-  # Content-judged files: a Makefile or ci.yml edit fires the billing certification
-  # only when the changed lines mention billing.
+  # Content-judged files: a Makefile, ci.yml or Go-cache edit fires the billing
+  # certification only when the changed lines mention billing.
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' RETURN
   init_fixture_repo "$tmp"
@@ -439,6 +440,23 @@ self_test() {
   unrelated_head="$(git -C "$tmp" rev-parse HEAD)"
   output="$(cd "$tmp" && bash "$script_path" --outputs "$makefile_head" "$unrelated_head")"
   grep -qx 'billing_schema=false' <<< "$output" || { echo "unrelated ci.yml edit fired billing: $output" >&2; return 1; }
+  mkdir -p "$tmp/.github/actions/go-cache"
+  printf '{\n  "ci-suite": {\n    "build_mib": 3072\n  }\n}\n' > "$tmp/.github/actions/go-cache/policy.json"
+  git -C "$tmp" add -A
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm cache-policy-base
+  cache_base="$(git -C "$tmp" rev-parse HEAD)"
+  sed -i 's/3072/4096/' "$tmp/.github/actions/go-cache/policy.json"
+  git -C "$tmp" add -A
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm unrelated-cache-budget
+  output="$(cd "$tmp" && bash "$script_path" --outputs "$cache_base" HEAD)"
+  grep -qx 'billing_schema=false' <<< "$output" || { echo "unrelated cache budget edit fired billing: $output" >&2; return 1; }
+  unrelated_head="$(git -C "$tmp" rev-parse HEAD)"
+  sed -i 's/"ci-suite"/"billing-schema"/' "$tmp/.github/actions/go-cache/policy.json"
+  git -C "$tmp" add -A
+  git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm billing-cache-lane
+  output="$(cd "$tmp" && bash "$script_path" --outputs "$unrelated_head" HEAD)"
+  grep -qx 'billing_schema=true' <<< "$output" || { echo "billing cache lane edit did not fire billing: $output" >&2; return 1; }
+  unrelated_head="$(git -C "$tmp" rev-parse HEAD)"
   printf 'test-billing-schema:\n\t@echo billing\n' >> "$tmp/Makefile"
   git -C "$tmp" add -A
   git -C "$tmp" -c user.email=qa@example.com -c user.name=QA commit -qm makefile-billing
