@@ -6,6 +6,18 @@ on:
   push:
     branches:
       - main
+    # A push that only touches documentation or specs has nothing to build, but it
+    # would still take the main concurrency slot and replace a queued code push
+    # whose run publishes the Go caches. Same extension-bound set as
+    # is_documentation_path in scripts/ci-scope.sh (PRs still classify by that).
+    paths-ignore:
+      - "*.md"
+      - "docs/**/*.md"
+      - "docs/**/*.txt"
+      - "docs/**/*.png"
+      - "docs/**/*.svg"
+      - ".kiro/specs/**/*.md"
+      - ".kiro/specs/**/*.json"
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   # The merge queue re-runs the required checks on the queued merge commit.
@@ -23,7 +35,10 @@ env:
 
 concurrency:
   # Push and PR events for the same branch share a group, avoiding duplicate runs.
-  group: ci-${{ github.head_ref || github.ref_name }}
+  # The daily schedule / manual runs get their own group: sharing main's group let
+  # a ~7 minute scheduled run hold the slot while a newer push replaced the queued
+  # push run, so that push never published its caches.
+  group: ci-${{ github.head_ref || github.ref_name }}${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '-scheduled' || '' }}
   # Runs on main publish the Go build caches (a cancelled run saves nothing), so
   # only superseded PR / merge-queue runs are cancelled; a newer main push waits.
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
@@ -289,16 +304,25 @@ jobs:
         shell: bash
         run: go test -count=1 ./internal/infra/configsource/... ./internal/infra/runtimehost/...
 
+      # The fault checks run with -race on GitHub, which builds a second,
+      # race-instrumented copy of the whole dependency tree. In the shared cache it
+      # was the newest data, so the ci-unit snapshot bound discarded the non-race
+      # test objects and every later run recompiled cmd/lipstd from scratch (Fast
+      # unit tests 60s -> 130-180s). It therefore keeps its own cache directory and
+      # its own lane: cold the two certification scripts take ~5 min (93 s + 203 s
+      # locally), warm ~20 s. This job (ubuntu leg) is the lane's only producer.
+      - name: Restore bounded ci-cert Go cache
+        if: needs.changes.result == 'success' && env.RUN_CERT == 'true' && matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/go-cache
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build-cert
+        with:
+          lane: ci-cert
+
       - name: Certify pinned source lifetime on ext4
         if: needs.changes.result == 'success' && env.RUN_CERT == 'true' && matrix.os == 'ubuntu-latest'
         shell: bash
         env:
-          # The fault checks run with -race on GitHub, which builds a second,
-          # race-instrumented copy of the whole dependency tree (~1.5 GB). In the
-          # shared cache it was the newest data, so the ci-unit snapshot bound
-          # discarded the non-race test objects and every later run recompiled
-          # cmd/lipstd from scratch (Fast unit tests 60s -> 130-180s). A throwaway
-          # cache keeps those objects out of the published snapshot.
           GOCACHE: ${{ runner.temp }}/go-build-cert
         run: |
           set -euo pipefail
@@ -325,6 +349,15 @@ jobs:
           export GOTMPDIR="$RUNNER_TEMP/go-tmp-executable"
           bash scripts/configsource-certify.sh
           bash scripts/configsource-fault-check.sh
+
+      - name: Save bounded ci-cert Go cache
+        if: success() && needs.changes.result == 'success' && env.RUN_CERT == 'true' && matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/go-cache
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build-cert
+        with:
+          lane: ci-cert
+          phase: save
 
       - name: Build release binary
         if: needs.changes.result == 'success' && env.RUN_LEG == 'true'
@@ -476,17 +509,27 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # Read-only consumer of the suite's lane: the suite job is its only producer.
-      - name: Restore bounded ci-suite Go cache
+      # The gate type-checks the module for Linux and for Windows; the suite lane
+      # only holds Linux objects, so every run recompiled the Windows tree (164 s
+      # of a 195 s step; 6 s with both warm). It owns its lane, and this job is
+      # the lane's only producer.
+      - name: Restore bounded ci-owner-gate Go cache
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         uses: ./.github/actions/go-cache
         with:
-          lane: ci-suite
+          lane: ci-owner-gate
 
       - name: Owner callback escape gate
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         shell: bash
         run: go test -tags=precommit -timeout=25m -run '^TestRuntimebundle_NoCompleteOwnerCallbackEscapes$' ./internal/infra/runtimebundle/
+
+      - name: Save bounded ci-owner-gate Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: ci-owner-gate
+          phase: save
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'

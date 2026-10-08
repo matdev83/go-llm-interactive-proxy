@@ -19,14 +19,24 @@
     "job": "billing-schema",
     "workflow": "CI"
   },
+  "ci-cert": {
+    "build_mib": 3584,
+    "job": "test",
+    "workflow": "CI"
+  },
   "ci-db": {
     "build_mib": 768,
     "job": "db-parity",
     "workflow": "CI"
   },
   "ci-lint": {
-    "build_mib": 1536,
+    "build_mib": 4096,
     "job": "lint",
+    "workflow": "CI"
+  },
+  "ci-owner-gate": {
+    "build_mib": 4096,
+    "job": "owner-gate",
     "workflow": "CI"
   },
   "ci-suite": {

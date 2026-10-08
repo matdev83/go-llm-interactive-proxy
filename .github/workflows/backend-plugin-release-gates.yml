@@ -1,10 +1,10 @@
-# Narrow Phase 9.5 gate: full repository/release aggregation (installed-plugin
-# release gates) runs on Ubuntu only. Full Windows runners fail intentional
-# Windows admin-user refusals, CRLF gofmt drift, and Markdown fence parsing;
-# connector manifests do not advertise Darwin. Native Windows/macOS coverage
-# remains in focused cross-platform, process-tree, and Cursor SDK smoke workflows
-# (backend-plugin-cross-platform, ACP process-tree, Cursor SDK Platform Smoke).
-# Complements (does not replace) make qa. External evidence required before checking task 9.5.
+# Narrow Phase 9.5 gate: strict Linux race lanes run in parallel, then the full
+# installed-plugin release aggregation runs on Ubuntu after all lanes pass.
+# Full Windows runners fail intentional Windows admin-user refusals, CRLF gofmt
+# drift, and Markdown fence parsing; connector manifests do not advertise Darwin.
+# Native Windows/macOS coverage remains in focused cross-platform, process-tree,
+# and Cursor SDK smoke workflows (backend-plugin-cross-platform, ACP process-tree,
+# Cursor SDK Platform Smoke). Complements (does not replace) make qa.
 name: Backend plugin release gates
 
 on:
@@ -22,16 +22,69 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  release-gates:
-    # No pull_request gate. This gate runs the full-mode release aggregation,
-    # which is far too slow to run on every PR. The pull_request trigger above
-    # exists only so the job definition changes themselves are visible in the
-    # PR checks list; validation happens on push to main and the nightly cron.
+  race:
+    name: Strict Linux race (${{ matrix.lane }})
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.lane == 'billing' && 75 || 40 }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+        lane: [broad, billing, support, runtime, architecture]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The architecture lane scans archived contracts and needs their
+          # recorded commits available in the local repository.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Restore shared Go cache
+        uses: ./.github/actions/go-cache
+        with:
+          lane: race
+
+      - name: Record tested revision
+        id: revision
+        shell: bash
+        env:
+          RACE_LANE: ${{ matrix.lane }}
+        run: |
+          set -euo pipefail
+          tested_sha="$(git rev-parse HEAD)"
+          mkdir -p .tmp
+          printf 'tested_sha=%s\ncommand=bash scripts/race-check.sh --strict --lane %s\n' "$tested_sha" "$RACE_LANE" | tee .tmp/race-evidence.txt
+          echo "sha=$tested_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Strict Linux race detector
+        env:
+          RACE_LANE: ${{ matrix.lane }}
+        run: bash scripts/race-check.sh --strict --lane "$RACE_LANE"
+
+      - name: Upload strict race evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: backend-plugin-race-${{ matrix.lane }}-${{ steps.revision.outputs.sha || github.run_id }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            .tmp/race-evidence.txt
+            .tmp/race-check.log
+            .tmp/race-precheck.log
+
+  release-gates:
+    # This scheduled/manual aggregate runs only after the strict race matrix
+    # succeeds for the same workflow revision.
+    needs: race
+    name: release-gates (ubuntu-latest)
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - name: Checkout
