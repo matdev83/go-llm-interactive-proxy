@@ -23,7 +23,7 @@ func TestExternalBillingModulePublicOnlyCompileGate(t *testing.T) {
 
 	assertNoInternalImportsInDir(t, dir)
 
-	cmd := exec.Command("go", "test", "-count=1", "./...")
+	cmd := exec.Command("go", "test", nativeArchBuildContexts()[0].trimpathFlag(), "-count=1", "./...")
 	cmd.Dir = dir
 	cmd.Env = enterpriseModuleTestEnv()
 	out, err := cmd.CombinedOutput()

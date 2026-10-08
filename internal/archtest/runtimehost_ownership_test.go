@@ -324,8 +324,9 @@ func loadRuntimehostForContext(t *testing.T, bc archBuildContext, overlay map[st
 			cfg := &packages.Config{
 				Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 					packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
-				Tests: false,
-				Env:   bc.env(),
+				Tests:      false,
+				Env:        bc.env(),
+				BuildFlags: []string{bc.trimpathFlag()},
 			}
 			pkgs, err := packages.Load(cfg, runtimehostPackagePath)
 			if err == nil && (packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil) {
@@ -348,9 +349,10 @@ func loadRuntimehostForContext(t *testing.T, bc archBuildContext, overlay map[st
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
-		Tests:   false,
-		Env:     bc.env(),
-		Overlay: overlay,
+		Tests:      false,
+		Env:        bc.env(),
+		Overlay:    overlay,
+		BuildFlags: []string{bc.trimpathFlag()},
 	}
 	pkgs, err := loadArchOverlay(cfg, runtimehostPackagePath)
 	if err != nil {
