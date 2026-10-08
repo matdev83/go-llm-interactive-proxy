@@ -386,9 +386,10 @@ jobs:
   # The complete root suite and lint run here once per PR, so the local
   # pre-commit hook only tests and lints what a commit affects. Repo hygiene
   # (a required check) fails when either job fails.
-  # Two shards on two runners: the packages whose tests dominate wall time
-  # (see the heavy regex below) and everything else. Every package runs in
-  # exactly one shard, so a stale heavy list only costs balance, never coverage.
+  # Three shards on three runners: the packages whose tests dominate wall time
+  # (heavy) and the rest split in two halves. scripts/ci-suite-shard.sh assigns
+  # every package to exactly one shard, so a stale list only costs balance,
+  # never coverage.
   suite:
     name: Go suite (Linux, ${{ matrix.shard }})
     needs: changes
@@ -398,7 +399,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [heavy, rest]
+        shard: [heavy, rest, rest-2]
     steps:
       - name: Fail closed if scope detection failed
         if: needs.changes.result != 'success'
@@ -434,6 +435,12 @@ jobs:
         with:
           lane: ci-suite-heavy
 
+      - name: Restore bounded ci-suite-2 Go cache
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.shard == 'rest-2'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: ci-suite-2
+
       # QA runs internal/archtest; everything else in the root module runs here.
       # The owner-callback escape gate type-checks the whole module for two
       # operating systems (~2 min on its own) and runs in the parallel
@@ -445,17 +452,10 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           set -euo pipefail
-          heavy='/internal/infra/runtimebundle$|/internal/plugins/features/secretguard$|/internal/plugins/frontends/frontendpipe$|/internal/core/runtime$'
           mapfile -t all < <(go list -tags=precommit ./... | grep -vE '/internal/archtest(/|$)')
-          packages=()
-          for pkg in "${all[@]}"; do
-            if [[ "$pkg" =~ $heavy ]]; then
-              [[ "$SHARD" == heavy ]] && packages+=("$pkg")
-            else
-              [[ "$SHARD" == rest ]] && packages+=("$pkg")
-            fi
-          done
+          mapfile -t packages < <(printf '%s\n' "${all[@]}" | bash scripts/ci-suite-shard.sh "$SHARD")
           echo "shard $SHARD: ${#packages[@]} of ${#all[@]} packages"
+          [[ ${#packages[@]} -gt 0 ]] || { echo "shard $SHARD selected no packages" >&2; exit 1; }
           # go keeps only the last -skip, and the cache action may have put the
           # quarantine list in GOFLAGS; merge so neither is lost.
           skip='TestRuntimebundle_NoCompleteOwnerCallbackEscapes'
@@ -478,6 +478,13 @@ jobs:
         uses: ./.github/actions/go-cache
         with:
           lane: ci-suite-heavy
+          phase: save
+
+      - name: Save bounded ci-suite-2 Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.shard == 'rest-2'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: ci-suite-2
           phase: save
 
       - name: Report unrelated PR bypass
