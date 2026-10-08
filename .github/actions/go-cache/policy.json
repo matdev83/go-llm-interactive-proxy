@@ -19,6 +19,11 @@
     "job": "billing-schema",
     "workflow": "CI"
   },
+  "ci-cert": {
+    "build_mib": 3584,
+    "job": "test",
+    "workflow": "CI"
+  },
   "ci-db": {
     "build_mib": 768,
     "job": "db-parity",

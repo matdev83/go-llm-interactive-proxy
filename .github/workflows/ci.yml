@@ -304,16 +304,25 @@ jobs:
         shell: bash
         run: go test -count=1 ./internal/infra/configsource/... ./internal/infra/runtimehost/...
 
+      # The fault checks run with -race on GitHub, which builds a second,
+      # race-instrumented copy of the whole dependency tree. In the shared cache it
+      # was the newest data, so the ci-unit snapshot bound discarded the non-race
+      # test objects and every later run recompiled cmd/lipstd from scratch (Fast
+      # unit tests 60s -> 130-180s). It therefore keeps its own cache directory and
+      # its own lane: cold the two certification scripts take ~5 min (93 s + 203 s
+      # locally), warm ~20 s. This job (ubuntu leg) is the lane's only producer.
+      - name: Restore bounded ci-cert Go cache
+        if: needs.changes.result == 'success' && env.RUN_CERT == 'true' && matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/go-cache
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build-cert
+        with:
+          lane: ci-cert
+
       - name: Certify pinned source lifetime on ext4
         if: needs.changes.result == 'success' && env.RUN_CERT == 'true' && matrix.os == 'ubuntu-latest'
         shell: bash
         env:
-          # The fault checks run with -race on GitHub, which builds a second,
-          # race-instrumented copy of the whole dependency tree (~1.5 GB). In the
-          # shared cache it was the newest data, so the ci-unit snapshot bound
-          # discarded the non-race test objects and every later run recompiled
-          # cmd/lipstd from scratch (Fast unit tests 60s -> 130-180s). A throwaway
-          # cache keeps those objects out of the published snapshot.
           GOCACHE: ${{ runner.temp }}/go-build-cert
         run: |
           set -euo pipefail
@@ -340,6 +349,15 @@ jobs:
           export GOTMPDIR="$RUNNER_TEMP/go-tmp-executable"
           bash scripts/configsource-certify.sh
           bash scripts/configsource-fault-check.sh
+
+      - name: Save bounded ci-cert Go cache
+        if: success() && needs.changes.result == 'success' && env.RUN_CERT == 'true' && matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/go-cache
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build-cert
+        with:
+          lane: ci-cert
+          phase: save
 
       - name: Build release binary
         if: needs.changes.result == 'success' && env.RUN_LEG == 'true'
