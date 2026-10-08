@@ -53,6 +53,19 @@ if grep -Eq '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
 fi
 
 if [[ "${LIP_PRECOMMIT_FULL:-}" != "1" ]]; then
+	# Normalize root-module source paths only for local fast archtest scopes so
+	# compiler entries can be reused between developer worktrees. Keep this off
+	# in CI and full precommit, and honor an explicit local opt-out.
+	local_ci=false
+	for value in "${CI:-}" "${GITHUB_ACTIONS:-}"; do
+		case "$value" in
+			1|true|TRUE|yes|YES|on|ON) local_ci=true ;;
+		esac
+	done
+	if [[ "$local_ci" == false && -z "${LIP_LOCAL_ARCH_TRIMPATH+x}" ]]; then
+		export LIP_LOCAL_ARCH_TRIMPATH=1
+	fi
+
 	echo "Running quality checks on staged packages..."
 	# Lint runs once, scoped, at the end of this gate.
 	LIP_SKIP_LINT=1 LIP_SKIP_ARCHTEST=1 bash "$SCRIPT_DIR/quality-checks.sh" --staged

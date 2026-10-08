@@ -14,14 +14,16 @@ import (
 
 func nativeArchBuildContexts() []archBuildContext {
 	bc := archBuildContext{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
-	// Analyze the same native variant that built this test binary. Forcing
-	// CGO off here rebuilds a second dependency graph after go test compiled
-	// the first. The canonical Linux/Windows matrix still explicitly uses CGO=0.
+	// Analyze the same native variant that built this test binary. A different
+	// CGO or trimpath setting rebuilds dependencies instead of reusing exports.
+	// The canonical Linux/Windows matrix still uses CGO=0 and untrimmed paths.
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, setting := range info.Settings {
-			if setting.Key == "CGO_ENABLED" {
+			switch setting.Key {
+			case "CGO_ENABLED":
 				bc.CGOEnabled = setting.Value == "1"
-				break
+			case "-trimpath":
+				bc.Trimpath = setting.Value == "true"
 			}
 		}
 	}

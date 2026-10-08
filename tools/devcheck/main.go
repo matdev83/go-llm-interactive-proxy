@@ -96,7 +96,14 @@ func run() error {
 	if *task == "doctor" {
 		return doctor(dir)
 	}
-	command, err := commandFor(*task, *packages, *jobs, *fresh)
+	commands, err := commandGroupsFor(
+		*task,
+		*module,
+		*packages,
+		*jobs,
+		*fresh,
+		os.Getenv("LIP_LOCAL_ARCH_TRIMPATH") == "1",
+	)
 	if err != nil {
 		return err
 	}
@@ -109,32 +116,38 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("combine test skip patterns: %w", err)
 		}
-		command = withExplicitTestSkip(command, pattern)
+		for i := range commands {
+			commands[i] = withExplicitTestSkip(commands[i], pattern)
+		}
 		fmt.Fprintf(
 			os.Stderr,
 			"Excluding top-level test %s from this development run.\n",
 			skipTest.name,
 		)
 	} else {
-		command = withQuarantine(command, quarantine)
+		for i := range commands {
+			commands[i] = withQuarantine(commands[i], quarantine)
+		}
 	}
 	// Do not substitute staticcheck for the mandatory multi-linter gate, or
 	// report success when the requested analyzer is absent.
-	if _, err := exec.LookPath(command[0]); err != nil {
-		return fmt.Errorf("required tool %s is unavailable: %w", command[0], err)
+	if _, err := exec.LookPath(commands[0][0]); err != nil {
+		return fmt.Errorf("required tool %s is unavailable: %w", commands[0][0], err)
 	}
 	fmt.Fprintln(os.Stderr, "Development feedback only; delivery still requires the applicable comprehensive gates.")
 	for n := 1; n <= *repeat; n++ {
-		fmt.Fprintf(os.Stderr, "[%d/%d] module=%s command=%s\n", n, *repeat, *module, strings.Join(command, " "))
-		start := time.Now()
-		cmd := exec.Command(command[0], command[1:]...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GOWORK=off")
-		cmd.Stderr = os.Stderr
-		stats, err := execute(cmd, *task == "test", os.Stdout)
-		fmt.Fprintf(os.Stderr, "elapsed=%.3fs passed=%d cached=%d failed=%d skipped=%d\n", time.Since(start).Seconds(), stats.Passed, stats.Cached, stats.Failed, stats.Skipped)
-		if err != nil {
-			return fmt.Errorf("%s failed: %w", *task, err)
+		for _, command := range commands {
+			fmt.Fprintf(os.Stderr, "[%d/%d] module=%s command=%s\n", n, *repeat, *module, strings.Join(command, " "))
+			start := time.Now()
+			cmd := exec.Command(command[0], command[1:]...)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GOWORK=off")
+			cmd.Stderr = os.Stderr
+			stats, err := execute(cmd, *task == "test", os.Stdout)
+			fmt.Fprintf(os.Stderr, "elapsed=%.3fs passed=%d cached=%d failed=%d skipped=%d\n", time.Since(start).Seconds(), stats.Passed, stats.Cached, stats.Failed, stats.Skipped)
+			if err != nil {
+				return fmt.Errorf("%s failed: %w", *task, err)
+			}
 		}
 	}
 	return nil
@@ -191,6 +204,79 @@ func commandFor(task, scope string, jobs int, fresh bool) ([]string, error) {
 		return nil, fmt.Errorf("unknown task %q", task)
 	}
 	return append(command, packages...), nil
+}
+
+func commandGroupsFor(task, module, scope string, jobs int, fresh, localArchTrimpath bool) ([][]string, error) {
+	if !localArchTrimpath || filepath.Clean(module) != "." || (task != "test" && task != "build") {
+		command, err := commandFor(task, scope, jobs, fresh)
+		if err != nil {
+			return nil, err
+		}
+		return [][]string{command}, nil
+	}
+
+	packages := strings.Fields(scope)
+	if len(packages) == 0 {
+		command, err := commandFor(task, scope, jobs, fresh)
+		if err != nil {
+			return nil, err
+		}
+		return [][]string{command}, nil
+	}
+	// Keep broad scopes intact: splitting them could check archtest twice or
+	// make the broad command use a different compiler cache variant.
+	for _, packagePattern := range packages {
+		if packagePattern == "./..." || packagePattern == "./internal/..." {
+			command, err := commandFor(task, scope, jobs, fresh)
+			if err != nil {
+				return nil, err
+			}
+			return [][]string{command}, nil
+		}
+	}
+	var archPackages, otherPackages []string
+	for _, packagePattern := range packages {
+		if isArchTestPattern(packagePattern) {
+			archPackages = append(archPackages, packagePattern)
+		} else {
+			otherPackages = append(otherPackages, packagePattern)
+		}
+	}
+	if len(archPackages) == 0 {
+		command, err := commandFor(task, scope, jobs, fresh)
+		if err != nil {
+			return nil, err
+		}
+		return [][]string{command}, nil
+	}
+
+	type commandGroup struct {
+		packages []string
+		trimPath bool
+	}
+	groups := []commandGroup{{packages: otherPackages}, {packages: archPackages, trimPath: true}}
+	if isArchTestPattern(packages[0]) {
+		groups = []commandGroup{{packages: archPackages, trimPath: true}, {packages: otherPackages}}
+	}
+	commands := make([][]string, 0, 2)
+	for _, group := range groups {
+		if len(group.packages) == 0 {
+			continue
+		}
+		command, err := commandFor(task, strings.Join(group.packages, " "), jobs, fresh)
+		if err != nil {
+			return nil, err
+		}
+		if group.trimPath {
+			command = slices.Insert(command, len(command)-len(group.packages), "-trimpath")
+		}
+		commands = append(commands, command)
+	}
+	return commands, nil
+}
+
+func isArchTestPattern(packagePattern string) bool {
+	return packagePattern == "./internal/archtest" || strings.HasPrefix(packagePattern, "./internal/archtest/")
 }
 
 func moduleDirectory(root, module string) (string, error) {

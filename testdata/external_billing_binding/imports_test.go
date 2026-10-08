@@ -5,7 +5,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -14,11 +13,10 @@ import (
 // contracts only: no file may import an internal package.
 func TestNoInternalImports(t *testing.T) {
 	t.Parallel()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
 	}
-	dir := filepath.Dir(file)
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(dir)
 	if err != nil {

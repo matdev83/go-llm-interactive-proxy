@@ -314,9 +314,35 @@ echo ""
 echo "=== Quality Checks ==="
 echo ""
 
+staged_root_arch_scope_allows_generator_trimpath() {
+	[[ "$QUALITY_MODE" == "staged" && "${LIP_LOCAL_ARCH_TRIMPATH:-}" == "1" ]] || return 1
+	local module_index="${STAGED_MODULE_INDEX[.]:-}" package
+	[[ -n "$module_index" ]] || return 1
+	local -a packages=()
+	mapfile -d '' -t packages <"$QUALITY_TMPDIR/packages.$module_index"
+	local has_arch_scope=false
+	for package in "${packages[@]}"; do
+		case "$package" in
+			./...|./internal/...)
+				return 1
+				;;
+			./internal/archtest|./internal/archtest/*)
+				has_arch_scope=true
+				;;
+		esac
+	done
+	[[ "$has_arch_scope" == true ]]
+}
+
 if [[ "$QUALITY_MODE" != "staged" || "$STAGED_FEATURE_PLANES" == true ]]; then
 	echo "[1/8] Checking generated feature planes..."
-	if ! go run ./scripts/generate-feature-planes.go -check; then
+	# The generator imports internal/archtest, so share the scoped arch build
+	# variant only when staged packages explicitly include that root package.
+	feature_generator_trim_flags=()
+	if staged_root_arch_scope_allows_generator_trimpath; then
+		feature_generator_trim_flags=(-trimpath)
+	fi
+	if ! go run "${feature_generator_trim_flags[@]}" ./scripts/generate-feature-planes.go -check; then
 		echo "ERROR: Feature planes generation check failed"
 		exit 1
 	fi
@@ -412,6 +438,62 @@ echo ""
 
 script_dir="$SCRIPT_DIR"
 
+check_staged_module_packages() {
+	local module="$1" module_index="$2" group_name="$3" trim_arch="$4"
+	shift 4
+	local -a packages=("$@")
+	local -a trim_flags=()
+	if [[ "$trim_arch" == true ]]; then
+		trim_flags=(-trimpath)
+	fi
+
+	if [[ ${#packages[@]} -eq 1 && "${packages[0]}" == "./..." ]]; then
+		if ! (cd "$module" && GOWORK=off go build -buildvcs=false "${trim_flags[@]}" ./...); then
+			echo "ERROR: build failed in staged module $module" >&2
+			exit 1
+		fi
+	else
+		local build_packages_file="$QUALITY_TMPDIR/build-packages.$module_index.$group_name" build_output_path
+		if ! (cd "$module" && GOWORK=off go list -f '{{if or .GoFiles .CgoFiles}}{{.ImportPath}}{{end}}' "${packages[@]}") >"$build_packages_file"; then
+			echo "ERROR: unable to list staged packages in module $module" >&2
+			exit 1
+		fi
+		local -a build_packages=()
+		mapfile -t build_packages <"$build_packages_file"
+		local -a filtered_build_packages=()
+		local package
+		for package in "${build_packages[@]}"; do
+			if [[ -n "$package" ]]; then
+				filtered_build_packages+=("$package")
+			fi
+		done
+		if [[ ${#filtered_build_packages[@]} -eq 0 ]]; then
+			echo "Skipping build: staged package has no production Go files."
+		else
+			# A file accepts either a library archive or one executable.
+			# With multiple packages Go discards outputs; an output directory
+			# would instead force linking all main packages and reject libraries.
+			local -a build_output=()
+			if [[ ${#filtered_build_packages[@]} -eq 1 ]]; then
+				build_output_path="$QUALITY_TMPDIR/build.$module_index"
+				if [[ "$group_name" != all ]]; then
+					build_output_path+=".$group_name"
+				fi
+				build_output=(-o "$build_output_path")
+			fi
+			if ! (cd "$module" && GOWORK=off go build -buildvcs=false "${trim_flags[@]}" "${build_output[@]}" "${filtered_build_packages[@]}"); then
+				echo "ERROR: build failed in staged module $module" >&2
+				exit 1
+			fi
+		fi
+	fi
+
+	if ! (cd "$module" && GOWORK=off go vet "${trim_flags[@]}" "${packages[@]}"); then
+		echo "ERROR: vet failed in staged module $module" >&2
+		exit 1
+	fi
+}
+
 if [ "${LIP_SKIP_GO_COMPILE_CHECKS:-}" = "1" ]; then
 	echo "Skipping standalone build/vet: the following go test target owns compilation and curated vet checks."
 elif [[ "$QUALITY_MODE" == "staged" ]]; then
@@ -422,42 +504,46 @@ elif [[ "$QUALITY_MODE" == "staged" ]]; then
 			module_index="${STAGED_MODULE_INDEX[$module]}"
 			mapfile -d '' -t packages <"$QUALITY_TMPDIR/packages.$module_index"
 			printf '=== Staged module %s: %s ===\n' "$module" "${packages[*]}"
-			if [[ ${#packages[@]} -eq 1 && "${packages[0]}" == "./..." ]]; then
-				if ! (cd "$module" && GOWORK=off go build -buildvcs=false ./...); then
-					echo "ERROR: build failed in staged module $module" >&2
-					exit 1
-				fi
-			else
-				if ! (cd "$module" && GOWORK=off go list -f '{{if or .GoFiles .CgoFiles}}{{.ImportPath}}{{end}}' "${packages[@]}") >"$QUALITY_TMPDIR/build-packages.$module_index"; then
-					echo "ERROR: unable to list staged packages in module $module" >&2
-					exit 1
-				fi
-				mapfile -t build_packages <"$QUALITY_TMPDIR/build-packages.$module_index"
-				filtered_build_packages=()
-				for package in "${build_packages[@]}"; do
-					if [[ -n "$package" ]]; then
-						filtered_build_packages+=("$package")
+			if [[ "$module" == "." && "${LIP_LOCAL_ARCH_TRIMPATH:-}" == "1" ]]; then
+				broad_arch_scope=false
+				for package in "${packages[@]}"; do
+					if [[ "$package" == "./..." || "$package" == "./internal/..." ]]; then
+						broad_arch_scope=true
+						break
 					fi
 				done
-				if [[ ${#filtered_build_packages[@]} -eq 0 ]]; then
-					echo "Skipping build: staged package has no production Go files."
-				else
-					# A file accepts either a library archive or one executable.
-					# With multiple packages Go discards outputs; an output directory
-					# would instead force linking all main packages and reject libraries.
-					build_output=()
-					if [[ ${#filtered_build_packages[@]} -eq 1 ]]; then
-						build_output=(-o "$QUALITY_TMPDIR/build.$module_index")
-					fi
-					if ! (cd "$module" && GOWORK=off go build -buildvcs=false "${build_output[@]}" "${filtered_build_packages[@]}"); then
-						echo "ERROR: build failed in staged module $module" >&2
-						exit 1
-					fi
+				if [[ "$broad_arch_scope" == true ]]; then
+					check_staged_module_packages "$module" "$module_index" all false "${packages[@]}"
+					continue
 				fi
-			fi
-			if ! (cd "$module" && GOWORK=off go vet "${packages[@]}"); then
-				echo "ERROR: vet failed in staged module $module" >&2
-				exit 1
+				declare -a arch_packages=() other_packages=()
+				for package in "${packages[@]}"; do
+					case "$package" in
+						./internal/archtest|./internal/archtest/*)
+							arch_packages+=("$package")
+							;;
+						*)
+							other_packages+=("$package")
+							;;
+					esac
+				done
+				if [[ ${#arch_packages[@]} -gt 0 ]]; then
+					if [[ "${packages[0]}" == "./internal/archtest" || "${packages[0]}" == ./internal/archtest/* ]]; then
+						check_staged_module_packages "$module" "$module_index" arch true "${arch_packages[@]}"
+						if [[ ${#other_packages[@]} -gt 0 ]]; then
+							check_staged_module_packages "$module" "$module_index" other false "${other_packages[@]}"
+						fi
+					else
+						if [[ ${#other_packages[@]} -gt 0 ]]; then
+							check_staged_module_packages "$module" "$module_index" other false "${other_packages[@]}"
+						fi
+						check_staged_module_packages "$module" "$module_index" arch true "${arch_packages[@]}"
+					fi
+				else
+					check_staged_module_packages "$module" "$module_index" all false "${packages[@]}"
+				fi
+			else
+				check_staged_module_packages "$module" "$module_index" all false "${packages[@]}"
 			fi
 		done
 	fi
