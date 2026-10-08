@@ -12,10 +12,14 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stderr, os.Getenv))
+	os.Exit(runWithOutput(os.Args[1:], os.Stdout, os.Stderr, os.Getenv))
 }
 
 func run(args []string, stderr io.Writer, getenv func(string) string) int {
+	return runWithOutput(args, io.Discard, stderr, getenv)
+}
+
+func runWithOutput(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	fs := flag.NewFlagSet("changesize", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "git repository root")
@@ -23,6 +27,8 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 	base := fs.String("base", "", "diff range base revision")
 	head := fs.String("head", "", "diff range head revision")
 	limit := fs.Int("limit", DefaultLimit, "maximum modified Go files")
+	report := fs.Bool("report", false, "report delivery metrics as JSON without enforcing advisory budgets")
+	consumer := fs.String("consumer", "", "declared first consumer or dependency; declaration is not certification")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -32,6 +38,21 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 	}
 	if *limit < 1 {
 		_, _ = fmt.Fprintln(stderr, "check-change-size: --limit must be >= 1")
+		return 2
+	}
+	if *report {
+		if *staged || *limit != DefaultLimit {
+			_, _ = fmt.Fprintln(stderr, "delivery report uses --base and optional --head; no --staged or custom --limit")
+			return 2
+		}
+		if err := writeDeliveryReport(*repo, *base, *head, *consumer, stdout); err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 2
+		}
+		return 0
+	}
+	if *consumer != "" {
+		_, _ = fmt.Fprintln(stderr, "--consumer requires --report")
 		return 2
 	}
 

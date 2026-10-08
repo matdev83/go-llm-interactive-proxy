@@ -49,6 +49,7 @@ After all parallel research completes, synthesize implementation brief before st
 - Prefer commands already used by repo automation over ad hoc shell pipelines
 - For `SMOKE_COMMANDS`, choose the lightest trustworthy runtime-liveness check for the app shape (for example: root URL load, Electron launch, CLI `--help`, service health endpoint, mobile simulator/e2e harness if one already exists)
 - Keep the full command set in the parent context, and pass only the task-relevant subset to implementer and reviewer sub-agents
+- Include contract/lint feedback and per-slice delivery reporting from `docs/development-iteration.md` when shared contracts or slice budgets are in scope; refresh the slice report after each accepted task.
 
 **Establish repo baseline**:
 - Run `git status --porcelain` and note any pre-existing uncommitted changes

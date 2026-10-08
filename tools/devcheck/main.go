@@ -40,7 +40,7 @@ func main() {
 // manifest writer, so every return after the recorder exists lands in the
 // verification manifest, including the failure paths.
 func run() (err error) {
-	task := flag.String("task", "doctor", "test, build, lint, doctor, or quarantine")
+	task := flag.String("task", "doctor", "test, build, lint, contracts, delivery, doctor, or quarantine")
 	module := flag.String("module", ".", "repository-relative Go module directory")
 	packages := flag.String("packages", "", "explicit space-separated package patterns, e.g. ./pkg/lipapi")
 	var skipTest explicitTestSkipFlag
@@ -50,6 +50,8 @@ func run() (err error) {
 	repeat := flag.Int("repeat", 1, "repeat identical checks to distinguish warm reuse from execution cost")
 	scope := flag.String("scope", "explicit", "explicit or changed local test scope")
 	base := flag.String("base", "", "changed-scope comparison reference (default origin/main)")
+	head := flag.String("head", "", "delivery report commit; empty includes working changes")
+	consumer := flag.String("consumer", "", "delivery report's declared immediate consumer")
 	planOnly := flag.Bool("plan", false, "print changed-scope plan without running tests")
 	full := flag.Bool("full", false, "run all maintained modules' default tests instead of selecting")
 	evidencePath := flag.String("evidence", "", "write a verification manifest (revision, scope, results, logs) to this path")
@@ -65,6 +67,9 @@ func run() (err error) {
 	root, err := os.Getwd()
 	if err != nil {
 		return err
+	}
+	if *task == "delivery" && *evidencePath != "" {
+		return errors.New("delivery produces a planning report, not a verification manifest; evidence is unsupported")
 	}
 	recorder := newEvidenceRecorder(*evidencePath, *task, evidence.Scope{
 		Kind:     *scope,
@@ -83,6 +88,25 @@ func run() (err error) {
 				err = errors.Join(err, writeErr)
 			}
 		}()
+	}
+	if *task == "delivery" {
+		if *module != "." || *packages != "" || *scope != "explicit" || *full || *planOnly || *fresh || *repeat != 1 {
+			return errors.New("delivery accepts base/head/consumer, not test scope or execution options")
+		}
+		cmd := exec.Command("go", "run", "-buildvcs=false", "./tools/changesize", "--report", "--base", *base, "--head", *head, "--consumer", *consumer)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		return cmd.Run()
+	}
+	if *head != "" || *consumer != "" {
+		return errors.New("head/consumer require task=delivery")
+	}
+	if *task == "contracts" {
+		if *module != "." || *packages != "" || *scope != "changed" || *full {
+			return errors.New("contracts requires scope=changed with no explicit MODULE/PKGS/full override")
+		}
+		return runContractCheck(root, *base, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, recorder: recorder}, os.Stdout, os.Stderr)
 	}
 	quarantine, err := loadQuarantine(root)
 	if err != nil {
