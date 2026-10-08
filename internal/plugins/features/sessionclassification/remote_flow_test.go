@@ -473,12 +473,13 @@ func TestRemoteFailureNeverFailsTheUserRequest(t *testing.T) {
 	}
 }
 
-// TestUnboundedRemoteFailureIsNotRetried proves the retry gate is a whitelist, not
-// a blacklist: an error that carries no bounded outcome at all is reported as a
-// network failure and, because it is not a member of the retryable set here,
-// consumes exactly the single configured attempt. Requirement 6.7's finite budget
-// therefore holds even for an adapter whose error shape is unknown here.
-func TestUnboundedRemoteFailureIsNotRetried(t *testing.T) {
+// TestUnboundedRemoteFailureRetriesUpToBudgetAsNetworkError proves the retry gate
+// is a whitelist with a bounded fallback: an error that carries no bounded
+// outcome at all is reported as a network failure and, because that fallback IS
+// retryable, consumes exactly the finite per-session budget. Requirement 6.7's
+// finite budget therefore holds even for an adapter whose error shape is unknown
+// here.
+func TestUnboundedRemoteFailureRetriesUpToBudgetAsNetworkError(t *testing.T) {
 	t.Parallel()
 
 	store := newFakeStore()
@@ -1249,43 +1250,32 @@ func TestRemoteRefusesInputOutsideTheBoundedContract(t *testing.T) {
 func TestRemoteInputCarriesTheDecisiveLocalEvidence(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		name string
-	}{
-		{name: "a recognized coding agent family"},
-		{name: "a second decisive turn"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	store := newFakeStore()
+	decider := belowThresholdDecider()
+	classifier := observedRemoteClassifier(t, sessionclassification.Config{
+		Mode:   sessionclassification.ModeJev,
+		Remote: validTestRemoteConfig(),
+	}, &fakeAuthority{store: store}, &recordingObserver{}, decider)
 
-			store := newFakeStore()
-			decider := belowThresholdDecider()
-			classifier := observedRemoteClassifier(t, sessionclassification.Config{
-				Mode:   sessionclassification.ModeJev,
-				Remote: validTestRemoteConfig(),
-			}, &fakeAuthority{store: store}, &recordingObserver{}, decider)
-
-			in := decisiveLocalInput("sess-local-evidence")
-			if _, err := classifier.Classify(t.Context(), in); err != nil {
-				t.Fatalf("Classify: %v", err)
-			}
-			observed := decider.observedInputs()
-			if len(observed) != 1 {
-				t.Fatalf("observed remote inputs = %d, want exactly one", len(observed))
-			}
-			got := observed[0]
-			if got.LocalEvidenceCode == "" {
-				t.Fatal("the decider received no local evidence code; the local decision " +
-					"was not carried across the port even though the local evaluation is decisive")
-			}
-			if err := sessionclassification.ValidateRemoteInput(got); err != nil {
-				t.Fatalf("the carried input is outside the bounded contract: %v", err)
-			}
-			// The operation must cross too, so a decider can key its judgement.
-			if got.Operation != lipapi.OperationOpenAIResponses {
-				t.Fatalf("operation = %v, want the turn's canonical operation", got.Operation)
-			}
-		})
+	in := decisiveLocalInput("sess-local-evidence")
+	if _, err := classifier.Classify(t.Context(), in); err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
+	observed := decider.observedInputs()
+	if len(observed) != 1 {
+		t.Fatalf("observed remote inputs = %d, want exactly one", len(observed))
+	}
+	got := observed[0]
+	if got.LocalEvidenceCode == "" {
+		t.Fatal("the decider received no local evidence code; the local decision " +
+			"was not carried across the port even though the local evaluation is decisive")
+	}
+	if err := sessionclassification.ValidateRemoteInput(got); err != nil {
+		t.Fatalf("the carried input is outside the bounded contract: %v", err)
+	}
+	// The operation must cross too, so a decider can key its judgement.
+	if got.Operation != lipapi.OperationOpenAIResponses {
+		t.Fatalf("operation = %v, want the turn's canonical operation", got.Operation)
 	}
 }
 
