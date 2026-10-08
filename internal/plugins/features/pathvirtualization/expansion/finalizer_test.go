@@ -1431,8 +1431,8 @@ func TestExpansionFinalizerAuditModeReportsTheOverLimitConditionWithoutRefusing(
 	if res.Action != toolcall.ActionPass {
 		t.Fatalf("action=%v want pass in audit mode (reason %q)", res.Action, res.ReasonCode)
 	}
-	if expansionReason(t, res.ReasonCode) != expansion.ReasonAuditMode {
-		t.Fatalf("reason=%q want %q", res.ReasonCode, expansion.ReasonAuditMode)
+	if expansionReason(t, res.ReasonCode) != expansion.ReasonExpandedTooLarge {
+		t.Fatalf("reason=%q want %q", res.ReasonCode, expansion.ReasonExpandedTooLarge)
 	}
 	if res.ArgsJSON != nil {
 		t.Fatal("audit mode must publish nothing")

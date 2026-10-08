@@ -284,6 +284,15 @@ func (f *Finalizer) Finalize(
 	decision := f.decide(call, tool, meta).
 		withOverDeclaredBound(len(call.ArgsJSON) > f.spec.MaxArgsBytes).
 		withValidatedPublication()
+	// Audit retains the hypothetical decision for reporting, but cannot publish
+	// either a rewrite or a refusal to the runtime.
+	if !f.publishes() {
+		if decision.reason == ReasonExpanded {
+			decision = decision.withReason(ReasonAuditMode).withPublished(nil)
+		}
+		f.record(decision)
+		return passResult(decision.reason), nil
+	}
 	f.record(decision)
 	if decision.reason.rejects() {
 		// A refusal publishes nothing: no arguments, no tool name, no document. The
@@ -495,13 +504,8 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, met
 	published, pass, err := rewrite.ApplySelectedValuesLimited(call.ArgsJSON, pointers, visit.decide, lipapi.MaxEventDeltaBytes)
 	if err != nil {
 		if errors.Is(err, rewrite.ErrOutputOverLimit) {
-			// The expansion would exceed the canonical delta limit. Refuse
-			// without having built the document, rather than building it
-			// and then refusing it. Audit mode still refuses nothing: the
-			// bound is on publication, not on detection.
-			if !f.publishes() {
-				return decision{reason: ReasonAuditMode}
-			}
+			// Refuse an over-limit candidate without building it. Finalize
+			// reports this hypothetical refusal but passes in audit mode.
 			return decision{reason: ReasonExpandedTooLarge}
 		}
 		// The engine's error is a decoder disagreement over bytes that already decoded
@@ -557,10 +561,6 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, met
 			// Every selected leaf was visited and none carried this mapping's alias.
 			return accounted.withReason(reasonForNoAlias(mapping))
 		}
-		if !f.publishes() {
-			// Audit mode: identical detection, no mutation (requirement 7.3).
-			return accounted.withReason(ReasonAuditMode)
-		}
 		// Step 9's SIZE half. The assembler publishes this document as ONE canonical
 		// tool-call args delta, and canonical event validation bounds that delta, so a
 		// document that fits the declared argument bound is still not automatically
@@ -572,9 +572,8 @@ func (f *Finalizer) decide(call toolcall.CompletedCall, tool lipapi.ToolDef, met
 		//
 		// The bound is the runtime's own canonical constant rather than a number chosen
 		// here, so this check and the validator it exists for cannot drift apart. It runs
-		// AFTER the audit-mode branch on purpose: a bound on publication is not a
-		// detection rule, and requirement 7.3 asks audit mode to run the identical
-		// detection without failing anything.
+		// before publication. Finalize applies the rollout gate, so audit records
+		// the same decision without failing anything.
 		//
 		// Refusing is the only safe answer. A partial expansion would release one decided
 		// path beside one undecided alias (requirements.md 4.4), and passing the original
