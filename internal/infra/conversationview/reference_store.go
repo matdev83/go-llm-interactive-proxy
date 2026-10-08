@@ -22,6 +22,7 @@ type ReferenceStore struct {
 }
 
 type legView struct {
+	bootstrap  map[string]BootstrapCompletion
 	revision   uint64
 	tags       map[MessageIdentity]Tag
 	steering   map[string]*SteeringOverlay
@@ -73,6 +74,12 @@ func (s *ReferenceStore) evictExcessLocked() {
 	}
 	ages := make([]legAge, 0, len(s.legs))
 	for id, lv := range s.legs {
+		// A committed bootstrap belongs to authoritative continuity lifetime.
+		// Its existing retirement observer, not this independent view-cache cap,
+		// releases it. Unmarked views retain the legacy bounded-eviction policy.
+		if len(lv.bootstrap) > 0 {
+			continue
+		}
 		ages = append(ages, legAge{
 			id:         id,
 			lastSeenAt: lv.lastSeenAt,
@@ -86,7 +93,7 @@ func (s *ReferenceStore) evictExcessLocked() {
 		return ages[i].lastSeenAt.Before(ages[j].lastSeenAt)
 	})
 	excess := len(s.legs) - s.maxLegs
-	for i := range excess {
+	for i := range min(excess, len(ages)) {
 		delete(s.legs, ages[i].id)
 	}
 }

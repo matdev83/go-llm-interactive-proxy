@@ -91,6 +91,26 @@ func (s *autoRegisteringConversationStore) DB() *bun.DB {
 	return nil
 }
 
+// BootstrapSteering forwards atomic authority. Durable stores must already have
+// the real A-leg; unlike legacy Put this never fabricates a continuity row.
+type autoRegisteringBootstrapStore struct {
+	*autoRegisteringConversationStore
+	atomic conversationview.BootstrapStore
+}
+
+func (s *autoRegisteringBootstrapStore) BootstrapSteering(ctx context.Context, aLegID, producerID string, decide conversationview.BootstrapDecide) (conversationview.BootstrapResult, error) {
+	if s.DB() == nil {
+		if creator, ok := s.inner.(interface {
+			CreateALeg(context.Context, string) error
+		}); ok {
+			if err := creator.CreateALeg(ctx, aLegID); err != nil {
+				return conversationview.BootstrapResult{}, err
+			}
+		}
+	}
+	return s.atomic.BootstrapSteering(ctx, aLegID, producerID, decide)
+}
+
 func wrapConversationStore(store conversationview.Store) conversationview.Store {
 	if store == nil {
 		return nil
@@ -98,7 +118,14 @@ func wrapConversationStore(store conversationview.Store) conversationview.Store 
 	if _, ok := store.(*autoRegisteringConversationStore); ok {
 		return store
 	}
-	return &autoRegisteringConversationStore{inner: store}
+	if _, ok := store.(*autoRegisteringBootstrapStore); ok {
+		return store
+	}
+	wrapped := &autoRegisteringConversationStore{inner: store}
+	if atomic, ok := store.(conversationview.BootstrapStore); ok {
+		return &autoRegisteringBootstrapStore{autoRegisteringConversationStore: wrapped, atomic: atomic}
+	}
+	return wrapped
 }
 
 // Package-local constructor seam for testing and custom injection.

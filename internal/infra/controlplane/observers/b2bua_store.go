@@ -93,6 +93,15 @@ func (d *B2BUAStoreDecorator) NextBLeg(ctx context.Context, aLegID string) (b2bu
 	return d.delegate.NextBLeg(ctx, aLegID)
 }
 
+// WithBLegAllocationAuthority forwards the underlying memory authority without
+// invoking recorders under its lock. Unsupported delegates fail explicitly.
+func (d *B2BUAStoreDecorator) WithBLegAllocationAuthority(ctx context.Context, aLegID string, apply func(bool) error) error {
+	if authority, ok := d.delegate.(b2bua.BLegAllocationAuthority); ok {
+		return authority.WithBLegAllocationAuthority(ctx, aLegID, apply)
+	}
+	return b2bua.ErrBLegAllocationAuthorityUnsupported
+}
+
 // RecordAttempt delegates and records an attempt-lineage event (best-effort).
 // Control-plane failures never change routing outcomes or attempt replacement.
 func (d *B2BUAStoreDecorator) RecordAttempt(ctx context.Context, rec lipapi.AttemptRecord) error {

@@ -296,9 +296,11 @@ func DefaultCatalog() Catalog {
 				},
 				StoreContracts: []string{
 					"internal/core/b2bua.ALegRetirementObserver",
+					"internal/core/b2bua.BLegAllocationAuthority",
 					"internal/core/b2bua.InterleavedStateStore",
 					"internal/core/b2bua.Store",
 					"internal/infra/conversationview.Store",
+					"internal/infra/conversationview.BootstrapStore",
 					"internal/core/routeoverride.Store",
 				},
 				MigrationRoots: []string{
@@ -314,6 +316,11 @@ func DefaultCatalog() Catalog {
 						ID:       "conversation-view-snapshot-mutations",
 						Class:    Common,
 						Evidence: "internal/infra/conversationview/bun_store_test.go",
+					},
+					{
+						ID:       "conversation-view-atomic-bootstrap",
+						Class:    Common,
+						Evidence: "internal/infra/conversationview/bootstrap_durable_test.go",
 					},
 					{
 						ID:       "route-override-persistence",

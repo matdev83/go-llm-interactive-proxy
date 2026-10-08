@@ -50,6 +50,17 @@ func TestConversationStore_PersistenceSelection_SQLiteYieldsBunStore(t *testing.
 	provider, ok := store.(bunDBProvider)
 	require.True(t, ok, "store must implement DB() when Bun/SQLite/Postgres is configured")
 	require.Equal(t, bunDB, provider.DB())
+	// Bootstrap must not inherit legacy Put's synthetic durable A-leg creation.
+	atomic, ok := store.(conversationview.BootstrapStore)
+	require.True(t, ok)
+	_, err = atomic.BootstrapSteering(ctx, "missing-authority", "owner", func() (conversationview.BootstrapDecision, error) {
+		t.Error("missing durable authority invoked decision")
+		return conversationview.BootstrapDecision{Outcome: conversationview.BootstrapNoMatch}, nil
+	})
+	require.ErrorIs(t, err, conversationview.ErrALegNotFound)
+	var missingRows int
+	require.NoError(t, bunDB.NewRaw(`SELECT count(*) FROM a_legs WHERE a_leg_id=?`, "missing-authority").Scan(ctx, &missingRows))
+	require.Zero(t, missingRows)
 
 	// Write steering overlay to verify data survives across store rebuild over same DB
 	aLegID := "aleg-sqlite-persist-1"

@@ -16,6 +16,18 @@ func ContinuityLogicalSchemaSpec() dbparity.LogicalSchemaSpec {
 		ComponentID: "continuity",
 		Tables: []dbparity.TableSpec{
 			{
+				Name: "a_leg_steering_bootstrap",
+				Columns: []dbparity.ColumnSpec{
+					{Name: "a_leg_id", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), PrimaryKey: true},
+					{Name: "producer_id", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false), PrimaryKey: true},
+					{Name: "outcome", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false)},
+					{Name: "matched_count", Type: dbparity.TypeInteger, Nullable: dbparity.PtrBool(false)},
+					{Name: "model_evidence", Type: dbparity.TypeText, Nullable: dbparity.PtrBool(false)},
+				},
+				PrimaryKey:  []string{"a_leg_id", "producer_id"},
+				ForeignKeys: []dbparity.ForeignKeySpec{{Columns: []string{"a_leg_id"}, RefTable: "a_legs"}},
+			},
+			{
 				Name: "a_legs",
 				Columns: []dbparity.ColumnSpec{
 					{Name: "a_leg_id", Type: dbparity.TypeText, Nullable: new(false), PrimaryKey: true},

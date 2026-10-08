@@ -14,7 +14,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 3. Atomic bootstrap persistence
 
-- [ ] 3.1 Add atomic ordered batch/completion and authoritative activation history
+- [x] 3.1 Add atomic ordered batch/completion and authoritative activation history
   - Add optional internal operation; completion lookup before callback, zero-overlay decisions, shared bounds, feature-ID collision rejection, ordered slots/revisions, post-commit mutation evidence only.
   - Memory: authoritative NextBLeg history callback holds existing B2BUA mutex through ReferenceStore stage/publish; fixed lock order and post-unlock observers. Bun: same authoritative database, PG A-leg row lock; SQLite write reservation as first transactional statement before reads, independent of connection configuration/process locks.
   - Forward optional capabilities through conversation auto-registration/continuity wrappers. Add forward migration, EnsureSchema and existing dbparity/schema contracts; never alter historical migration bodies.

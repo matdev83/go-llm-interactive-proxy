@@ -3,10 +3,13 @@
 package conversationview_test
 
 import (
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"testing"
 )
 
 // TestDBParity_PostgresDirect is the canonical parity entry point for conversationview persistence on PostgreSQL.
 func TestDBParity_PostgresDirect(t *testing.T) {
-	TestConversationView_PostgresContract(t)
+	_ = testkit.SkipUnlessPostgres(t)
+	t.Run("conversation", TestConversationView_PostgresContract)
+	t.Run("bootstrap", TestBootstrap_PostgresIndependentHandlesRollbackAndReopen)
 }
