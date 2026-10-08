@@ -6,6 +6,18 @@ on:
   push:
     branches:
       - main
+    # A push that only touches documentation or specs has nothing to build, but it
+    # would still take the main concurrency slot and replace a queued code push
+    # whose run publishes the Go caches. Same extension-bound set as
+    # is_documentation_path in scripts/ci-scope.sh (PRs still classify by that).
+    paths-ignore:
+      - "*.md"
+      - "docs/**/*.md"
+      - "docs/**/*.txt"
+      - "docs/**/*.png"
+      - "docs/**/*.svg"
+      - ".kiro/specs/**/*.md"
+      - ".kiro/specs/**/*.json"
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   # The merge queue re-runs the required checks on the queued merge commit.
@@ -23,7 +35,10 @@ env:
 
 concurrency:
   # Push and PR events for the same branch share a group, avoiding duplicate runs.
-  group: ci-${{ github.head_ref || github.ref_name }}
+  # The daily schedule / manual runs get their own group: sharing main's group let
+  # a ~7 minute scheduled run hold the slot while a newer push replaced the queued
+  # push run, so that push never published its caches.
+  group: ci-${{ github.head_ref || github.ref_name }}${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '-scheduled' || '' }}
   # Runs on main publish the Go build caches (a cancelled run saves nothing), so
   # only superseded PR / merge-queue runs are cancelled; a newer main push waits.
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
