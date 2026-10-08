@@ -1,7 +1,8 @@
 # Development gates and fixture performance
 
-This follow-up implements five improvements against `bb3aa523`. Runtime code,
-remote CI selection and cache policy are unchanged.
+The first five improvements below were measured against `bb3aa523`. Later
+sections record the owner-callback and fast staged-hook measurements. Runtime
+code is unchanged.
 
 ## Changes
 
@@ -140,3 +141,88 @@ can legitimately expand an internal-package edit to most of the module.
 Configured external PostgreSQL services and the complete native multi-OS release
 matrix were not run locally. These results do not certify remote cache behavior
 or the paused historical Windows cost comparison.
+
+## Owner-callback architecture gate
+
+The precommit owner-callback check builds an import-reachability graph for the root
+module and then performs typed loads for Linux/amd64 and Windows/amd64, both
+with CGO disabled. The graph pass needs
+package metadata and imports, so it no longer requests `NeedCompiledGoFiles`,
+which makes `go list` enter the build-action pipeline. Typed loads retain
+`NeedCompiledGoFiles` for both OS configurations; the sentinels and inventory
+checks are unchanged. This removes graph-load build-action work without removing
+a validation check.
+
+Preliminary measurements used Go 1.26.6 on a 2-CPU `agent-dev`, with precompiled
+precommit binaries built with matching flags (`-ldflags=-w`), a fresh scanner per run, and
+retained caches. The first pair is priming-sensitive; the two warm pairs show
+broad variation, so these observations do not establish a stable overall gate
+speedup.
+
+| Matched precommit binary run | Before | After |
+| --- | ---: | ---: |
+| 1, priming-sensitive | 61.007 s | 8.056 s |
+| 2 | 8.069 s | 4.791 s |
+| 3 | 11.328 s | 13.617 s |
+
+The original cold first gate took 583.833 s; that run is separate and is not a
+comparable before measurement. Separate gate phase timings show the graph phase
+lower after the metadata-only load change: 2.83–4.11 s with
+`NeedCompiledGoFiles`, versus 0.84–2.27 s without it. In two metadata-only
+all-module traces, `go list` with `NeedCompiledGoFiles` and exports disabled took
+45.7/47.8 s; without that flag it took 1.33/1.40 s.
+
+The focused test can be rerun with:
+
+```sh
+go test -count=1 -tags=precommit -ldflags=-w -run '^TestRuntimebundle_NoCompleteOwnerCallbackEscapes$' ./internal/infra/runtimebundle
+```
+
+The gate wall measurements ran the already compiled test binaries separately
+from compilation. Logs and binaries were kept outside the worktree under
+`/home/mateusz/.cache/qa-package-speed`. This result is local evidence only; it
+does not predict CI timings. The measured two-OS required-export union is 2263.8 MiB. A private 3072 MiB
+bounded snapshot dropped 542 required artifacts (274.3 MiB), so this slice adds
+no cache lane or budget change. The existing 4096 MiB owner lane remains intact.
+
+
+## Fast staged runtimebundle commits
+
+A staged runtimebundle file previously triggered the complete owner-callback
+scan as part of its package tests. That scan discovers importers across the root
+module and type-checks Linux and Windows. The fast hook now follows the existing
+CI split: it excludes only `TestRuntimebundle_NoCompleteOwnerCallbackEscapes`,
+for the root runtimebundle package. The positive/negative aggregate, candidate
+assembly and Windows-overlay fixture tests still run; these use small stub
+packages rather than the production module graph. Full pre-commit mode and
+ordinary scoped test commands retain the complete gate.
+
+The dedicated CI owner job uses `-count=1`: child `go list` discovery can find a
+new importer without changing the linked runtimebundle test binary or the
+parent's previously recorded test-cache inputs. Compiler/export caches remain
+enabled. The graph pass also uses the metadata-only mode described above.
+
+Two matched complete `scripts/hooks/pre-commit` pairs used the same harmless
+staged runtimebundle comment, identical working sources, retained caches and
+fresh test execution through `GOFLAGS=-count=1`. Both sides include build, vet,
+package tests and lint. A separate 233.627 s baseline warm-up is excluded.
+
+| Complete hook observation | Before | After |
+| --- | ---: | ---: |
+| Pair 1 | 156.651 s | 321.912 s |
+| Pair 2 | 671.989 s | 234.700 s |
+
+All four hooks passed. The shared 2-CPU host had concurrent Go jobs, slot waits
+and indexing; these wall observations do **not** establish a stable whole-hook
+speedup. The removed owner test itself took 14.32 s and 45.42 s in the before
+runs and did not execute afterward. Its separate cold 583.833 s observation
+above explains the scope risk, but is not a matched cold-hook comparison.
+
+Fresh verification passed for devcheck (including persisted/quoted GOFLAGS,
+quarantine merging, subtest skips and exact-name matching), both shell scope
+regressions, and the retained runtimebundle tests including the unprofiled leak
+check. A temporary unrelated package declaring a Windows-only callback over
+`*runtimebundle.Host` was rejected by the complete gate; removing it restored a
+fresh passing gate. This verifies that metadata-only discovery retains
+Windows importer coverage. Benchmark and mutant logs are retained outside the
+worktree under `/home/mateusz/.cache/qa-package-speed`.
