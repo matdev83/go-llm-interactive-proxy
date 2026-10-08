@@ -16,9 +16,19 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 	"github.com/stretchr/testify/require"
 )
+
+type bootstrapTrafficCapture struct{ ctp [][]byte }
+
+func (c *bootstrapTrafficCapture) OnObservation(_ context.Context, ev sdktraffic.Observation) error {
+	if ev.Leg == sdktraffic.LegCTP {
+		c.ctp = append(c.ctp, append([]byte(nil), ev.Body...))
+	}
+	return nil
+}
 
 func TestConversationBootstrap_LogicalIntentAllLeaves(t *testing.T) {
 	aliases, err := routing.NewAliasResolver([]routing.ModelAliasRule{{Pattern: "^friendly$", Replacement: "be:logical"}})
@@ -52,7 +62,8 @@ func TestConversationBootstrap_FirstSnapshotAndLazyReuse(t *testing.T) {
 	for _, secure := range []bool{false, true} {
 		t.Run(map[bool]string{false: "detached", true: "secure"}[secure], func(t *testing.T) {
 			reader := &countingReader{}
-			ex, authority := newSecureExecutorForCV(t, reader, extensions.SnapshotOptions{})
+			traffic := &bootstrapTrafficCapture{}
+			ex, authority := newSecureExecutorForCV(t, reader, extensions.SnapshotOptions{TrafficObserver: traffic})
 			cv := conversationview.NewReferenceStore()
 			reader.base = cv
 			atomic := conversationview.NewAuthorizedReferenceStore(cv, authority)
@@ -64,7 +75,7 @@ func TestConversationBootstrap_FirstSnapshotAndLazyReuse(t *testing.T) {
 					intent, err := resolve()
 					require.NoError(t, err)
 					require.Equal(t, "logical", intent.Model)
-					return conversationview.BootstrapDecision{Outcome: conversationview.BootstrapMatched, Model: intent.Model, Overlays: []conversationview.PutSteeringRequest{{OverlayID: "owner.one", Message: conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "hidden"}, Placement: conversationview.StoredPlacement{Kind: conversationprojection.PlacementStablePrefix}, AnchorMissingPolicy: conversationprojection.AnchorStablePrefixFallback, Reason: "test"}}}, nil
+					return conversationview.BootstrapDecision{Outcome: conversationview.BootstrapMatched, Model: intent.Model, Overlays: []conversationview.PutSteeringRequest{{OverlayID: "owner.one", Message: conversationview.StoredMessageV1{Role: lipapi.RoleSystem, Text: "PRIVATE-735-STRUCTURAL-e8c1f"}, Placement: conversationview.StoredPlacement{Kind: conversationprojection.PlacementStablePrefix}, AnchorMissingPolicy: conversationprojection.AnchorStablePrefixFallback, Reason: "test"}}}, nil
 				})
 				return err
 			}
@@ -73,23 +84,52 @@ func TestConversationBootstrap_FirstSnapshotAndLazyReuse(t *testing.T) {
 				ctx = execDetachedCtx(ctx)
 			}
 			call := recordingCall("be:logical", nil)
+			call.Instructions = []lipapi.Message{
+				{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("  client-system-735\n exact  ")}},
+				{Role: lipapi.RoleDeveloper, Parts: []lipapi.Part{lipapi.TextPart("client-developer-735\tuntouched")}},
+			}
+			recorder := &capturingTurnRecorder{}
+			ex.SecureSessionRecorder = recorder
 			pr, _, cleanup, err := ex.prepareRequest(ctx, call)
 			require.NoError(t, err)
 			require.Len(t, pr.conversationSnapshot.Steering, 1)
-			require.Len(t, pr.call.Instructions, 1)
-			require.Empty(t, pr.identity.ingressCall.Instructions)
+			require.Len(t, pr.call.Instructions, 3)
+			require.Equal(t, call.Instructions, pr.call.Instructions[:2])
+			require.Equal(t, call.Instructions, pr.identity.ingressCall.Instructions)
+			if secure {
+				require.Len(t, recorder.recorded, 1)
+				require.Len(t, recorder.recorded[0].Lines, 3, "hidden system overlay must not become a structural client instruction")
+			}
 			legID := pr.identity.aLeg.ALegID
+			resume := call.Session
+			prefix := lipapi.CloneCall(*pr.call).Instructions
 			cleanup()
-			later := recordingCall("be:changed", nil)
-			later.Session = call.Session
-			later.Session.ALegID = legID
-			pr, _, cleanup, err = ex.prepareRequest(ctx, later)
-			require.NoError(t, err)
-			defer cleanup()
-			require.Equal(t, legID, pr.identity.aLeg.ALegID)
-			require.Len(t, pr.conversationSnapshot.Steering, 1)
+			for turn := 2; turn <= 3; turn++ {
+				later := lipapi.CloneCall(*call)
+				later.ID = ""
+				later.Route.Selector = "be:changed"
+				later.Session = resume
+				later.Session.ALegID = legID
+				later.Messages = append(later.Messages, lipapi.Message{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("next-client-turn")}})
+				pr, _, cleanup, err = ex.prepareRequest(ctx, &later)
+				require.NoError(t, err)
+				require.Equal(t, legID, pr.identity.aLeg.ALegID)
+				require.Equal(t, prefix, pr.call.Instructions)
+				require.Equal(t, later.Instructions, pr.identity.ingressCall.Instructions)
+				if secure {
+					require.Len(t, recorder.recorded[turn-1].Lines, 2+len(later.Messages))
+				}
+				cleanup()
+				call = &later
+			}
 			require.Equal(t, 1, resolved)
-			require.Equal(t, 2, reader.Count())
+			require.Equal(t, 3, reader.Count())
+			if secure {
+				require.Len(t, traffic.ctp, 3)
+			}
+			for _, body := range traffic.ctp {
+				require.NotContains(t, string(body), "PRIVATE-735-STRUCTURAL-e8c1f")
+			}
 		})
 	}
 }

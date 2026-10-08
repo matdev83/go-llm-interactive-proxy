@@ -1,10 +1,12 @@
 package runtimebundle_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,13 +23,24 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+	lipcont "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuation"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
+
+type promptContinuationAuth struct{}
+
+func (promptContinuationAuth) Authenticate(context.Context, sdkauth.InboundCallMeta) (sdkauth.Decision, error) {
+	return sdkauth.Decision{Outcome: sdkauth.OutcomeAllow, Principal: execview.PrincipalView{ID: "local-dev"}, Scope: &scope.PrincipalScopeView{Origin: scope.OriginClient, SubjectKind: scope.SubjectLocal, PrincipalID: scope.Known("local-dev")}}, nil
+}
 
 // Exercise real HTTP admission, generation publication and backend Open/OpenWire,
 // not just the static census: steering must win before first-turn wire execution.
@@ -39,6 +52,18 @@ func TestModelSystemPrompt_HostReloadFrozenDecisionsAndWireFallback(t *testing.T
 			return
 		}
 		if strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			var request struct {
+				Stream bool `json:"stream"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			if !request.Stream {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, `{"id":"chatcmpl-bootstrap","object":"chat.completion","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"host-live"},"finish_reason":"stop"}]}`)
+				return
+			}
 			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 			_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-bootstrap\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"host-live\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n")
 			return
@@ -62,10 +87,13 @@ continuity:
   in_memory: true
   store: memory
 logging:
-  level: error
+  level: debug
   format: text
 diagnostics:
   enabled: false
+observability:
+  metrics:
+    enabled: true
 plugins:
   frontends:
     - id: openai-legacy
@@ -89,9 +117,10 @@ plugins:
 	require.NoError(t, os.WriteFile(path, []byte(base), 0o600))
 	var wire, canonical atomic.Int32
 	var captured atomic.Pointer[lipapi.Call]
+	var normalLogs syncLogBuffer
 	host, err := runtimebundle.BuildHost(t.Context(), runtimebundle.BuildHostInput{
 		ConfigPath: path, Mandatory: lipsdk.StandardDistributionRequirements(),
-		LogWriter: io.Discard, HandlerComposer: stdhttp.ComposeStandardHTTP,
+		LogWriter: &normalLogs, HandlerComposer: stdhttp.ComposeStandardHTTP,
 		RegistrySetup: func(reg *pluginreg.Registry) error {
 			return reg.WrapLifecycleBackend("custom-openai-legacy-compatible", func(orig pluginreg.LifecycleBackendFactory) pluginreg.LifecycleBackendFactory {
 				return func(id string, node yaml.Node, client *http.Client, deps pluginreg.BackendFactoryDeps) (pluginreg.BackendBuildResult, error) {
@@ -118,12 +147,24 @@ plugins:
 	require.NoError(t, err)
 	hostServeCleanup(t, host)
 	type leg struct{ id, session, token string }
+	histories := make(map[string][]map[string]string)
+	requests := 0
+	const original = "ORIGINAL-735-system\nexact bytes"
+	const developer = "ORIGINAL-735-developer\tunchanged"
 	send := func(model string, prior leg, large bool) leg {
-		padding := "client truth"
+		requests++
+		padding := fmt.Sprintf("CLIENT-735-REQUEST-%d", requests)
 		if large {
 			padding += strings.Repeat("x", 1500)
 		}
-		body := fmt.Sprintf(`{"model":%q,"stream":true,"messages":[{"role":"system","content":"original"},{"role":"user","content":%q}]}`, model, padding)
+		messages := append([]map[string]string(nil), histories[prior.id]...)
+		if prior.id == "" {
+			messages = []map[string]string{{"role": "system", "content": original}, {"role": "system", "content": developer}}
+		}
+		messages = append(messages, map[string]string{"role": "user", "content": padding})
+		raw, err := json.Marshal(map[string]any{"model": model, "stream": true, "messages": messages})
+		require.NoError(t, err)
+		body := string(raw)
 		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		if prior.id != "" {
@@ -134,12 +175,20 @@ plugins:
 		host.HTTPHandler().ServeHTTP(rec, req)
 		require.Equal(t, http.StatusOK, rec.Code, "host must remain usable")
 		require.Contains(t, rec.Body.String(), "host-live")
+		require.NotContains(t, rec.Body.String(), "PRIVATE-735-")
 		out := leg{rec.Header().Get("X-LIP-A-Leg-ID"), rec.Header().Get("X-LIP-Session-ID"), rec.Header().Get("X-LIP-Resume-Token")}
 		require.NotEmpty(t, out.id)
 		if prior.id != "" {
 			require.Equal(t, prior.id, out.id)
 		} else {
 			require.NotEmpty(t, out.token)
+		}
+		histories[out.id] = messages
+		if call := captured.Load(); call != nil && call.Session.ALegID == out.id {
+			require.Len(t, call.Messages, len(messages), "backend must receive only this A-leg's client history")
+			for i, msg := range messages {
+				require.Equal(t, msg["content"], call.Messages[i].Parts[0].Text)
+			}
 		}
 		return out
 	}
@@ -169,12 +218,14 @@ plugins:
 		}
 		require.Equal(t, want, call.Instructions)
 		require.NotEmpty(t, call.Messages)
-		require.Equal(t, lipapi.Message{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("original")}}, call.Messages[0])
+		require.Equal(t, lipapi.Message{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart(original)}}, call.Messages[0])
+		// Developer-role byte preservation is covered at the canonical runtime seam.
+		require.Equal(t, lipapi.Message{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart(developer)}}, call.Messages[1])
 	}
 	// The pre-feature leg has real B-leg history, not fabricated attempt rows.
 	preexisting := send("gpt-4o", leg{}, false)
 	require.Equal(t, int32(1), canonical.Load())
-	require.Equal(t, sdkreload.ResultPublished, reload(base+feature("^gpt-4o$", "generation one")).Category)
+	require.Equal(t, sdkreload.ResultPublished, reload(base+feature("^gpt-4o$", "PRIVATE-735-generation-one-e8c1f")).Category)
 	ex := hostActiveExecutor(t, host)
 	producer := ex.ConversationBootstrap
 	require.NotNil(t, producer)
@@ -189,24 +240,65 @@ plugins:
 	require.Zero(t, wire.Load(), "enabled bootstrap must prevent first-turn wire bypass")
 	require.Equal(t, int32(2), canonical.Load(), "one canonical fallback Open")
 	require.Equal(t, int32(1), resolves.Load(), "one atomic decision callback on fallback")
-	assertInstructions("generation one")
+	assertInstructions("PRIVATE-735-generation-one-e8c1f")
 	send("wire-backend:other", matched, true)
-	assertInstructions("generation one")
+	assertInstructions("PRIVATE-735-generation-one-e8c1f")
+	send("wire-backend:other", matched, true)
+	assertInstructions("PRIVATE-735-generation-one-e8c1f")
 	require.Equal(t, int32(1), resolves.Load(), "later model changes must not evaluate the decision again")
+	// The real continuation frontend stores accepted client input, not the
+	// projected backend call. Materializing its parent must not duplicate steering.
+	var responseID string
+	continuations := lipcont.NewMemoryStore()
+	continuationHandler := openresponses.NewHandler(openresponses.HandlerConfig{AllowUnauthenticated: true, Authorizer: promptContinuationAuth{}, Executor: ex, ContinuationStore: continuations})
+	for turn := 0; turn < 2; turn++ {
+		payload := map[string]any{"model": "wire-backend:gpt-4o", "input": fmt.Sprintf("CONTINUATION-735-client-%d", turn), "store": true}
+		if responseID != "" {
+			payload["previous_response_id"] = responseID
+		}
+		raw, err := json.Marshal(payload)
+		require.NoError(t, err)
+		req := httptest.NewRequest(http.MethodPost, "/openresponses/v1/responses", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		continuationHandler.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String()+normalLogs.String())
+		require.NotContains(t, rec.Body.String(), "PRIVATE-735-")
+		var response struct {
+			ID string `json:"id"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+		require.NotEmpty(t, response.ID)
+		responseID = response.ID
+		stored, err := continuations.Get(t.Context(), lipcont.Scope{PrincipalID: "local-dev"}, lipcont.ResponseID(responseID))
+		require.NoError(t, err)
+		truth, err := json.Marshal(stored)
+		require.NoError(t, err)
+		require.NotContains(t, string(truth), "PRIVATE-735-")
+		require.Contains(t, string(truth), fmt.Sprintf("CONTINUATION-735-client-%d", turn))
+		backend, err := json.Marshal(captured.Load())
+		require.NoError(t, err)
+		require.Equal(t, 1, strings.Count(string(backend), "PRIVATE-735-generation-one-e8c1f"))
+		require.NotContains(t, string(backend), "CLIENT-735-REQUEST-")
+		require.Contains(t, string(backend), "CONTINUATION-735-client-0")
+		if turn > 0 {
+			require.Contains(t, string(backend), "CONTINUATION-735-client-1")
+		}
+	}
 	noMatch := send("wire-backend:other", leg{}, false)
 	assertInstructions("")
 	ambiguous := send("wire-backend:gpt-4o!wire-backend:other", leg{}, false)
 	assertInstructions("")
 	send("gpt-4o", preexisting, false)
 	assertInstructions("")
-	require.Equal(t, int32(3), resolves.Load(), "preexisting allocation must skip resolver")
+	require.Equal(t, int32(5), resolves.Load(), "preexisting allocation must skip resolver; standalone continuation requests own independent A-legs")
 	cases := []struct {
 		name    string
 		leg     leg
 		outcome conversationview.BootstrapOutcome
 		hidden  string
 	}{
-		{"matched", matched, conversationview.BootstrapMatched, "generation one"},
+		{"matched", matched, conversationview.BootstrapMatched, "PRIVATE-735-generation-one-e8c1f"},
 		{"no-match", noMatch, conversationview.BootstrapNoMatch, ""},
 		{"ambiguous", ambiguous, conversationview.BootstrapAmbiguousSkip, ""},
 		{"preexisting", preexisting, conversationview.BootstrapPreexistingSkip, ""},
@@ -251,4 +343,18 @@ plugins:
 	require.Equal(t, sdkreload.ResultPublished, reload(base+feature(".*", "generation three")).Category)
 	checkFrozen()
 	require.Equal(t, int32(1), wire.Load())
+	require.NotContains(t, normalLogs.String(), "PRIVATE-735-")
+	require.NotContains(t, normalLogs.String(), "CLIENT-735-REQUEST-")
+	require.NotContains(t, normalLogs.String(), "CONTINUATION-735-client-")
+	require.NotContains(t, normalLogs.String(), "generation two")
+	require.NotContains(t, normalLogs.String(), "generation three")
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte("PRIVATE-735-generation-one-e8c1f")))
+	require.NotContains(t, normalLogs.String(), digest)
+	metrics, err := runtimebundle.HostProcess(host).Metrics.Registry.Gather()
+	require.NoError(t, err)
+	metricText := fmt.Sprintf("%v", metrics)
+	require.NotContains(t, metricText, "PRIVATE-735-")
+	require.NotContains(t, metricText, "CLIENT-735-REQUEST-")
+	require.NotContains(t, metricText, "CONTINUATION-735-client-")
+	require.NotContains(t, metricText, digest)
 }

@@ -47,7 +47,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 6. Client and family boundaries
 
-- [ ] 6.1 Prove hidden client truth and model-visible canonical instruction trajectory
+- [x] 6.1 Prove hidden client truth and model-visible canonical instruction trajectory
   - Extend existing tests: three-turn stable prefix/original bytes, ingress/CTP/continuation/frontend output/structural records exclude steering while PTB includes it; fix exact recorder input to preserved client view only if regression proves contamination.
   - Prove frozen retry/failover/parallel snapshot and final reassertion after late removal/movement; bounded OpenAI/Anthropic/Gemini family sentinels, no provider-specific feature code or Cartesian matrix. Sentinel plaintext absent from normal diagnostics/metrics.
   - RED/GREEN focused added claims; reused evidence must identify executable tests/commands, not merely cite infrastructure. Update scratch issue-AC evidence covering all 18 mandatory criteria. Scoped dev-test/dev-build across changed runtime/family/host consumers.

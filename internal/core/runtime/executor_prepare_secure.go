@@ -780,7 +780,8 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	}
 	outCtx = execctx.WithSecureSessionTurn(outCtx, ibt.secureTurn)
 	if e.SecureSessionRecorder != nil {
-		in := buildClientTurnRecordInput(e.now(), ibt.traceID, br, workingCall)
+		// Structural client records describe ingress, not backend-only projection.
+		in := buildClientTurnRecordInput(e.now(), ibt.traceID, br, ibt.ingressCall)
 		if err := e.SecureSessionRecorder.RecordClientTurnAfterGate(outCtx, in); err != nil {
 			if e.SecureSessionMetrics != nil {
 				e.SecureSessionMetrics.ObserveRecorderClientTurnFailed(e.SecureSessionRecordingMandatory)
