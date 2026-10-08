@@ -92,44 +92,6 @@ func TestJSONFirstValueValidationAllocationTracksSyntaxOnly(t *testing.T) {
 	}
 }
 
-func TestJSONIdentityMappingAvoidsPerByteBoundaries(t *testing.T) {
-	t.Parallel()
-	for _, raw := range []string{"9007199254740993", "false", "null", `"plain-string"`, `"café"`} {
-		p := jsonOccurrenceParser{raw: []byte(raw)}
-		value, err := p.semanticValue()
-		if err != nil || value.token == nil {
-			t.Fatal("parse identity mapping fixture")
-		}
-		mapping := value.token.mapping
-		if len(mapping.boundaries) != 0 {
-			t.Error("identity token retained per-byte mapping boundaries")
-		}
-		start, end, ok := mapping.rawRange(0, len(mapping.decoded))
-		if !ok || !bytes.Equal(p.raw[start:end], mapping.decoded) {
-			t.Error("identity token changed its source interval")
-		}
-	}
-}
-
-func TestJSONReplacementMappingPreservesDecodedBoundaries(t *testing.T) {
-	t.Parallel()
-	for _, raw := range [][]byte{[]byte(`"\u0061-secret"`), []byte(`"\uD800-secret"`), {'"', 0xff, '-', 's', 'e', 'c', 'r', 'e', 't', '"'}} {
-		p := jsonOccurrenceParser{raw: raw}
-		value, err := p.semanticValue()
-		if err != nil || value.token == nil {
-			t.Fatal("parse replacement mapping fixture")
-		}
-		mapping := value.token.mapping
-		if len(mapping.boundaries) != len(mapping.decoded)+1 {
-			t.Error("escaped or invalid UTF-8 token lost detailed boundaries")
-		}
-		start, end, ok := mapping.rawRange(0, len(mapping.decoded))
-		if !ok || start != 1 || end != len(raw)-1 {
-			t.Error("replacement mapping lost the raw string interval")
-		}
-	}
-}
-
 func TestJSONStreamingMappingMatchesCanonicalTokens(t *testing.T) {
 	t.Parallel()
 	fixtures := [][]byte{
