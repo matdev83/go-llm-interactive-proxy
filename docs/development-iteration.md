@@ -93,6 +93,44 @@ A commit touching many packages still takes minutes, so run commits as a backgro
 with no tool timeout: a harness timeout that kills the gate mid-run leaves the
 commit unapplied and the index still staged.
 
+### Architecture package loading
+
+Native runtimebundle/runtimehost architecture checks analyze the CGO variant
+recorded in the test binary's build information. This lets them reuse exports
+compiled by the outer `go test`, rather than forcing a second CGO-disabled build.
+The canonical Linux/Windows matrix in the `precommit` suite still uses CGO off.
+
+Overlay mutation checks ask the Go command to select files and build dependency
+exports with the overlay applied, then parse and type-check the selected package
+against those exports. This avoids `go/packages` reparsing every dependency when
+an overlay is present. New files, changed dependency types, type errors, import
+cycles and unreadable export data remain checked. Existing tests and the
+canonical platform matrix retain their selection.
+
+Measured against `0985f2ff` on Linux/amd64 `agent-dev`, Go 1.26.6, x/tools
+v0.50.0 and a two-CPU quota:
+
+| Workload | Before wall / CPU | After wall / CPU |
+| --- | ---: | ---: |
+| Native exports after the CGO-on outer build | 252.32 / 328.49 s | 2.44 / 2.41 s |
+| Complete archtest phase after that outer build | 384.65 / 678.58 s | 47.48 / 76.22 s |
+
+The outer build seeded an isolated cache in 461.75 seconds; both versions started
+from separate copies of that same cache. The complete phase used the normal Go
+PATH guard, `-mod=readonly -p=2 -parallel=2 -timeout=10m -count=1 -json`, and a
+Go `-exec` wrapper selecting the before/after test binaries against identical
+repository inputs. Both passed, retained all 570 existing top-level test names
+and the same three opt-in generator skips; the candidate added three contracts.
+These are one paired cold run, excluding the common outer compile. Other host
+work and memory pressure were higher during the baseline, so the exact wall
+percentage is not a prediction for every commit. The baseline built 365 export
+variants absent from the seed; the matching native load built none.
+
+With already warm exports, four alternating helper-only full-suite runs measured
+median wall times of 68.04 versus 58.45 seconds and CPU times of 80.26 versus
+62.62 seconds. Raw requests, cache provenance, logs, wait4 descendant accounting
+and system snapshots remain under `~/.cache/arch-export-cache/`.
+
 ### Merging with auto-merge
 
 `main` requires branches to be up to date, and this repository has no merge
