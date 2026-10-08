@@ -41,7 +41,7 @@ func getCachedConnectorBinary(tb testing.TB, connectorDir, cmdPkg, binName strin
 		tb.Fatal(err)
 	}
 	dst := filepath.Join(cacheDir, binName)
-	cmd := exec.Command("go", "build", "-o", dst, cmdPkg)
+	cmd := exec.Command("go", "build", "-ldflags=-w", "-o", dst, cmdPkg)
 	cmd.Dir = filepath.Join(repo, connectorDir)
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
