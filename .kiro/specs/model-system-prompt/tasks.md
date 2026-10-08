@@ -37,7 +37,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 5. Generation and conservative fast path
 
-- [ ] 5.1 Preserve frozen decisions across reload/removal and block first-turn wire bypass
+- [x] 5.1 Preserve frozen decisions across reload/removal and block first-turn wire bypass
   - Occupy existing conservative steering dependency for nonnil generic bootstrap port before overlays exist. Stored steering retains its existing authority blocker after removal; never deactivate on generation retirement.
   - RED/GREEN matched/no-match/ambiguous/preexisting freeze on reload/later model change, new legs use new config, invalid candidate retains old generation, removal preserves selected overlays, first-turn large-body canonical fallback bootstraps once.
   - Scoped dev-test/dev-build for featurehost/runtimebundle/runtime/largebody and changed host-generation consumers.
