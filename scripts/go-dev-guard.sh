@@ -98,6 +98,21 @@ lip_dev_tmpdir() {
 # commands inherit the parent's slot. After LIP_GO_SLOT_WAIT seconds
 # (default 900) a waiting command runs anyway, so a test that starts go with a
 # scrubbed environment cannot deadlock behind its own parent.
+# Print one line per held slot so a waiting agent can see what it queues
+# behind (pid, elapsed time, worktree, command) without inspecting processes.
+lip_go_slot_holders() {
+	local dir=$1 pid etime args slot cmd cwd
+	while read -r pid etime args; do
+		[[ $args == flock\ * && $args == *" $dir/slot"* ]] || continue
+		slot=${args#*" $dir/"}
+		slot=${slot%% *}
+		cmd=${args#*" $dir/$slot "}
+		cmd=${cmd#* }
+		cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || echo '?')
+		echo "go guard:   $slot held for $etime by pid $pid in $cwd: go ${cmd:0:160}" >&2
+	done < <(ps -eo pid=,etime=,args= 2>/dev/null || true)
+}
+
 lip_go_slot_run() {
 	[[ -z ${LIP_GO_SLOT_HELD:-} ]] || return 0
 	local index=0 command_name
@@ -121,6 +136,7 @@ lip_go_slot_run() {
 		done
 		if [[ $announced == false ]]; then
 			echo "go guard: $slots heavy Go commands are already running on this host; waiting for a slot (LIP_GO_SLOTS=$slots)." >&2
+			lip_go_slot_holders "$dir"
 			announced=true
 		fi
 		sleep 2

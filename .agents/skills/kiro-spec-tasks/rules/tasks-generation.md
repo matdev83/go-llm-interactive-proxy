@@ -119,7 +119,7 @@ Before writing `tasks.md`, review the draft task plan and repair local issues un
 
 - Every requirement ID from `requirements.md` must appear in at least one task.
 - Every design component, interface/contract, and integration point from `design.md` must be represented by at least one task.
-- **Budget**: At most 12 leaf tasks. Count them.
+- **Budget**: At most 12 leaf tasks. Check with `go run ./tools/kiro/kirocheck` (pre-commit and CI run it too).
 - If coverage is missing because the task plan is incomplete, repair the draft tasks and review again.
 - If coverage cannot be added cleanly because requirements or design are ambiguous, contradictory, or underspecified, stop and return to the requirements/design phase instead of papering over the gap in `tasks.md`.
 
