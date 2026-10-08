@@ -130,7 +130,7 @@ chmod +x "$BIN/git"
 
 new_repo() {
 	local name="$1" repo="$TMP/$1"
-	mkdir -p "$repo/scripts" "$repo/internal/rootpkg" "$repo/internal/secondpkg" "$repo/internal/testonly" "$repo/internal/archtest" \
+	mkdir -p "$repo/scripts" "$repo/internal/rootpkg" "$repo/internal/secondpkg" "$repo/internal/testonly" "$repo/internal/archtest" "$repo/internal/featureplanegen" \
 		"$repo/connectors/nested/pkg" "$repo/connectors/untouched/pkg" \
 		"$repo/pkg/lipsdk/feature" "$repo/api" "$repo/.github/workflows"
 	cp "$QUALITY_CHECKS_SOURCE" "$repo/scripts/quality-checks.sh"
@@ -556,6 +556,12 @@ assert_not_contains "$TMP/buf.log" BUF
 
 new_repo feature-delete
 git -C "$REPO" rm -q pkg/lipsdk/feature/delete.txt
+expect_pass "$REPO" --staged
+assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
+
+new_repo feature-generator-source
+printf 'package featureplanegen\n' >"$REPO/internal/featureplanegen/generator.go"
+git -C "$REPO" add internal/featureplanegen/generator.go
 expect_pass "$REPO" --staged
 assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
 
