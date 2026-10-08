@@ -741,7 +741,7 @@ func validateModelCatalog(cfg *Config) error {
 		}
 		ui := strings.TrimSpace(mc.UpdateInterval)
 		if err := parsePositiveDurationFieldRequired("model_catalog.update_interval", ui); err != nil {
-			if strings.Contains(err.Error(), "required") {
+			if ui == "" {
 				return fmt.Errorf(
 					"model_catalog.update_interval: must be positive when " +
 						"model_catalog.external_updates_enabled is true",
@@ -758,7 +758,7 @@ func validateModelCatalog(cfg *Config) error {
 	}
 	ft := strings.TrimSpace(mc.FetchTimeout)
 	if err := parsePositiveDurationField("model_catalog.fetch_timeout", ft); err != nil {
-		if ft != "" && strings.Contains(err.Error(), "must be a positive duration") {
+		if d, perr := time.ParseDuration(ft); perr == nil && d <= 0 {
 			return fmt.Errorf("model_catalog.fetch_timeout: must be a positive duration when set")
 		}
 		return err

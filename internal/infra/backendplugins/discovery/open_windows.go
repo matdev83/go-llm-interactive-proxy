@@ -32,7 +32,7 @@ func openRegular(path string) (*os.File, error) {
 	}
 	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 		_ = windows.CloseHandle(h)
-		return nil, stringError("symlink_rejected")
+		return nil, ErrSymlinkRejected
 	}
 	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 {
 		_ = windows.CloseHandle(h)
