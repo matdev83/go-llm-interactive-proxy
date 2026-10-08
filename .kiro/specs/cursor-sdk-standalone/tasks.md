@@ -104,8 +104,8 @@
   - _Depends: 3.2_
   - _Validation: manifest/template platform audit, script inventory, gh required-check inspection_
 
-- [ ] 3.5 Record packaging evaluation and release compatibility metadata
-  - _Status: the Windows companion-path installation contract is decided and recorded (requirements 3.5, design Standalone connector): an explicit full `bridge_executable` path to the installed private launcher is required on `windows/amd64` and optional on `linux/amd64`. The pending-decision blocker is retired. Still open: final certified compatibility metadata and the plugin release itself. Host `v0.1.0` is published and its downloaded artifacts are verified; plugin PR #12 (`7c804420b`) delivered release-independent metadata and the packaging evaluation._
+- [x] 3.5 Record packaging evaluation and release compatibility metadata
+  - _Evidence: published `cursorsdk-v0.1.0`, immutable source `c403e28d1d5993068ecce798c78d45349fe45964`, release run `37819483634`. Independently checked published archive digests, compatibility metadata, SDK non-redistribution, provisioning instructions, and provenance attestations are recorded in `release-certification.json`. Windows requires a full installed `bridge_executable` path; Linux supports packaged default resolution. Host `v0.1.0` and root/ACP module pins remain unchanged._
   - Generate `compatibility.json` from validated release inputs with plugin/build/source identity, exact host/root/ACP/runtime versions and the REQUIRED (not bundled) SDK version, protocol range, platform evidence, tested host hashes, package verification results, external-Node requirement flag, SDK provisioning command, and an explicit non-redistribution statement.
   - Document the SEA versus private-runtime evaluation, including SDK loading, imports, metadata lookup, native assets, sandbox behavior, signatures, and platform limits, without widening the closed host manifest.
   - Publish tested per-OS installation instructions stating explicitly whether system Node is required and exactly how to provision the SDK with the shipped runtime.
