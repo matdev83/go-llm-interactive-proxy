@@ -23,7 +23,8 @@ const (
 )
 
 // LogicalFragment is one bounded canonical content unit. Raw is transient
-// request content and must stay inside the feature boundary.
+// request content and must stay inside the feature boundary. Raw may borrow
+// canonical bytes: detectors must treat it as immutable until the scan returns.
 type LogicalFragment struct {
 	Location string
 	Kind     FragmentKind
@@ -73,7 +74,7 @@ func (f LogicalFragment) textValue() string {
 }
 
 // rawBytes materializes text only for byte-oriented occurrence mapping or
-// mutation. JSON fragments already own their admitted byte representation.
+// mutation. JSON fragments already retain their admitted byte representation.
 func (f LogicalFragment) rawBytes() []byte {
 	if f.Raw != nil {
 		return f.Raw
@@ -138,9 +139,11 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 			return budget.limitHit
 		}
 		fragments = append(fragments, LogicalFragment{
-			Location:  location,
-			Kind:      FragmentJSON,
-			Raw:       bytes.Clone(*value),
+			Location: location,
+			Kind:     FragmentJSON,
+			// Scans are synchronous/read-only; redact traverses an owned Call
+			// clone and replacement installs new bytes rather than editing Raw.
+			Raw:       *value,
 			privateID: fmt.Sprintf("fragment[%d]", len(fragments)),
 			replace:   func(raw []byte) { *value = bytes.Clone(raw) },
 		})
@@ -153,7 +156,7 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 		fragments = append(fragments, LogicalFragment{
 			Location:  location,
 			Kind:      FragmentJSON,
-			Raw:       bytes.Clone([]byte(*value)),
+			Raw:       []byte(*value),
 			privateID: fmt.Sprintf("fragment[%d]", len(fragments)),
 			replace:   func(raw []byte) { *value = string(raw) },
 		})
