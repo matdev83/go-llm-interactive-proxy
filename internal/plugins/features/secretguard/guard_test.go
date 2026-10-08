@@ -228,14 +228,13 @@ func provenanceMessageCall(secret string) lipapi.Call {
 			{Role: lipapi.RoleUser, Parts: []lipapi.Part{
 				{Kind: lipapi.PartText, Text: "prompt " + secret},
 				{Kind: lipapi.PartJSON, Content: json.RawMessage(fmt.Sprintf(`{"api_key":%q}`, secret))},
-				// Model tool calls are represented canonically as JSON parts with
-				// tool metadata. They remain excluded even under a user role.
+				// Tool metadata cannot override trusted user provenance.
 				{Kind: lipapi.PartJSON, ToolCallID: "model-call", ToolName: "lookup", Content: json.RawMessage(fmt.Sprintf(`{"argument":%q}`, secret))},
 			}},
-			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "assistant " + secret}}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "assistant " + secret}, {Kind: lipapi.PartJSON, ToolCallID: "assistant-call", ToolName: "lookup", Content: json.RawMessage(fmt.Sprintf(`{"argument":%q}`, secret))}}},
 			{Role: lipapi.RoleTool, Parts: []lipapi.Part{
 				{Kind: lipapi.PartText, Text: "tool output " + secret},
-				{Kind: lipapi.PartJSON, Content: json.RawMessage(fmt.Sprintf(`{"result":%q}`, secret))},
+				{Kind: lipapi.PartJSON, ToolCallID: "model-call", ToolName: "lookup", Content: json.RawMessage(fmt.Sprintf(`{"result":%q}`, secret))},
 			}},
 		},
 		Tools: []lipapi.ToolDef{{
@@ -285,7 +284,7 @@ func provenanceExcludedOnlyCall(authority string, secret string) lipapi.Call {
 	}
 	return lipapi.Call{
 		Instructions: []lipapi.Message{{Role: lipapi.RoleSystem, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "instruction " + secret}}}},
-		Messages:     []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartJSON, ToolCallID: "model-call", ToolName: "lookup", Content: json.RawMessage(fmt.Sprintf(`{"argument":%q}`, secret))}}}, {Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "assistant " + secret}}}},
+		Messages:     []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartJSON, ToolCallID: "model-call", ToolName: "lookup", Content: json.RawMessage(fmt.Sprintf(`{"argument":%q}`, secret))}}}, {Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "assistant " + secret}}}},
 		Tools:        []lipapi.ToolDef{{Name: "lookup-" + secret, Description: "tool definition " + secret, Parameters: json.RawMessage(fmt.Sprintf(`{"default":%q}`, secret))}},
 	}
 }
@@ -301,7 +300,7 @@ func assertProvenanceExcludedFieldsUnchanged(t *testing.T, before, after lipapi.
 		}
 		return
 	}
-	if len(before.Messages) != len(after.Messages) || !reflect.DeepEqual(before.Messages[1], after.Messages[1]) || !reflect.DeepEqual(before.Messages[0].Parts[2], after.Messages[0].Parts[2]) {
+	if len(before.Messages) != len(after.Messages) || !reflect.DeepEqual(before.Messages[1], after.Messages[1]) {
 		t.Fatal("excluded message content changed")
 	}
 }
@@ -315,7 +314,7 @@ func assertProvenanceEligibleRedacted(t *testing.T, call lipapi.Call, secret, au
 		}
 		return
 	}
-	if strings.Contains(call.Messages[0].Parts[0].Text, secret) || bytes.Contains(call.Messages[0].Parts[1].Content, []byte(secret)) || strings.Contains(call.Messages[2].Parts[0].Text, secret) || bytes.Contains(call.Messages[2].Parts[1].Content, []byte(secret)) {
+	if strings.Contains(call.Messages[0].Parts[0].Text, secret) || bytes.Contains(call.Messages[0].Parts[1].Content, []byte(secret)) || bytes.Contains(call.Messages[0].Parts[2].Content, []byte(secret)) || strings.Contains(call.Messages[2].Parts[0].Text, secret) || bytes.Contains(call.Messages[2].Parts[1].Content, []byte(secret)) {
 		t.Fatal("eligible message content retained the secret")
 	}
 }
@@ -351,7 +350,7 @@ func TestGuard_ProvenanceMatrixPreservesExcludedContentAcrossActions(t *testing.
 							allowed[location] = true
 						}
 					} else {
-						for _, location := range []string{"messages[0].parts[0]", "messages[0].parts[1]", "messages[2].parts[0]", "messages[2].parts[1]"} {
+						for _, location := range []string{"messages[0].parts[0]", "messages[0].parts[1]", "messages[0].parts[2]", "messages[2].parts[0]", "messages[2].parts[1]"} {
 							allowed[location] = true
 						}
 					}
