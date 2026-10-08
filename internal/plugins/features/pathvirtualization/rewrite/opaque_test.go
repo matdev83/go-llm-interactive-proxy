@@ -938,10 +938,22 @@ func TestOpaqueResultDeclaredModeWithoutRecognizablePathsIsRefused(t *testing.T)
 		"2026-10-02 read " + fixtureTarget,
 		`{"file_path":"` + fixtureTarget + `"}`,
 	} {
-		if _, stats, err := runOpaque(t, pathvirtualization.OpaqueResultModePathTokens, text); err != nil {
+		got, stats, err := runOpaque(t, pathvirtualization.OpaqueResultModePathTokens, text)
+		if err != nil {
 			t.Fatalf("RewriteCall(%q): %v", text, err)
-		} else if stats.Rewritten != 0 {
-			t.Errorf("payload %q reported %d rewrites, want 0", text, stats.Rewritten)
+		}
+		if got != text {
+			t.Errorf("payload %q was rewritten to %q, want byte-for-byte unchanged", text, got)
+		}
+		if stats.Eligible != 0 || stats.Rewritten != 0 {
+			t.Errorf("payload %q stats eligible/rewritten = %d/%d, want 0/0", text, stats.Eligible, stats.Rewritten)
+		}
+		if surfaces := opaqueSurfaceCount(text); surfaces > 0 {
+			if count, recorded := skipCount(stats, rewrite.SkipReasonOpaqueResultBounded); !recorded || count != surfaces {
+				t.Errorf("payload %q opaque_result_bounded = %d (recorded %v), want %d", text, count, recorded, surfaces)
+			}
+		} else if len(stats.Skips) != 0 {
+			t.Errorf("payload %q reached no surface but recorded skips: %+v", text, stats.Skips)
 		}
 	}
 }
