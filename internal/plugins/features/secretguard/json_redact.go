@@ -37,9 +37,15 @@ func redactJSONPayload(ctx context.Context, m sdk.Matcher, raw []byte) ([]byte, 
 	if err != nil {
 		return m.RedactBytes(ctx, raw)
 	}
-	findings, err := walkRedactJSON(ctx, m, &v)
+	changed := false
+	findings, err := walkRedactJSON(ctx, m, &v, &changed)
 	if err != nil {
 		return nil, findings, err
+	}
+	// Findings do not imply a replacement. Preserve the caller's representation
+	// unless a string value actually changed, including duplicate keys/escapes.
+	if !changed {
+		return bytes.Clone(raw), findings, nil
 	}
 	out, err := json.Marshal(v)
 	if err != nil {
@@ -74,7 +80,7 @@ func decodeJSONPreserveNumbers(raw []byte) (any, error) {
 	return v, nil
 }
 
-func walkRedactJSON(ctx context.Context, m sdk.Matcher, v *any) ([]sdk.Finding, error) {
+func walkRedactJSON(ctx context.Context, m sdk.Matcher, v *any, changed *bool) ([]sdk.Finding, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -84,7 +90,10 @@ func walkRedactJSON(ctx context.Context, m sdk.Matcher, v *any) ([]sdk.Finding, 
 		if err != nil {
 			return nil, err
 		}
-		*v = redacted
+		if redacted != cur {
+			*changed = true
+			*v = redacted
+		}
 		return findings, nil
 	case json.Number:
 		findings, err := m.ScanString(ctx, cur.String())
@@ -129,7 +138,7 @@ func walkRedactJSON(ctx context.Context, m sdk.Matcher, v *any) ([]sdk.Finding, 
 				return all, newUnsupportedJSONTokenError(all)
 			}
 			c := cur[k]
-			f, err := walkRedactJSON(ctx, m, &c)
+			f, err := walkRedactJSON(ctx, m, &c, changed)
 			if err != nil {
 				if unsupported, ok := errors.AsType[*unsupportedJSONTokenError](err); ok {
 					combined := mergeFindings(all, unsupported.findings)
@@ -145,7 +154,7 @@ func walkRedactJSON(ctx context.Context, m sdk.Matcher, v *any) ([]sdk.Finding, 
 		var all []sdk.Finding
 		for i := range cur {
 			c := cur[i]
-			f, err := walkRedactJSON(ctx, m, &c)
+			f, err := walkRedactJSON(ctx, m, &c, changed)
 			if err != nil {
 				if unsupported, ok := errors.AsType[*unsupportedJSONTokenError](err); ok {
 					combined := mergeFindings(all, unsupported.findings)

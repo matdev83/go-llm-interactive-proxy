@@ -167,7 +167,17 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 		case lipapi.ContentPartText, lipapi.ContentPartToolResult:
 			return appendText(location, &part.Text)
 		case lipapi.ContentPartJSON:
-			return appendJSONText(location, &part.Text)
+			before := len(fragments)
+			limitHit := appendJSONText(location, &part.Text)
+			if len(fragments) > before && part.Annotation != nil && part.Annotation.Type == "json_content" {
+				// Text is authoritative; update its admitted mirror on the same
+				// working clone, never unrelated provenance annotations.
+				fragments[len(fragments)-1].replace = func(raw []byte) {
+					part.Text = string(raw)
+					part.Annotation.Data = bytes.Clone(raw)
+				}
+			}
+			return limitHit
 		default:
 			return false
 		}
@@ -186,9 +196,6 @@ func walkLogicalFragments(call *lipapi.Call, budget *scanBudget) []LogicalFragme
 						return true
 					}
 				case lipapi.PartJSON:
-					if part.ToolCallID != "" || part.ToolName != "" {
-						continue
-					}
 					if appendJSON(loc, &part.Content) {
 						return true
 					}

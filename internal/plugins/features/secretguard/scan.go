@@ -175,6 +175,9 @@ func scanCall(ctx context.Context, call *lipapi.Call, m sdk.Matcher, mode scanMo
 	if call == nil || (m == nil && (generation == nil || !generation.betterLeaksEnabled)) {
 		return out, nil
 	}
+	if err := validateJSONMirrors(call); err != nil {
+		return out, err
+	}
 	if m == nil {
 		m = engine.AsMatcher(engine.NewMatcher(nil))
 	}
