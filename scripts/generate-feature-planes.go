@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/archtest"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featureplanegen"
 )
 
 func main() {
@@ -34,7 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	formattedPlanes, err := archtest.GenerateFeaturePlanesCode(manifestBytes)
+	formattedPlanes, err := featureplanegen.GenerateFeaturePlanesCode(manifestBytes)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error generating feature planes code: %v\n", err)
 		os.Exit(1)
@@ -46,7 +46,7 @@ func main() {
 		return
 	}
 
-	if err := archtest.WriteGeneratedFileAtomic(planeOutPath, formattedPlanes); err != nil {
+	if err := featureplanegen.WriteGeneratedFileAtomic(planeOutPath, formattedPlanes); err != nil {
 		fmt.Fprintf(os.Stderr, "error writing generated file atomically: %v\n", err)
 		os.Exit(1)
 	}

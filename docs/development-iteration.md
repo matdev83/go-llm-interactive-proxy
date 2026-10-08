@@ -139,8 +139,8 @@ an explicit root `./internal/archtest` scope. Go can then reuse identical compil
 entries across worktree directories. Native architecture loaders and the two large
 external-module fixture commands match the test binary's trimpath setting, so
 each module-version variant can be reused across worktree directories. The
-feature-plane generator uses that setting too: it imports archtest's production
-package and would otherwise rebuild most of the same graph before the build/vet step.
+feature-plane generator uses that setting too, so its shared `featureplanegen`
+package matches the scoped architecture build variant.
 
 `LIP_LOCAL_ARCH_TRIMPATH=0 git commit` retains the untrimmed local path. To opt in
 for manual feedback, use
@@ -178,6 +178,48 @@ variants was 3.53 GB. A subsequent untrimmed dry run still planned 210 compiler
 actions after the trimmed hook, so switching back to untrimmed checks can pay
 another build cost. Raw commands, source/cache provenance, test logs and wait4
 resource measurements remain under `~/.cache/arch-worktree-cache-20261008/`.
+
+### Feature-plane generator feedback
+
+The feature-plane generator lives in `internal/featureplanegen`, which imports
+only the standard library. Its command no longer compiles the architecture
+package's host dependencies just to parse a manifest and emit Go source.
+Architecture reports retain their existing generator API through thin wrappers.
+
+Run `make dev-test PKGS='./internal/featureplanegen'` for the generator's focused
+contracts. The architecture package retains checks against the committed output
+and repository diagnostic inventory. Edits to either package still trigger the
+generated-file check in the staged hook.
+
+Measured against `28b4a022` using the complete fast precommit hook with a staged
+comment-only edit to `pkg/lipsdk/feature/plane_manifest.go`:
+
+| Complete SDK hook, reverse-order pair | Original generator | Extracted generator |
+| --- | ---: | ---: |
+| Wall time | 246.73 s | 120.82 s |
+| Waited-process CPU | 299.24 s | 186.45 s |
+| Generator check wall time | 115.41 s | 0.70 s |
+
+The 125.91-second wall saving (51%) includes build, vet, all 167 top-level SDK
+test/example passes, guardrails and mandatory lint. All test names and statuses
+matched across four complete hook runs. An earlier pair measured 289.96 versus
+152.11 seconds and 302.81 versus 216.72 seconds CPU, but its baseline had a
+Go-slot wait of unknown duration. Neither run in the reverse-order pair emitted
+a slot-wait warning. Other agent work was active on the shared four-CPU host.
+
+Both versions used the same worktree directory, staged blob and Go settings:
+Go 1.26.6, CGO enabled, `GOMAXPROCS=2`, the normal Go guard and ext4 TMPDIR.
+Each run started from an independent copy of identical frozen caches
+(7.21 GB of Go entries and 9.19 MB of lint data, counting file contents).
+Cache-copy setup took about 70 seconds per run and was excluded; no candidate
+priming run was needed, so its first compilation is included in the timings.
+
+The generator's dependency list fell from 1,040 packages to 79, including
+225 project packages down to one. The SDK test dependency list stayed identical
+at 1,179 packages. Raw hook logs, wait4 measurements, staged-source provenance,
+cache inventories and dependency lists remain under
+`~/.cache/feature-plane-generator-20261008/`. These measurements describe this
+fresh-directory workload with shared caches; warm-worktree gains can differ.
 
 ### Merging with auto-merge
 
