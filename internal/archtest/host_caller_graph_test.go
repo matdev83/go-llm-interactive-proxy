@@ -20,6 +20,7 @@ const runtimebundlePackagePath = "github.com/matdev83/go-llm-interactive-proxy/i
 
 type archBuildContext struct {
 	GOOS, GOARCH string
+	CGOEnabled   bool
 }
 
 // Canonical gates analyze at least Linux amd64 and Windows amd64.
@@ -108,7 +109,7 @@ func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[
 				Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 					packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
 				Tests: false,
-				Env:   packagesLoadEnv(bc.GOOS, bc.GOARCH),
+				Env:   bc.env(),
 			}
 			pkgs, err := packages.Load(cfg, runtimebundlePackagePath)
 			if err == nil && (packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil) {
@@ -132,10 +133,10 @@ func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
 		Tests:   false,
-		Env:     packagesLoadEnv(bc.GOOS, bc.GOARCH),
+		Env:     bc.env(),
 		Overlay: overlay,
 	}
-	pkgs, err := packages.Load(cfg, runtimebundlePackagePath)
+	pkgs, err := loadArchOverlay(cfg, runtimebundlePackagePath)
 	if err != nil {
 		t.Fatalf("load runtimebundle (%s/%s): %v", bc.GOOS, bc.GOARCH, err)
 	}
@@ -148,6 +149,10 @@ func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[
 // packagesLoadEnv deterministically overrides GOOS/GOARCH/CGO_ENABLED without
 // relying on duplicate-variable last-wins ordering.
 func packagesLoadEnv(goos, goarch string) []string {
+	return (archBuildContext{GOOS: goos, GOARCH: goarch}).env()
+}
+
+func (bc archBuildContext) env() []string {
 	out := make([]string, 0, 32)
 	for _, kv := range os.Environ() {
 		key, _, ok := strings.Cut(kv, "=")
@@ -161,11 +166,15 @@ func packagesLoadEnv(goos, goarch string) []string {
 			out = append(out, kv)
 		}
 	}
+	cgo := "CGO_ENABLED=0"
+	if bc.CGOEnabled {
+		cgo = "CGO_ENABLED=1"
+	}
 	return append(
 		out,
-		"GOOS="+goos,
-		"GOARCH="+goarch,
-		"CGO_ENABLED=0",
+		"GOOS="+bc.GOOS,
+		"GOARCH="+bc.GOARCH,
+		cgo,
 	)
 }
 

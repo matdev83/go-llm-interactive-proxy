@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -12,7 +13,19 @@ import (
 )
 
 func nativeArchBuildContexts() []archBuildContext {
-	return []archBuildContext{{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}}
+	bc := archBuildContext{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	// Analyze the same native variant that built this test binary. Forcing
+	// CGO off here rebuilds a second dependency graph after go test compiled
+	// the first. The canonical Linux/Windows matrix still explicitly uses CGO=0.
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "CGO_ENABLED" {
+				bc.CGOEnabled = setting.Value == "1"
+				break
+			}
+		}
+	}
+	return []archBuildContext{bc}
 }
 
 func TestBuildHostIsSoleBindHostCaller_Native(t *testing.T) {
@@ -54,7 +67,9 @@ func TestRuntimehostOwnership_NativeRogueConstructorCallerDetected(t *testing.T)
 func assertNativeProductionGoInventory(t *testing.T, dir string, analyzed map[string]bool) {
 	t.Helper()
 	context := build.Default
-	context.CgoEnabled = false
+	bc := nativeArchBuildContexts()[0]
+	context.GOOS, context.GOARCH = bc.GOOS, bc.GOARCH
+	context.CgoEnabled = bc.CGOEnabled
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
