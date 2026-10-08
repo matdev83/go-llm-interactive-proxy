@@ -205,9 +205,12 @@ func MeasureWaveMirrors(root string) ([]WaveMirrorFamily, int, int, error) {
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("scan all mirrors: %w", err)
 	}
-	activeFindings, err := ScanForbiddenMirrors(root, ActiveMigrationWave)
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("scan active mirrors: %w", err)
+	activeFindings := allFindings
+	if ActiveMigrationWave != Wave5c_Residual {
+		activeFindings, err = ScanForbiddenMirrors(root, ActiveMigrationWave)
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("scan active mirrors: %w", err)
+		}
 	}
 
 	findingsByWave, activeByWave := make(map[MigrationWave][]MirrorFinding), make(map[MigrationWave][]MirrorFinding)
