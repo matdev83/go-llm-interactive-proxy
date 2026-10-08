@@ -30,12 +30,15 @@ var wantGenerationOutputShape = []string{
 // boundary: MetricsSwap is a bare func() invoked once per published
 // generation; KeepwarmAdmin is a process-stable stdhttp options value
 // copied opaquely; TerminalPolicyProjection is a factory func value
-// invoked with generic composition state. Adding a tenth member
-// requires the same bar: opaque type, documented justification here.
+// invoked with generic composition state. ConversationBootstrap is the
+// consumer-owned generic pre-snapshot callback approved by model-system-prompt
+// design's Generic runtime port; it carries no concrete producer type or public
+// plane. Further members require the same bar: opaque type, justification here.
 var wantCorePortsShape = []string{
 	"CompactionDetector:runtime.CompactionDetector",
 	"ConversationReader:conversationprojection.Reader",
 	"ConversationReaderStockOrigin:bool",
+	"ConversationBootstrap:runtime.ConversationBootstrap",
 	"InterleavedProcessor:runtime.InterleavedProcessor",
 	"PromptCacheMaintenance:runtime.PromptCacheMaintenance",
 	"TerminalPolicyReader:runtime.TerminalPolicyReader",
@@ -66,6 +69,9 @@ var wantGenerationInputShape = []string{
 	"SecretInputs:SecretGuardInputs",
 	"DecisionObserver:SecretDecisionObserver",
 	"FaultInject:error",
+	// Existing bounded store observer forwarded to generation producers, not a
+	// feature-specific input or new SDK plane (design: Error Handling and Observability).
+	"ConversationObserver:conversationview.Observer",
 }
 
 // TestGenerationFacadeShape pins the Task 2.2 conformance of the
@@ -214,6 +220,7 @@ type CorePorts struct {
 	CompactionDetector            runtime.CompactionDetector
 	ConversationReader            conversationprojection.Reader
 	ConversationReaderStockOrigin bool
+	ConversationBootstrap         runtime.ConversationBootstrap
 	InterleavedProcessor          runtime.InterleavedProcessor
 	PromptCacheMaintenance        runtime.PromptCacheMaintenance
 	TerminalPolicyReader          runtime.TerminalPolicyReader
@@ -244,6 +251,7 @@ type CorePorts struct {
 	CompactionDetector            runtime.CompactionDetector
 	ConversationReader            conversationprojection.Reader
 	ConversationReaderStockOrigin bool
+	ConversationBootstrap         runtime.ConversationBootstrap
 	InterleavedProcessor          runtime.InterleavedProcessor
 	PromptCacheMaintenance        runtime.PromptCacheMaintenance
 	TerminalPolicyReader          runtime.TerminalPolicyReader

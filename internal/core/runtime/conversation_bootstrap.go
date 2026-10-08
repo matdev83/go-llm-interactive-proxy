@@ -24,13 +24,14 @@ func (e *Executor) initialModelIntent(raw string) (InitialModelIntent, error) {
 	if err != nil {
 		return InitialModelIntent{}, err
 	}
-	var out InitialModelIntent
+	var model string
+	var ambiguous bool
 	add := func(p routing.Primary) {
-		model := strings.TrimSpace(p.Model)
-		if out.Model == "" {
-			out.Model = model
-		} else if model != out.Model {
-			out.Ambiguous = true
+		next := strings.TrimSpace(p.Model)
+		if model == "" {
+			model = next
+		} else if next != model {
+			ambiguous = true
 		}
 	}
 	parallel := func(p *routing.Parallel) {
@@ -54,13 +55,13 @@ func (e *Executor) initialModelIntent(raw string) (InitialModelIntent, error) {
 			}
 		}
 	}
-	if out.Model == "" {
+	if model == "" {
 		return InitialModelIntent{}, fmt.Errorf("executor: empty initial model intent")
 	}
-	if out.Ambiguous {
-		out.Model = ""
+	if ambiguous {
+		return InitialModelIntent{Ambiguous: true}, nil
 	}
-	return out, nil
+	return InitialModelIntent{Model: model}, nil
 }
 
 func (e *Executor) selectLocalAndBootstrap(ctx context.Context, ibt *identityBoundTurn, accepted lipapi.Call) error {

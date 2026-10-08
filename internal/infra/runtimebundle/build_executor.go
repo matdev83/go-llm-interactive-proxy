@@ -266,7 +266,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	}
 	var convObs conversationview.Observer
 	if in.Observability != nil && in.Observability.Bundle != nil && in.Observability.Bundle.ConversationViewObserver() != nil {
-		convObs = metricsObserverAdapter{inner: in.Observability.Bundle.ConversationViewObserver()}
+		convObs = metricsObserverAdapter{ConversationViewObserver: in.Observability.Bundle.ConversationViewObserver()}
 	}
 	convStore := in.ConversationStore
 	largeBodyAssessor, largeBodyGenID, err := buildLargeBodyAssessor(largeBodyAssessorInput{
@@ -590,21 +590,9 @@ func (a *conversationViewTaggerAdapter) ConversationViewStore() conversationview
 }
 
 type metricsObserverAdapter struct {
-	inner metrics.ConversationViewObserver
-}
-
-func (a metricsObserverAdapter) OnProjection(s string, sum conversationprojection.ProjectionSummary) {
-	a.inner.OnProjection(s, sum)
-}
-func (a metricsObserverAdapter) OnProjectionFailure(s string) { a.inner.OnProjectionFailure(s) }
-func (a metricsObserverAdapter) OnAnchorFallback(s string, p conversationprojection.AnchorMissingPolicy) {
-	a.inner.OnAnchorFallback(s, p)
-}
-
-func (a metricsObserverAdapter) OnAnchorFailure(p conversationprojection.AnchorMissingPolicy) {
-	a.inner.OnAnchorFailure(p)
+	metrics.ConversationViewObserver
 }
 
 func (a metricsObserverAdapter) OnSteeringMutation(k conversationview.CacheDiscontinuityKind, p conversationprojection.PlacementKind) {
-	a.inner.OnSteeringMutation(metrics.CacheDiscontinuityKind(k), p)
+	a.ConversationViewObserver.OnSteeringMutation(metrics.CacheDiscontinuityKind(k), p)
 }

@@ -151,7 +151,7 @@
     ],
     "direct_field_copy_assignments": 370,
     "context_business_state_rereads": 17,
-    "pre_handoff_cleanup_sites": 26
+    "pre_handoff_cleanup_sites": 23
   },
   "target": {
     "attempt_open_params_deleted": true,

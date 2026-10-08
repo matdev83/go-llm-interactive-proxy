@@ -111,7 +111,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	}
 	var convObserver conversationview.Observer
 	if ps.Metrics != nil && ps.Metrics.ConversationViewObserver() != nil {
-		convObserver = metricsObserverAdapter{inner: ps.Metrics.ConversationViewObserver()}
+		convObserver = metricsObserverAdapter{ConversationViewObserver: ps.Metrics.ConversationViewObserver()}
 	}
 	featOut, err := ps.StandardFeatures.CompileGeneration(ctx, featurehost.GenerationInput{
 		Registrations:        regs,

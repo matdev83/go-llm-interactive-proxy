@@ -104,9 +104,10 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	if outCtx, err = e.admitRequestAuthorityOnce(outCtx, workingCall.ID, ibt.aLeg.ALegID, ibt.traceID, ibt.scope); err != nil {
 		return nil, nil, outCtx, err
 	}
+	guard := &preStreamGuard{executor: e, ctx: outCtx, requestAuthorityAdmitted: true}
+	defer guard.Close()
 	submitMeta := &sdkhooks.SubmitMeta{TraceID: ibt.traceID, Annotations: map[string]string{}}
 	if err := bus.RunSubmit(outCtx, workingCall, submitMeta); err != nil {
-		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, err
 	}
 	// --- Task 3.2 seam: snapshot once after A-leg resolution ---
@@ -115,14 +116,12 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	ingressClone := lipapi.CloneCall(*workingCall)
 	ibt.ingressCall = &ingressClone
 	if err := e.selectLocalAndBootstrap(outCtx, ibt, *workingCall); err != nil {
-		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, err
 	}
 	backendClone := lipapi.CloneCall(*workingCall)
 	originalForFilter := lipapi.CloneCall(backendClone)
 	snapView, projEv, projected, perr := e.snapshotAndProject(outCtx, ibt.aLeg.ALegID, backendClone)
 	if perr != nil {
-		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, perr
 	}
 	ibt.conversationSnapshot = snapView
@@ -132,7 +131,6 @@ func (e *Executor) prepareSubmitAndALegDetached(
 	if filtered, ferr := conversationprojection.FilterNeverBackend(originalForFilter, snapView); ferr == nil {
 		ibt.conversationFilteredBaseline = &filtered
 	} else {
-		_ = e.releaseRequestAuthority(outCtx)
 		return nil, nil, outCtx, ferr
 	}
 	backendClone = projected
@@ -150,5 +148,6 @@ func (e *Executor) prepareSubmitAndALegDetached(
 		workingCall = &bk
 	}
 	outCtx = diag.EnsureCallDiag(outCtx, ibt.traceID, ibt.aLeg.ALegID)
+	guard.Handoff()
 	return ibt, workingCall, outCtx, nil
 }
