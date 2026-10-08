@@ -24,14 +24,16 @@ func recordResult(name, artifact string, result Result) (returnErr error) {
 	index := executionIndex{Version: 1, Entries: make(map[string]indexEntry)}
 	file, err := os.Open(name)
 	if err == nil {
-		decodeErr := decodeStrict(file, &index)
+		var loaded executionIndex
+		decodeErr := decodeStrict(file, &loaded)
 		closeErr := file.Close()
 		if err := errors.Join(decodeErr, closeErr); err != nil {
 			return err
 		}
-		if index.Version != 1 || index.Entries == nil {
+		if loaded.Version != 1 || loaded.Entries == nil {
 			return errors.New("invalid execution index; preserve it for diagnosis")
 		}
+		index = loaded
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

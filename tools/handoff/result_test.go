@@ -75,10 +75,12 @@ func TestHandoff_IndexPreservesOtherTasksAndFailsClosedOnCorruption(t *testing.T
 	if !bytes.Contains(data, []byte("first.json")) || !bytes.Contains(data, []byte("second.json")) {
 		t.Fatalf("index discarded earlier work: %s", data)
 	}
-	if err := os.WriteFile(file, []byte("corrupted"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := recordResult(file, "third.json", first); err == nil {
-		t.Fatal("corrupt index silently overwritten")
+	for _, input := range []string{"corrupted", "null", `{"entries":{}}`, `{"version":1}`} {
+		if err := os.WriteFile(file, []byte(input), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := recordResult(file, "third.json", first); err == nil {
+			t.Fatalf("corrupt index silently overwritten: %s", input)
+		}
 	}
 }
