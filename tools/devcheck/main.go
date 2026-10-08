@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/evidence"
 	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/testscope"
 )
 
@@ -35,7 +36,10 @@ func main() {
 	}
 }
 
-func run() error {
+// run returns the check verdict. Its named result is read by the deferred
+// manifest writer, so every return after the recorder exists lands in the
+// verification manifest, including the failure paths.
+func run() (err error) {
 	task := flag.String("task", "doctor", "test, build, lint, doctor, or quarantine")
 	module := flag.String("module", ".", "repository-relative Go module directory")
 	packages := flag.String("packages", "", "explicit space-separated package patterns, e.g. ./pkg/lipapi")
@@ -48,6 +52,7 @@ func run() error {
 	base := flag.String("base", "", "changed-scope comparison reference (default origin/main)")
 	planOnly := flag.Bool("plan", false, "print changed-scope plan without running tests")
 	full := flag.Bool("full", false, "run all maintained modules' default tests instead of selecting")
+	evidencePath := flag.String("evidence", "", "write a verification manifest (revision, scope, results, logs) to this path")
 	flag.Parse()
 	if flag.NArg() != 0 || *jobs < 1 || *repeat < 1 {
 		return errors.New("jobs/repeat must be positive; use named flags for scope")
@@ -60,6 +65,24 @@ func run() error {
 	root, err := os.Getwd()
 	if err != nil {
 		return err
+	}
+	recorder := newEvidenceRecorder(*evidencePath, *task, evidence.Scope{
+		Kind:     *scope,
+		Module:   *module,
+		Packages: strings.Fields(*packages),
+		Base:     *base,
+		Jobs:     *jobs,
+		Repeat:   *repeat,
+		Fresh:    *fresh,
+		PlanOnly: *planOnly,
+		Full:     *full,
+	}, root)
+	if recorder != nil {
+		defer func() {
+			if writeErr := recorder.finish(err); writeErr != nil {
+				err = errors.Join(err, writeErr)
+			}
+		}()
 	}
 	quarantine, err := loadQuarantine(root)
 	if err != nil {
@@ -78,19 +101,21 @@ func run() error {
 		}
 		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		plan, err := testscope.Build(ctx, root, testscope.Options{Base: *base, Full: *full})
+		plan, planErr := testscope.Build(ctx, root, testscope.Options{Base: *base, Full: *full})
 		cancel()
-		if err != nil {
-			return err
+		if planErr != nil {
+			recorder.block(fmt.Sprintf("select changed scope: %v", planErr))
+			return planErr
 		}
 		fmt.Fprintf(os.Stderr, "planning_elapsed=%.3fs\n", time.Since(start).Seconds())
-		return runTestPlan(root, plan, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, quarantine: quarantine}, os.Stdout, os.Stderr)
+		return runTestPlan(root, plan, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, quarantine: quarantine, recorder: recorder}, os.Stdout, os.Stderr)
 	}
 	if *scope != "explicit" || *base != "" || *planOnly || *full {
 		return errors.New("base/plan/full require -scope=changed; scope must be explicit or changed")
 	}
 	dir, err := moduleDirectory(root, *module)
 	if err != nil {
+		recorder.block(fmt.Sprintf("resolve module %s: %v", *module, err))
 		return err
 	}
 	if *task == "doctor" {
@@ -132,25 +157,38 @@ func run() error {
 	// Do not substitute staticcheck for the mandatory multi-linter gate, or
 	// report success when the requested analyzer is absent.
 	if _, err := exec.LookPath(commands[0][0]); err != nil {
+		recorder.block(fmt.Sprintf("required tool %s is unavailable: %v", commands[0][0], err))
 		return fmt.Errorf("required tool %s is unavailable: %w", commands[0][0], err)
 	}
 	fmt.Fprintln(os.Stderr, "Development feedback only; delivery still requires the applicable comprehensive gates.")
 	for n := 1; n <= *repeat; n++ {
-		for _, command := range commands {
+		for index, command := range commands {
 			fmt.Fprintf(os.Stderr, "[%d/%d] module=%s command=%s\n", n, *repeat, *module, strings.Join(command, " "))
 			start := time.Now()
 			cmd := exec.Command(command[0], command[1:]...)
 			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), "GOWORK=off")
 			cmd.Stderr = os.Stderr
-			stats, err := execute(cmd, *task == "test", os.Stdout)
+			step := recorder.start(fmt.Sprintf("repeat-%d-command-%d-of-%d", n, index+1, len(commands)), command, dir, os.Stdout)
+			stats, executeErr := execute(cmd, *task == "test", step.output)
+			recorded := stepStats(*task == "test", stats)
+			recorder.finishRun(step, recorded, executeErr)
 			fmt.Fprintf(os.Stderr, "elapsed=%.3fs passed=%d cached=%d failed=%d skipped=%d\n", time.Since(start).Seconds(), stats.Passed, stats.Cached, stats.Failed, stats.Skipped)
-			if err != nil {
-				return fmt.Errorf("%s failed: %w", *task, err)
+			if executeErr != nil {
+				return fmt.Errorf("%s failed: %w", *task, executeErr)
 			}
 		}
 	}
 	return nil
+}
+
+// stepStats maps the parsed test counters onto the manifest shape. Build and
+// lint commands report no test events, so they carry no stats block.
+func stepStats(test bool, stats testStats) *evidence.Stats {
+	if !test {
+		return nil
+	}
+	return &evidence.Stats{Passed: stats.Passed, Cached: stats.Cached, Failed: stats.Failed, Skipped: stats.Skipped}
 }
 
 func execute(cmd *exec.Cmd, test bool, output io.Writer) (testStats, error) {

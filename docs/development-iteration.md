@@ -403,6 +403,30 @@ Use `GODEBUG=gocachetest=1 go test ./path/to/package` for result-cache miss reas
 and `go build -x ./path/to/package` to distinguish compilation from linking.
 Record exact commands, OS, toolchain, scope, and cold/warm state with measurements.
 
+### Verification manifests
+
+Set `DEV_EVIDENCE=<path>` on any `dev-*` target to record what the check actually
+proved, as JSON beside a per-step log per command:
+
+```
+make dev-test-changed DEV_EVIDENCE=~/scratch-ci/verification.json
+```
+
+The manifest names the tested revision (`head`, `branch`, `merge_in_progress`)
+and its dirty identity (`dirty`, `dirty_path_count`, `dirty_go_files`, and a
+`dirty_digest` over the porcelain payload *and* the bytes of the dirty files),
+the requested scope (kind, module, packages, base, jobs, repeat), the toolchain
+(`go_version`, `lint_version`, `goos`, `goarch`, `gomaxprocs`), and one step per
+command with its exit code, duration, test counters, and log path.
+
+Read `outcome` before anything else. `passed` and `failed` are code verdicts.
+`blocked` is not: it means an infrastructure condition (missing tool, unusable
+module path, unopenable log) prevented the check from producing a verdict, and
+its `failure_reason` names the blocker. A `passed` manifest over a dirty tree
+still describes a tree nobody else has, so quote the revision and digest with
+the result. This is developer feedback, not a delivery gate; CI remains
+authoritative.
+
 ## Why earlier improvements stopped being sufficient
 
 Audited against `main` at `b1e81926`; source history, not prior claims alone:

@@ -16,6 +16,7 @@ type testPlanOptions struct {
 	jobs, repeat int
 	fresh, dry   bool
 	quarantine   []quarantineEntry
+	recorder     *evidenceRecorder
 }
 
 func validateChangedScope(task, module, packages string) error {
@@ -93,7 +94,9 @@ func runTestModule(root string, module testscope.Module, opts testPlanOptions, i
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stderr = diagnostics
-	stats, err := execute(cmd, true, output)
+	step := opts.recorder.start(module.Directory, command, dir, output)
+	stats, err := execute(cmd, true, step.output)
+	opts.recorder.finishRun(step, stepStats(true, stats), err)
 	_, reportErr := fmt.Fprintf(diagnostics, "elapsed=%.3fs passed=%d cached=%d failed=%d skipped=%d\n", time.Since(start).Seconds(), stats.Passed, stats.Cached, stats.Failed, stats.Skipped)
 	if err = errors.Join(err, reportErr); err != nil {
 		return fmt.Errorf("default tests failed in %s: %w", module.Directory, err)
