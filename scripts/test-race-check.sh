@@ -58,9 +58,27 @@ for match in ' example/pkg/lipapi ' ' -skip ^TestSupportAgreementShadowPredicate
   verify_coverage
 done
 unset FAIL_MATCH
-# Check the actual workflow matrix, so an omitted or duplicated job fails the
-# coverage comparison even if the standalone script still covers every test.
-mapfile -t workflow_lanes < <(sed -n 's/^[[:space:]]*lane: \[\(.*\)\]/\1/p' "$script_dir/../.github/workflows/race-fuzz-nightly.yml" | tr ',' '\n' | sed 's/^ *//;s/ *$//')
+# The nightly matrix selects JSON arrays per schedule. Validate each selection
+# before taking their union, so duplicated jobs cannot disappear in sort -u.
+mapfile -t workflow_matrices < <(
+  sed -n 's/^[[:space:]]*lane: //p' "$script_dir/../.github/workflows/race-fuzz-nightly.yml" |
+    grep -oE '\[[^]]*\]'
+)
+if (( ${#workflow_matrices[@]} == 0 )); then
+  echo 'Nightly workflow matrix contains no recognizable race lanes' >&2
+  exit 1
+fi
+: > "$fixture/workflow-lanes"
+for matrix in "${workflow_matrices[@]}"; do
+  lanes="$(printf '%s\n' "$matrix" | tr -d '\[\]" ' | tr ',' '\n')"
+  if [[ -z "$lanes" || "$(printf '%s\n' "$lanes" | sort)" != "$(printf '%s\n' "$lanes" | sort -u)" ]]; then
+    echo "Nightly workflow matrix contains empty or duplicate lanes: $matrix" >&2
+    exit 1
+  fi
+  printf '%s\n' "$lanes" >> "$fixture/workflow-lanes"
+done
+mapfile -t workflow_lanes < <(sort -u "$fixture/workflow-lanes")
+: > "$fixture/lane-calls"
 for lane in "${workflow_lanes[@]}"; do
   : > "$SCAN_CALLS"
   bash "$script_dir/race-check.sh" --strict --lane "$lane" > "$fixture/lane.log" 2>&1
@@ -68,7 +86,9 @@ for lane in "${workflow_lanes[@]}"; do
   grep -Fx -- "$(cat "$SCAN_CALLS")" "$fixture/all-calls" >/dev/null
   cat "$SCAN_CALLS" >> "$fixture/lane-calls"
 done
-diff <(sort "$fixture/all-calls") <(sort "$fixture/lane-calls")
+sort "$fixture/all-calls" > "$fixture/all-sorted"
+sort "$fixture/lane-calls" > "$fixture/lanes-sorted"
+diff "$fixture/all-sorted" "$fixture/lanes-sorted"
 if bash "$script_dir/race-check.sh" --strict --lane invalid > "$fixture/invalid.log" 2>&1; then
   echo 'Invalid lane unexpectedly succeeded' >&2
   exit 1
