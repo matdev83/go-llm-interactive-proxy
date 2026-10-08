@@ -124,6 +124,31 @@ unrelated package analysis when those packages lack cached results; its benefit
 depends on dependency fan-out and cache state. Broad test-consumer relationships
 can legitimately expand an internal-package edit to most of the module.
 
+## Linux archtest measurement
+
+`MeasureWaveMirrors` now reuses the sorted all-wave findings when
+`ActiveMigrationWave == Wave5c_Residual`; if those thresholds diverge, it keeps
+the original active-wave scan. The before binary was built at `e1e18da4`, and
+the candidate at `7e8c35f7` with this change. `internal/archtest`, `go.mod` and
+`go.sum` were unchanged between those bases. Both matching precompiled binaries
+used `-ldflags=-w` and ran from the same pinned worktree root, which `repoRoot`
+uses to find the checkout. Environment: Linux/amd64, Go 1.26.6,
+`GOMAXPROCS=2`.
+
+Three interleaved runs used `-test.v`,
+`-test.run='^TestExtensionPlanesBaselineGeneration_Determinism$'`,
+`-test.count=1`, `-test.parallel=2` and `-test.timeout=8m`:
+
+| Median per run | Before | After |
+| --- | ---: | ---: |
+| Wall time | 3.025 s | 1.616 s (-46.6%) |
+| CPU time | 3.184 s | 1.704 s (-46.5%) |
+| Peak RSS | about 94–96 MiB | about 94–96 MiB |
+
+The mirror-measurement, report-formatting, baseline-determinism and baseline-
+artifact tests passed. This focused test result does not establish a full-suite
+speedup.
+
 ## Verification
 
 - Fresh Windows default root suites passed for all four concurrency settings and
