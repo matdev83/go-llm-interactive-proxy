@@ -48,6 +48,11 @@ func openBounded(f *os.File, maxBytes int64) ([]byte, error) {
 
 var errTooLarge = stringError("manifest too large")
 
+// ErrSymlinkRejected reports a symlink encountered where a regular file is
+// required. Compare with errors.Is so wrapped causes still classify as a
+// symlink rejection instead of a generic open failure.
+var ErrSymlinkRejected = stringError("symlink_rejected")
+
 type stringError string
 
 func (e stringError) Error() string { return string(e) }

@@ -129,7 +129,7 @@ func scanManifest(fsys FS, absRoot, root, name, mp string) Descriptor {
 	if err != nil {
 		base.Status = StatusSkipped
 		base.Reason = "open_failed"
-		if err.Error() == "symlink_rejected" {
+		if errors.Is(err, ErrSymlinkRejected) {
 			base.Reason = "symlink_rejected"
 		}
 		return base
