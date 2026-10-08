@@ -97,7 +97,7 @@
   "certification_evidence": {
     "host_cert_linux_duration": "4.469s",
     "host_cert_windows_duration": "119.342s",
-    "host_cert_verdict": "16 PASS lines (parent + 15 leaf) with 0 FAIL on each platform, parsed from both host-cert logs",
+    "host_cert_verdict": "16 PASS lines (top-level test + intermediate companion-contract group + 14 leaf cases) with 0 FAIL on each platform, parsed from both host-cert logs",
     "verify_reports": 6,
     "verify_verdict": "all 6 end with 'verify-package: ok' with 0 checksum mismatches; shipped scope is shipped-files-only, operator-provisioned tree outside the record",
     "attestation": "gh attestation verify exit 0 for both published archives",
