@@ -4,7 +4,7 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 ## 2. Configuration and ordered matcher
 
-- [ ] 2.1 Implement strict enabled feature configuration and immutable ordered matcher
+- [x] 2.1 Implement strict enabled feature configuration and immutable ordered matcher
   - Decode existing `plugins.features` row `model-system-prompt`; compile during construction. Validate unknown fields, required unique bounded ASCII/derived IDs, Go regex, UTF-8/NUL/whitespace text, per-overlay/rule-count/total-text limits; preserve append bytes.
   - Produce canonical SDK PutRequests in config order with stable IDs and system stable-prefix/fallback semantics. No runtime regexp compilation, core imports, rendering or route/provider policy.
   - RED/GREEN claim tables for no/single/multiple matches/order/exact bytes and each distinct invalid boundary. Scoped dev-test/dev-build for `./internal/plugins/features/modelsystemprompt/...` and affected registration/config consumers.
