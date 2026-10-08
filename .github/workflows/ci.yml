@@ -167,6 +167,15 @@ jobs:
           bash scripts/test-quality-checks.sh
           bash scripts/test-quality-gate-fast-owner-skip.sh
 
+      # The bootstrap script is the only supported way to create a task
+      # worktree, so its refusals are part of the contract: a wrong path must be
+      # rejected before git writes anything. The self-test builds a real
+      # container fixture and needs no network.
+      - name: Validate worktree bootstrap
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        shell: bash
+        run: bash scripts/worktree-create.sh --self-test
+
       - name: Validate test quarantine
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
         run: go run ./tools/devcheck -task=quarantine

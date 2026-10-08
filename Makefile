@@ -45,6 +45,16 @@ dev-lint:
 dev-doctor:
 	$(GO) run -buildvcs=false ./tools/devcheck -task=doctor -module="$(MODULE)" -evidence="$(DEV_EVIDENCE)"
 
+# Create a task worktree at the validated location. WORKTREE_BRANCH takes a
+# branch name; the directory is derived by folding slashes to dashes, matching
+# the existing layout. SETUP=1 additionally runs the repository's doctor.
+WORKTREE_BRANCH ?=
+WORKTREE_BASE ?= origin/main
+.PHONY: worktree-create
+worktree-create:
+	@test -n '$(WORKTREE_BRANCH)' || { echo 'worktree-create: set WORKTREE_BRANCH=<name>' >&2; exit 2; }
+	bash scripts/worktree-create.sh "$(WORKTREE_BRANCH)" --base "$(WORKTREE_BASE)" $(if $(filter 1,$(SETUP)),--setup,)
+
 # Test parallelism defaults to the machine's logical core count. The previous
 # fixed -parallel=8 left >=8-core dev boxes half idle for t.Parallel-heavy
 # suites (measured ~2.3x faster on a 16-core box). Override with
@@ -92,6 +102,7 @@ help:
 	@echo "  make dev-delivery-plan [DEV_BASE=<ref>] [DEV_HEAD=<commit>] [DEV_CONSUMER='<consumer>'] - JSON slice metrics, not certification"
 	@echo "  make dev-doctor [MODULE=.] - effective toolchain/cache configuration and diagnostics"
 	@echo "  make dev-test/dev-build/dev-lint [DEV_EVIDENCE=<path>] - additionally record revision, scope, results and per-step logs as a verification manifest"
+	@echo "  make worktree-create WORKTREE_BRANCH=fix-short-description [WORKTREE_BASE=origin/main] [SETUP=1] - validated task worktree under <container>/worktrees/"
 	@echo "  make quality-checks  - generate-feature-planes -check, gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
 	@echo "  make profile-only-check [PROFILE_ONLY_BASE=<git-rev>] - fail-closed provider-profile change-surface ratchet"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
