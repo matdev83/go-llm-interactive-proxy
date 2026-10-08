@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	blconfig "github.com/betterleaks/betterleaks/v2/config"
-	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/report"
 	blscan "github.com/betterleaks/betterleaks/v2/scan"
@@ -358,10 +357,12 @@ func TestBetterLeaksScanner_FingerprintMatchesPinnedAlgorithm(t *testing.T) {
 	if len(findings) == 0 {
 		t.Fatal("fingerprint fixture produced no finding")
 	}
-	got := findings[0].Match.Fingerprint
-	want := fingerprint.Format(fingerprint.Sum([]byte(findings[0].Match.Value)))
-	if got == "" || got != want {
-		t.Fatal("fingerprint did not match the pinned BetterLeaks algorithm")
+	// Pinned BetterLeaks fingerprint of adapterGitHubToken. Hard-coded so an
+	// upstream algorithm change fails loudly instead of moving both sides of
+	// the comparison together.
+	const want = "c436cee6879ff8dca3fdc44ebc06b98eedcd6a26e541e8c73f69ccc1c811778b"
+	if got := findings[0].Match.Fingerprint; got != want {
+		t.Fatalf("fingerprint = %q; want pinned %q", got, want)
 	}
 }
 
