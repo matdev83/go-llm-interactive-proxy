@@ -47,10 +47,10 @@ func betterLeaksLiteralCandidates(fragment LogicalFragment, findings []betterLea
 				}
 				occurrence.span, _ = spanForByteRangeWithLocationIndex(raw, locationIndex, start, end)
 			}
-			out = appendUniquePrivateOccurrences(out, occurrence)
+			out = append(out, occurrence)
 		}
 	}
-	return out
+	return uniquePrivateOccurrences(out)
 }
 
 func normalizeBetterLeaksLiteralOccurrence(raw []byte, occurrence *betterLeaksOccurrence) {
@@ -187,7 +187,7 @@ type betterLeaksRewriteMatcher struct {
 	kind               FragmentKind
 	options            engine.MatcherOptions
 	occurrences        []betterLeaksOccurrence
-	covered            []betterLeaksOccurrence
+	covered            map[privateOccurrenceKey]struct{}
 	jsonTokens         []betterLeaksJSONToken
 	jsonIndex          int
 	jsonCandidateIndex int
@@ -238,11 +238,12 @@ func newBetterLeaksRewriteMatcher(exact sdk.Matcher, fragment LogicalFragment, o
 			}
 			occurrence.span, _ = spanForByteRangeWithLocationIndex(raw, locationIndex, start, end)
 		}
-		verified = appendUniquePrivateOccurrences(verified, occurrence)
+		verified = append(verified, occurrence)
 	}
 	if len(verified) == 0 {
 		return exact, nil
 	}
+	verified = uniquePrivateOccurrences(verified)
 	m := &betterLeaksRewriteMatcher{
 		exact:       exact,
 		raw:         raw,
@@ -385,14 +386,17 @@ func (m *betterLeaksRewriteMatcher) recordCoverage(input, output []byte, ranges 
 			}
 		}
 		if complete {
-			m.covered = appendUniquePrivateOccurrences(m.covered, candidate.occurrence)
+			if m.covered == nil {
+				m.covered = make(map[privateOccurrenceKey]struct{}, len(m.occurrences))
+			}
+			m.covered[occurrenceKey(candidate.occurrence)] = struct{}{}
 		}
 	}
 }
 
 func (m *betterLeaksRewriteMatcher) validateCoverage() error {
 	for _, occurrence := range m.occurrences {
-		if !containsPrivateOccurrence(m.covered, occurrence) {
+		if _, covered := m.covered[occurrenceKey(occurrence)]; !covered {
 			return errBetterLeaksUnrewritable
 		}
 	}
