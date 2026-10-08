@@ -476,17 +476,27 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # Read-only consumer of the suite's lane: the suite job is its only producer.
-      - name: Restore bounded ci-suite Go cache
+      # The gate type-checks the module for Linux and for Windows; the suite lane
+      # only holds Linux objects, so every run recompiled the Windows tree (164 s
+      # of a 195 s step; 6 s with both warm). It owns its lane, and this job is
+      # the lane's only producer.
+      - name: Restore bounded ci-owner-gate Go cache
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         uses: ./.github/actions/go-cache
         with:
-          lane: ci-suite
+          lane: ci-owner-gate
 
       - name: Owner callback escape gate
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         shell: bash
         run: go test -tags=precommit -timeout=25m -run '^TestRuntimebundle_NoCompleteOwnerCallbackEscapes$' ./internal/infra/runtimebundle/
+
+      - name: Save bounded ci-owner-gate Go cache
+        if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        uses: ./.github/actions/go-cache
+        with:
+          lane: ci-owner-gate
+          phase: save
 
       - name: Report unrelated PR bypass
         if: needs.changes.result == 'success' && needs.changes.outputs.test != 'true'
