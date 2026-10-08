@@ -29,7 +29,9 @@ jobs:
           ref: main
           persist-credentials: false
       - name: Verify retention selector
-        run: python3 -m unittest discover -s scripts -p test_prune_go_caches.py
+        run: |
+          python3 -m unittest discover -s scripts -p test_prune_go_caches.py
+          python3 -m unittest discover -s scripts -p test_report_go_cache_usage.py
       - name: Retain newest Go snapshot per job and branch
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,3 +52,10 @@ jobs:
             fi
           done
           echo "Retired $(jq length "$RUNNER_TEMP/obsolete.json") obsolete Go snapshots." >> "$GITHUB_STEP_SUMMARY"
+          # Evictions are otherwise silent: a lane whose snapshot is gone just
+          # runs cold. Show usage against the cap and any lane left without a
+          # main snapshot, using the listing taken before the deletions above.
+          python3 scripts/report-go-cache-usage.py --caches "$RUNNER_TEMP/caches.json" \
+            --obsolete "$RUNNER_TEMP/obsolete.json" --policy .github/actions/go-cache/policy.json \
+            | tee "$RUNNER_TEMP/usage.txt"
+          grep -v '^::warning::' "$RUNNER_TEMP/usage.txt" >> "$GITHUB_STEP_SUMMARY"

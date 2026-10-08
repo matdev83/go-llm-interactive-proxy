@@ -110,16 +110,70 @@ run_module_lint() {
   [[ -f "$dir/go.mod" ]] || return 0
   local packages
   read -r -a packages <<< "${2:-./...}"
-  echo "== Linting $module: ${packages[*]} =="
-  if [[ "$LINTER" == "golangci-lint" ]]; then
-    if (( ADVISORY )); then
-      (cd "$dir" && golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" "${packages[@]}")
-    else
-      (cd "$dir" && golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" --disable=modernize,paralleltest,thelper "${packages[@]}")
+  local trim_arch="${3:-false}"
+
+  if [[ "$trim_arch" != true && "$STAGED" == 1 && "$DIRECT" == 1 && "$module" == . && "${LIP_LOCAL_ARCH_TRIMPATH:-}" == 1 ]]; then
+    local broad_arch_scope=false
+    local package
+    local -a arch_packages=() other_packages=()
+    for package in "${packages[@]}"; do
+      if [[ "$package" == "./..." || "$package" == "./internal/..." ]]; then
+        broad_arch_scope=true
+        break
+      fi
+      case "$package" in
+        ./internal/archtest|./internal/archtest/*)
+          arch_packages+=("$package")
+          ;;
+        *)
+          other_packages+=("$package")
+          ;;
+      esac
+    done
+    if [[ "$broad_arch_scope" == false && ${#arch_packages[@]} -gt 0 ]]; then
+      if [[ "${packages[0]}" == ./internal/archtest || "${packages[0]}" == ./internal/archtest/* ]]; then
+        if ! run_module_lint "$module" "${arch_packages[*]}" true; then
+          return 1
+        fi
+        if [[ ${#other_packages[@]} -gt 0 ]] && ! run_module_lint "$module" "${other_packages[*]}"; then
+          return 1
+        fi
+      else
+        if [[ ${#other_packages[@]} -gt 0 ]] && ! run_module_lint "$module" "${other_packages[*]}"; then
+          return 1
+        fi
+        if ! run_module_lint "$module" "${arch_packages[*]}" true; then
+          return 1
+        fi
+      fi
+      return 0
     fi
-  else
-    (cd "$dir" && GOMAXPROCS="$LINT_CONCURRENCY" staticcheck "${packages[@]}")
   fi
+
+  echo "== Linting $module: ${packages[*]} =="
+  local effective_go_flags=""
+  if [[ "$trim_arch" == true ]]; then
+    if ! effective_go_flags="$(cd "$dir" && go env GOFLAGS)"; then
+      echo "ERROR: unable to read effective GOFLAGS for trimmed archtest lint" >&2
+      return 1
+    fi
+    effective_go_flags="${effective_go_flags:+$effective_go_flags }-trimpath=true"
+  fi
+  (
+    cd "$dir" || exit 1
+    if [[ "$trim_arch" == true ]]; then
+      export GOFLAGS="$effective_go_flags"
+    fi
+    if [[ "$LINTER" == "golangci-lint" ]]; then
+      if (( ADVISORY )); then
+        golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" "${packages[@]}"
+      else
+        golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" --disable=modernize,paralleltest,thelper "${packages[@]}"
+      fi
+    else
+      GOMAXPROCS="$LINT_CONCURRENCY" staticcheck "${packages[@]}"
+    fi
+  )
 }
 
 if [[ "$LINTER" == "golangci-lint" ]]; then
@@ -130,7 +184,7 @@ if [[ "$LINTER" == "golangci-lint" ]]; then
   fi
 fi
 
-export ROOT LINTER ADVISORY LINT_CONCURRENCY
+export ROOT LINTER ADVISORY LINT_CONCURRENCY STAGED DIRECT
 export -f run_module_lint
 for module in "${MODULES[@]}"; do
   printf '%s\0%s\0' "$module" "${MODULE_PACKAGES[$module]:-./...}"

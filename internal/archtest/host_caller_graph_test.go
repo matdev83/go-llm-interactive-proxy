@@ -21,6 +21,7 @@ const runtimebundlePackagePath = "github.com/matdev83/go-llm-interactive-proxy/i
 type archBuildContext struct {
 	GOOS, GOARCH string
 	CGOEnabled   bool
+	Trimpath     bool
 }
 
 // Canonical gates analyze at least Linux amd64 and Windows amd64.
@@ -108,8 +109,9 @@ func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[
 			cfg := &packages.Config{
 				Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 					packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
-				Tests: false,
-				Env:   bc.env(),
+				Tests:      false,
+				Env:        bc.env(),
+				BuildFlags: []string{bc.trimpathFlag()},
 			}
 			pkgs, err := packages.Load(cfg, runtimebundlePackagePath)
 			if err == nil && (packages.PrintErrors(pkgs) > 0 || len(pkgs) != 1 || pkgs[0].Types == nil || pkgs[0].TypesInfo == nil) {
@@ -132,9 +134,10 @@ func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
-		Tests:   false,
-		Env:     bc.env(),
-		Overlay: overlay,
+		Tests:      false,
+		Env:        bc.env(),
+		Overlay:    overlay,
+		BuildFlags: []string{bc.trimpathFlag()},
 	}
 	pkgs, err := loadArchOverlay(cfg, runtimebundlePackagePath)
 	if err != nil {
@@ -150,6 +153,13 @@ func loadRuntimebundleForContext(t *testing.T, bc archBuildContext, overlay map[
 // relying on duplicate-variable last-wins ordering.
 func packagesLoadEnv(goos, goarch string) []string {
 	return (archBuildContext{GOOS: goos, GOARCH: goarch}).env()
+}
+
+func (bc archBuildContext) trimpathFlag() string {
+	if bc.Trimpath {
+		return "-trimpath=true"
+	}
+	return "-trimpath=false"
 }
 
 func (bc archBuildContext) env() []string {

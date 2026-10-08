@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUALITY_CHECKS_SOURCE="${QUALITY_CHECKS_SOURCE:-$SCRIPT_DIR/quality-checks.sh}"
+QUALITY_GATE_SOURCE="${QUALITY_GATE_SOURCE:-$SCRIPT_DIR/quality-gate.sh}"
 REAL_GIT="$(command -v git)"
 REAL_GO="$(command -v go)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/quality-checks-test.XXXXXX")"
@@ -16,6 +17,15 @@ fail() {
 	echo "FAIL: $*" >&2
 	if [[ -f "$TMP/output" ]]; then
 		cat "$TMP/output" >&2
+	fi
+	if [[ -f "$TMP/go.log" ]]; then
+		cat "$TMP/go.log" >&2
+	fi
+	if [[ -f "$TMP/gate.log" ]]; then
+		cat "$TMP/gate.log" >&2
+	fi
+	if [[ -f "$TMP/lint.log" ]]; then
+		cat "$TMP/lint.log" >&2
 	fi
 	exit 1
 }
@@ -46,6 +56,11 @@ set -euo pipefail
 	for arg in "$@"; do printf ' %q' "$arg"; done
 	printf '\n'
 } >>"$FAKE_GO_LOG"
+if [[ -n "${FAKE_GO_ENV_LOG:-}" ]]; then
+	printf 'LIP_LOCAL_ARCH_TRIMPATH=%s GO' "${LIP_LOCAL_ARCH_TRIMPATH:-unset}" >>"$FAKE_GO_ENV_LOG"
+	for arg in "$@"; do printf ' %q' "$arg" >>"$FAKE_GO_ENV_LOG"; done
+	printf '\n' >>"$FAKE_GO_ENV_LOG"
+fi
 case "${GO_FAIL:-}:$*" in
 	build:build\ *) exit 41 ;;
 	vet:vet\ *) exit 42 ;;
@@ -115,10 +130,11 @@ chmod +x "$BIN/git"
 
 new_repo() {
 	local name="$1" repo="$TMP/$1"
-	mkdir -p "$repo/scripts" "$repo/internal/rootpkg" "$repo/internal/secondpkg" "$repo/internal/testonly" \
+	mkdir -p "$repo/scripts" "$repo/internal/rootpkg" "$repo/internal/secondpkg" "$repo/internal/testonly" "$repo/internal/archtest" \
 		"$repo/connectors/nested/pkg" "$repo/connectors/untouched/pkg" \
 		"$repo/pkg/lipsdk/feature" "$repo/api" "$repo/.github/workflows"
 	cp "$QUALITY_CHECKS_SOURCE" "$repo/scripts/quality-checks.sh"
+	cp "$QUALITY_GATE_SOURCE" "$repo/scripts/quality-gate.sh"
 	cp "$SCRIPT_DIR/dev-cpu-defaults.sh" "$repo/scripts/dev-cpu-defaults.sh"
 	cat >"$repo/go.mod" <<'EOF'
 module example.test/root
@@ -146,6 +162,9 @@ package secondpkg
 EOF
 	cat >"$repo/internal/testonly/only_test.go" <<'EOF'
 package testonly
+EOF
+	cat >"$repo/internal/archtest/scan.go" <<'EOF'
+package archtest
 EOF
 	cat >"$repo/connectors/nested/pkg/service.go" <<'EOF'
 package service
@@ -191,7 +210,7 @@ EOF
 }
 
 run_gate() {
-	local repo="$1" mode="$2" go_fail="${3:-}" fmt_fail="${4:-}" fmt_unformatted="${5:-}" git_fail="${6:-}" subdir="${7:-}"
+	local repo="$1" mode="$2" go_fail="${3:-}" fmt_fail="${4:-}" fmt_unformatted="${5:-}" git_fail="${6:-}" subdir="${7:-}" arch_trimpath="${8:-}"
 	local -a args=()
 	[[ -z "$mode" ]] || args=("$mode")
 	: >"$TMP/go.log"
@@ -212,9 +231,41 @@ run_gate() {
 			FAKE_GO_LIST_EMPTY="${FAKE_GO_LIST_EMPTY:-}" \
 			GO_FAIL="$go_fail" GOFMT_FAIL="$fmt_fail" GOFMT_UNFORMATTED="$fmt_unformatted" \
 			FAKE_GIT_FAIL_DIFF="$git_fail" LIP_SKIP_LINT=1 LIP_SKIP_ARCHTEST=1 \
-			LIP_TEST_PARALLEL=1 LIP_VERIFY_MODULE_CACHE=0 CI=0 \
+			LIP_TEST_PARALLEL=1 LIP_VERIFY_MODULE_CACHE=0 LIP_LOCAL_ARCH_TRIMPATH="$arch_trimpath" CI=0 \
 			bash "$script_path" "${args[@]}"
 	) >"$TMP/output" 2>&1
+}
+
+run_quality_gate() {
+	local repo="$1" ci_value="$2" github_actions="${3:-unset}" full="${4:-0}" arch_trimpath="${5:-unset}"
+	local -a env_args=(
+		"PATH=$BIN:$PATH"
+		"REAL_GIT=$REAL_GIT"
+		"FAKE_GO_LOG=$TMP/go.log"
+		"FAKE_GO_ENV_LOG=$TMP/go-env.log"
+		"FAKE_GATE_LOG=$TMP/gate.log"
+		"FAKE_GUARD_LOG=$TMP/guards.log"
+		"LIP_SKIP_LINT=1"
+		"LIP_SKIP_VULN=1"
+		"CI=$ci_value"
+	)
+	if [[ "$github_actions" != unset ]]; then
+		env_args+=("GITHUB_ACTIONS=$github_actions")
+	fi
+	if [[ "$full" == "1" ]]; then
+		env_args+=(LIP_PRECOMMIT_FULL=1)
+	fi
+	if [[ "$arch_trimpath" != unset ]]; then
+		env_args+=("LIP_LOCAL_ARCH_TRIMPATH=$arch_trimpath")
+	fi
+	: >"$TMP/go.log"
+	: >"$TMP/go-env.log"
+	: >"$TMP/gate.log"
+	: >"$TMP/guards.log"
+	(
+		cd "$repo"
+		env -u LIP_LOCAL_ARCH_TRIMPATH -u LIP_PRECOMMIT_FULL -u GITHUB_ACTIONS "${env_args[@]}" bash "$repo/scripts/quality-gate.sh"
+	) >"$TMP/gate-output" 2>&1
 }
 
 expect_pass() {
@@ -228,6 +279,63 @@ expect_fail() {
 assert_cheap_guards() {
 	assert_contains "$TMP/guards.log" adhoc
 	assert_contains "$TMP/guards.log" regex
+}
+
+new_lint_fixture() {
+	LINT_REPO="$TMP/lint-fixture"
+	LINT_BIN="$TMP/lint-bin"
+	mkdir -p "$LINT_REPO/scripts" "$LINT_REPO/internal/archtest" "$LINT_REPO/internal/rootpkg" \
+		"$LINT_REPO/connectors/local" "$LINT_BIN"
+	cp "$SCRIPT_DIR/lint-all-modules.sh" "$LINT_REPO/scripts/lint-all-modules.sh"
+	printf 'module example.test/root\n\ngo 1.24\n' >"$LINT_REPO/go.mod"
+	printf 'module example.test/local\n\ngo 1.24\n' >"$LINT_REPO/connectors/local/go.mod"
+	cat >"$LINT_BIN/go" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'PWD=%s GO' "$PWD" >>"$FAKE_LINT_GO_LOG"
+for arg in "$@"; do printf ' %s' "$arg" >>"$FAKE_LINT_GO_LOG"; done
+printf '\n' >>"$FAKE_LINT_GO_LOG"
+if [[ " $* " == *" ./tools/lintscope "* ]]; then
+	printf '%s' "$FAKE_LINT_PLAN"
+	 exit 0
+fi
+if [[ "${1:-}" == env && "${2:-}" == GOFLAGS ]]; then
+	if [[ "${FAKE_GO_ENV_FAIL:-}" == 1 ]]; then
+		exit 72
+	fi
+	printf '%s\n' "$FAKE_GO_ENV_FLAGS"
+	 exit 0
+fi
+exit 0
+EOF
+	cat >"$LINT_BIN/golangci-lint" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'PWD=%s|GOFLAGS=%s|CMD=golangci-lint' "$PWD" "${GOFLAGS-<unset>}" >>"$FAKE_LINT_LOG"
+for arg in "$@"; do printf ' %s' "$arg" >>"$FAKE_LINT_LOG"; done
+printf '\n' >>"$FAKE_LINT_LOG"
+if [[ -n "${FAKE_LINT_FAIL_MATCH:-}" && " $* " == *"$FAKE_LINT_FAIL_MATCH"* ]]; then
+	exit 71
+fi
+EOF
+	chmod +x "$LINT_BIN/go" "$LINT_BIN/golangci-lint"
+}
+
+run_lint_fixture() {
+	local plan="$1" trim="$2" fail_match="$3"
+	shift 3
+	: >"$TMP/lint.log"
+	: >"$TMP/lint-go.log"
+	(
+		cd "$LINT_REPO"
+		env PATH="$LINT_BIN:$PATH" FAKE_LINT_GO_LOG="$TMP/lint-go.log" \
+			FAKE_LINT_LOG="$TMP/lint.log" FAKE_LINT_PLAN="$plan" \
+			FAKE_GO_ENV_FLAGS='-tags=persisted -mod=readonly' FAKE_GO_ENV_FAIL="${FAKE_GO_ENV_FAIL:-}" \
+			FAKE_LINT_FAIL_MATCH="$fail_match" \
+			GOFLAGS='-tags=caller' LIP_LOCAL_ARCH_TRIMPATH="$trim" \
+			LIP_LINT_JOBS=1 LIP_LINT_CONCURRENCY=2 \
+			bash scripts/lint-all-modules.sh "$@"
+	) >"$TMP/lint-output" 2>&1
 }
 
 # A mixed root and nested-module change checks direct package grouping, NUL-safe
@@ -257,6 +365,100 @@ assert_not_contains "$TMP/go.log" 'connectors/untouched'
 assert_not_contains "$TMP/go.log" 'generate-feature-planes.go'
 assert_not_contains "$TMP/buf.log" BUF
 assert_cheap_guards
+
+# The local opt-in trims only explicit root archtest scopes, including when
+# ordinary root packages are checked in the same staged module.
+new_repo arch-trimpath-mixed
+printf '// staged arch change\n' >>"$REPO/internal/archtest/scan.go"
+printf '// staged ordinary change\n' >>"$REPO/internal/rootpkg/another.go"
+git -C "$REPO" add internal/archtest/scan.go internal/rootpkg/another.go
+expect_pass "$REPO" --staged '' '' '' '' '' 1
+assert_count "$TMP/go.log" 'GO build ' 2
+assert_count "$TMP/go.log" 'GO vet ' 2
+assert_contains "$TMP/go.log" 'GO build -buildvcs=false -trimpath -o '
+assert_contains "$TMP/go.log" 'GO vet -trimpath ./internal/archtest'
+assert_contains "$TMP/go.log" 'GO run -trimpath ./scripts/generate-feature-planes.go -check'
+assert_contains "$TMP/go.log" 'GO build -buildvcs=false -o '
+assert_contains "$TMP/go.log" 'GO vet ./internal/rootpkg'
+assert_not_contains "$TMP/go.log" 'GO vet -trimpath ./internal/rootpkg'
+
+# Without the local opt-in the arch scope and ordinary package behavior stay
+# identical to the default command.
+new_repo arch-trimpath-default-off
+printf '// staged arch change\n' >>"$REPO/internal/archtest/scan.go"
+git -C "$REPO" add internal/archtest/scan.go
+expect_pass "$REPO" --staged
+assert_contains "$TMP/go.log" 'GO build -buildvcs=false -o '
+assert_contains "$TMP/go.log" 'GO vet ./internal/archtest'
+assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
+assert_not_contains "$TMP/go.log" 'GO build -buildvcs=false -trimpath'
+assert_not_contains "$TMP/go.log" 'GO vet -trimpath '
+assert_not_contains "$TMP/go.log" 'GO run -trimpath ./scripts/generate-feature-planes.go'
+
+# A same-named package in a nested module stays untrimmed; a root ./... scope
+# also remains unchanged even when the local opt-in is enabled.
+new_repo nested-arch-trimpath
+mkdir -p "$REPO/connectors/nested/internal/archtest"
+printf 'package archtest\n' >"$REPO/connectors/nested/internal/archtest/scan.go"
+git -C "$REPO" add connectors/nested/internal/archtest/scan.go
+expect_pass "$REPO" --staged '' '' '' '' '' 1
+assert_contains "$TMP/go.log" 'GO vet ./internal/archtest'
+assert_not_contains "$TMP/go.log" 'GO vet -trimpath '
+
+new_repo root-broad-trimpath
+printf '// staged arch change\n' >>"$REPO/internal/archtest/scan.go"
+printf '\n// changed metadata\n' >>"$REPO/go.mod"
+git -C "$REPO" add go.mod internal/archtest/scan.go
+expect_pass "$REPO" --staged '' '' '' '' '' 1
+assert_count "$TMP/go.log" 'GO build ' 1
+assert_count "$TMP/go.log" 'GO vet ' 1
+assert_contains "$TMP/go.log" 'GO build -buildvcs=false ./...'
+assert_contains "$TMP/go.log" 'GO vet ./...'
+assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
+assert_not_contains "$TMP/go.log" 'GO build -buildvcs=false -trimpath'
+assert_not_contains "$TMP/go.log" 'GO vet -trimpath '
+assert_not_contains "$TMP/go.log" 'GO run -trimpath ./scripts/generate-feature-planes.go'
+
+# The gate enables the arch-only cache variant by default for local fast runs,
+# while CI, full mode, and an explicit opt-out keep it disabled.
+new_repo local-fast-gate-trimpath
+printf '// staged arch change\n' >>"$REPO/internal/archtest/scan.go"
+git -C "$REPO" add internal/archtest/scan.go
+cat >"$REPO/scripts/require-ext4-tmpdir.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat >"$REPO/scripts/quality-checks.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'quality-checks LIP_LOCAL_ARCH_TRIMPATH=%s args=%s\n' "${LIP_LOCAL_ARCH_TRIMPATH:-unset}" "$*" >>"$FAKE_GATE_LOG"
+EOF
+cat >"$REPO/scripts/test-staged.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'test-staged LIP_LOCAL_ARCH_TRIMPATH=%s args=%s\n' "${LIP_LOCAL_ARCH_TRIMPATH:-unset}" "$*" >>"$FAKE_GATE_LOG"
+EOF
+chmod +x "$REPO/scripts/require-ext4-tmpdir.sh" "$REPO/scripts/quality-checks.sh" "$REPO/scripts/test-staged.sh"
+if ! run_quality_gate "$REPO" 0; then
+	fail "local fast quality gate failed"
+fi
+assert_contains "$TMP/gate.log" 'quality-checks LIP_LOCAL_ARCH_TRIMPATH=1 args=--staged'
+assert_contains "$TMP/go-env.log" 'LIP_LOCAL_ARCH_TRIMPATH=1 GO run'
+if ! run_quality_gate "$REPO" true; then
+	fail "CI fast quality gate failed"
+fi
+assert_contains "$TMP/gate.log" 'quality-checks LIP_LOCAL_ARCH_TRIMPATH=unset args=--staged'
+if ! run_quality_gate "$REPO" 0 true; then
+	fail "GitHub Actions fast quality gate failed"
+fi
+assert_contains "$TMP/gate.log" 'quality-checks LIP_LOCAL_ARCH_TRIMPATH=unset args=--staged'
+if ! run_quality_gate "$REPO" 0 unset 0 0; then
+	fail "opt-out fast quality gate failed"
+fi
+assert_contains "$TMP/gate.log" 'quality-checks LIP_LOCAL_ARCH_TRIMPATH=0 args=--staged'
+if ! run_quality_gate "$REPO" 0 unset 1; then
+	fail "full quality gate failed"
+fi
+assert_contains "$TMP/gate.log" 'quality-checks LIP_LOCAL_ARCH_TRIMPATH=unset args='
+assert_contains "$TMP/gate.log" 'test-staged LIP_LOCAL_ARCH_TRIMPATH=unset'
 
 # Relative invocation from a package directory still finds its guard scripts.
 new_repo relative-invocation
@@ -347,8 +549,9 @@ assert_contains "$TMP/buf.log" 'BUF lint'
 new_repo feature-add
 printf 'added feature input\n' >"$REPO/pkg/lipsdk/feature/added.txt"
 git -C "$REPO" add pkg/lipsdk/feature/added.txt
-expect_pass "$REPO" --staged
+expect_pass "$REPO" --staged '' '' '' '' '' 1
 assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
+assert_not_contains "$TMP/go.log" 'GO run -trimpath ./scripts/generate-feature-planes.go'
 assert_not_contains "$TMP/buf.log" BUF
 
 new_repo feature-delete
@@ -419,6 +622,72 @@ assert_contains "$TMP/go.log" 'GO build ./...'
 assert_contains "$TMP/go.log" 'GO vet ./...'
 assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
 assert_contains "$TMP/buf.log" 'BUF lint'
+
+# Mandatory staged/direct lint shares the archtest trimpath compiler variant
+# with the preceding local build and test checks, while other scopes retain the
+# caller's GOFLAGS and the same analyzer settings.
+new_lint_fixture
+LINT_MIXED_PLAN=$'.\t./internal/archtest ./internal/rootpkg\n'
+if ! run_lint_fixture "$LINT_MIXED_PLAN" 1 '' --staged --direct; then
+	fail "trimpath lint fixture unexpectedly failed"
+fi
+assert_count "$TMP/lint.log" 'CMD=golangci-lint' 2
+assert_contains "$TMP/lint.log" "PWD=$LINT_REPO|GOFLAGS=-tags=persisted -mod=readonly -trimpath=true|CMD=golangci-lint run --allow-parallel-runners --concurrency=2 --disable=modernize,paralleltest,thelper ./internal/archtest"
+assert_contains "$TMP/lint.log" "PWD=$LINT_REPO|GOFLAGS=-tags=caller|CMD=golangci-lint run --allow-parallel-runners --concurrency=2 --disable=modernize,paralleltest,thelper ./internal/rootpkg"
+assert_count "$TMP/lint-go.log" 'env GOFLAGS' 1
+
+# Broad, nested, non-direct, and non-opted-in scopes keep one original linter
+# invocation without reading or changing GOFLAGS.
+if ! run_lint_fixture $'.\t./internal/... ./internal/archtest\n' 1 '' --staged --direct; then
+	fail "broad lint fixture unexpectedly failed"
+fi
+assert_count "$TMP/lint.log" 'CMD=golangci-lint' 1
+assert_contains "$TMP/lint.log" 'GOFLAGS=-tags=caller|CMD=golangci-lint'
+assert_not_contains "$TMP/lint.log" 'GOFLAGS=-tags=persisted'
+assert_not_contains "$TMP/lint-go.log" 'env GOFLAGS'
+
+if ! run_lint_fixture $'connectors/local\t./internal/archtest\n' 1 '' --staged --direct; then
+	fail "nested lint fixture unexpectedly failed"
+fi
+assert_count "$TMP/lint.log" 'CMD=golangci-lint' 1
+assert_contains "$TMP/lint.log" 'GOFLAGS=-tags=caller|CMD=golangci-lint'
+assert_not_contains "$TMP/lint-go.log" 'env GOFLAGS'
+
+if ! run_lint_fixture "$LINT_MIXED_PLAN" 1 '' --changed --direct; then
+	fail "non-staged lint fixture unexpectedly failed"
+fi
+assert_count "$TMP/lint.log" 'CMD=golangci-lint' 1
+assert_contains "$TMP/lint.log" 'GOFLAGS=-tags=caller|CMD=golangci-lint'
+assert_not_contains "$TMP/lint-go.log" 'env GOFLAGS'
+
+if ! run_lint_fixture "$LINT_MIXED_PLAN" 0 '' --staged --direct; then
+	fail "default lint fixture unexpectedly failed"
+fi
+assert_count "$TMP/lint.log" 'CMD=golangci-lint' 1
+assert_contains "$TMP/lint.log" 'GOFLAGS=-tags=caller|CMD=golangci-lint'
+assert_not_contains "$TMP/lint-go.log" 'env GOFLAGS'
+
+# A failure in the first group propagates through xargs' exported function
+# subprocess and prevents the second group from running.
+if run_lint_fixture "$LINT_MIXED_PLAN" 1 archtest --staged --direct; then
+	fail "failing first lint group unexpectedly passed"
+fi
+assert_count "$TMP/lint.log" 'CMD=golangci-lint' 1
+assert_contains "$TMP/lint.log" './internal/archtest'
+assert_not_contains "$TMP/lint.log" './internal/rootpkg'
+
+if run_lint_fixture $'.\t./internal/rootpkg ./internal/archtest\n' 1 rootpkg --staged --direct; then
+	fail "failing first ordinary lint group unexpectedly passed"
+fi
+assert_count "$TMP/lint.log" 'CMD=golangci-lint' 1
+assert_contains "$TMP/lint.log" './internal/rootpkg'
+assert_not_contains "$TMP/lint.log" './internal/archtest'
+
+if FAKE_GO_ENV_FAIL=1 run_lint_fixture "$LINT_MIXED_PLAN" 1 '' --staged --direct; then
+	fail "GOFLAGS lookup failure unexpectedly passed"
+fi
+assert_contains "$TMP/lint-output" 'unable to read effective GOFLAGS for trimmed archtest lint'
+assert_count "$TMP/lint.log" 'CMD=golangci-lint' 0
 
 # Verify the exact Go build semantics used by staged scope: a single non-main
 # package accepts -o to a scratch file, while multiple packages build without

@@ -132,6 +132,53 @@ median wall times of 68.04 versus 58.45 seconds and CPU times of 80.26 versus
 62.62 seconds. Raw requests, cache provenance, logs, wait4 descendant accounting
 and system snapshots remain under `~/.cache/arch-export-cache/`.
 
+### Sharing architecture build caches between worktrees
+
+The fast local hook uses `-trimpath` when building, vetting, testing and linting
+an explicit root `./internal/archtest` scope. Go can then reuse identical compiler
+entries across worktree directories. Native architecture loaders and the two large
+external-module fixture commands match the test binary's trimpath setting, so
+each module-version variant can be reused across worktree directories. The
+feature-plane generator uses that setting too: it imports archtest's production
+package and would otherwise rebuild most of the same graph before the build/vet step.
+
+`LIP_LOCAL_ARCH_TRIMPATH=0 git commit` retains the untrimmed local path. To opt in
+for manual feedback, use
+`LIP_LOCAL_ARCH_TRIMPATH=1 make dev-test PKGS='./internal/archtest'`.
+Ordinary packages, nested modules, broad scopes such as `./...`, CI and full
+precommit retain their default build settings. The setting does not change
+global `GOFLAGS` or omit tests or analyzers. The canonical Linux/Windows
+architecture matrix still uses CGO off and untrimmed paths.
+
+Trimmed archives are a separate Go cache variant: the first use must populate
+them and uses more cache space. The benefit applies to later worktrees sharing
+that cache; a warm command in the same worktree already reuses untrimmed builds.
+
+Measured against `374c099c` on Linux/amd64 with Go 1.26.6, `GOMAXPROCS=2`,
+the normal Go guard, and an ext4 TMPDIR:
+
+| Fresh-worktree staged archtest hook | Untrimmed | Trimmed |
+| --- | ---: | ---: |
+| Complete hook wall time | 222.14 s | 183.68 s |
+| Complete hook waited-process CPU | 342.57 s | 255.40 s |
+| Feature-plane generator wall time | 52.91 s | 12.38 s |
+
+This is one complete paired `bash scripts/hooks/pre-commit` run with identical
+sources and the same staged archtest edit, using the opt-out on the first side.
+Each started from an independent copy of the same Go and lint caches. Both
+passed all 570 top-level tests with the same three opt-in generator skips and
+completed mandatory build, vet and lint. The test step itself was slower in the
+trimmed run (60.81 versus 73.78 seconds), so the 38.46-second hook saving includes
+that cost. Other Go tasks were active on the shared four-CPU container; these
+timings are observations, not a prediction for every commit.
+
+Priming the trimmed outer build and fixture exports took 338.81 seconds in this
+experiment, outside the paired timings. The seeded Go cache containing both
+variants was 3.53 GB. A subsequent untrimmed dry run still planned 210 compiler
+actions after the trimmed hook, so switching back to untrimmed checks can pay
+another build cost. Raw commands, source/cache provenance, test logs and wait4
+resource measurements remain under `~/.cache/arch-worktree-cache-20261008/`.
+
 ### Merging with auto-merge
 
 `main` requires branches to be up to date, and this repository has no merge
@@ -386,6 +433,14 @@ offline; deletion is isolated in a workflow with `actions: write` and never runs
 PR code or consumes PR artifacts. Cleanup also runs periodically. This bounds
 obsolete accumulation, but cannot guarantee that the repository's configured
 capacity fits all simultaneously active lanes and PRs.
+
+Evictions are otherwise silent, so two diagnostics surface them. The retention
+run summary (workflow `Go cache retention`) lists repository cache usage against
+the 10 GiB cap and the newest main snapshot of every lane, and warns when usage
+passes 80%, when retention removes the only main snapshot of a lane, or when a
+lane in `policy.json` has none. Any job whose lane restores no compiler snapshot
+emits a `Go cache <lane> restored no compiler snapshot` warning annotation:
+a slow job with that warning is a cold lane, not a regression.
 
 ## Regression prevention
 
