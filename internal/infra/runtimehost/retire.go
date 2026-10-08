@@ -76,22 +76,33 @@ func retireGeneration(ctx context.Context, g *Generation, policy CleanupPolicy, 
 	owned := generationQuiesceCloser(g)
 	var out error
 
-	switch st {
-	case GenRetiring:
-		if err := g.BeginQuiesce(); err != nil {
-			return status, errors.Join(out, err)
+	for {
+		switch st {
+		case GenRetiring:
+			if err := g.BeginQuiesce(); err != nil {
+				// The last reference can be released between the state snapshot
+				// above and this step, which moves Retiring straight to Drained.
+				// Dispatch again on the state the generation is in now instead
+				// of abandoning the retirement (nothing else would close it).
+				if cur := g.Lifecycle(); cur != GenRetiring && errors.Is(err, ErrIllegalTransition) {
+					st = cur
+					continue
+				}
+				return status, errors.Join(out, err)
+			}
+			fallthrough
+		case GenQuiescing:
+			out = errors.Join(out, runQuiesce(ctx, owned, observer, &status))
+			if err := g.MarkQuiesced(); err != nil {
+				out = errors.Join(out, err)
+			}
+		case GenDrained:
+			out = errors.Join(out, runQuiesce(ctx, owned, observer, &status))
+		case GenQuiesced, GenClosing:
+		default:
+			return status, ErrIllegalTransition
 		}
-		fallthrough
-	case GenQuiescing:
-		out = errors.Join(out, runQuiesce(ctx, owned, observer, &status))
-		if err := g.MarkQuiesced(); err != nil {
-			out = errors.Join(out, err)
-		}
-	case GenDrained:
-		out = errors.Join(out, runQuiesce(ctx, owned, observer, &status))
-	case GenQuiesced, GenClosing:
-	default:
-		return status, ErrIllegalTransition
+		break
 	}
 
 	if !waitDrain {
