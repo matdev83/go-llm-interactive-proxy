@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This specification completes the repository-wide identity change defined by Issue #429. The existing product becomes **AIProxer** in human-readable product prose and display surfaces, with `aiproxer` retained as the lowercase machine/repository/module slug, without changing its functional architecture or splitting Open Core and Enterprise code. Because this is a high-blast-radius brownfield refactor, correctness includes not only the final names but also a staged migration that keeps failures local and makes every wave independently verifiable.
+This specification completes the repository-wide identity change defined by Issue #429 and is implemented under the authoritative execution work order #641. Issue #429 is historical planning/specification evidence; #641 is the active implementation tracker and direct OSS Base gate. The existing product becomes **AIProxer** in human-readable product prose and display surfaces, with `aiproxer` retained as the lowercase machine/repository/module slug, without changing its functional architecture or splitting Open Core and Enterprise code. Because this is a high-blast-radius brownfield refactor, correctness includes not only the final names but also a staged migration that keeps failures local and makes every wave independently verifiable. The implementation shall re-inventory the then-current `main` before mutation rather than treating the topology observed when this SDD was authored as frozen.
 
 The **Legacy Token Set** means the source product/repository names and project-specific abbreviations defined by Issue #429, together with their case, separator, prefix/suffix, path, filename, package, header, environment, schema, metric, and other semantic variants that refer to this project in the baseline tracked tree. Unrelated third-party identifiers and coincidental character sequences are not members of this set.
 
@@ -12,7 +12,7 @@ The **Legacy Token Set** means the source product/repository names and project-s
 - **Out of scope**: Open Core vs Enterprise separation; feature movement between repositories; licensing/commercial packaging redesign; functional architecture redesign; provider/protocol renaming; unrelated cleanup/refactors.
 - **Adjacent expectations**: the later commercial split may build on the `aiproxer` identity, but this specification neither anticipates nor implements that split.
 - **Boundary ownership**: repository-wide naming migration across public contracts, core/plugin consumers, composition, config/wiring, tooling, release, tests, and documentation.
-- **Revalidation triggers**: public import paths, runtime wire/config names, release identifiers, persistent branded names, GitHub host path, CI/release composition, Legacy Token Set source revision or scanner contract.
+- **Revalidation triggers**: public import paths, runtime wire/config names, release identifiers, persistent branded names, GitHub host path, CI/release composition, module-discovery/validation tooling, standard-feature composition ownership, Legacy Token Set source revision or scanner contract.
 
 ## Requirements
 
@@ -53,6 +53,8 @@ The **Legacy Token Set** means the source product/repository names and project-s
 3. When connector modules are migrated, each module declaration and all project-owned module requirements/replacements shall resolve to the target namespace.
 4. While a connector batch is in progress, previously completed module batches shall remain independently buildable/testable with the repository's supported module-check mode, including `GOWORK=off` where used by existing checks.
 5. When the module-graph wave completes, all repository module tidy/check gates shall pass without references to the Legacy Token Set.
+6. Before freezing module batches, the implementation shall discover **all maintained independent Go modules on current `main`**, including root, connector-support, connectors, and maintained external/architecture fixture modules under `testdata/**` or successor locations; no module may be omitted merely because it is not a connector.
+7. The repository's canonical dynamic all-module validator (currently `scripts/check-all-modules.sh`, with the platform-equivalent PowerShell path where applicable) shall be treated as the source of truth for final module coverage unless current `main` has replaced it with an explicitly documented successor.
 
 ### Requirement 4: Public package and standard distribution migration
 
@@ -110,7 +112,7 @@ The **Legacy Token Set** means the source product/repository names and project-s
 
 #### Acceptance Criteria
 
-1. Before any namespace mutation begins, the implementation shall record a clean or explicitly understood baseline for the repository's relevant quality, unit-test, architecture, and module checks.
+1. Before any namespace mutation begins, the implementation shall record a clean or explicitly understood baseline for the repository's relevant quality, unit-test, architecture, and module checks **on the then-current `main`**, and shall record the exact baseline commit SHA used for the migration inventory.
 2. Before edits begin, the implementation shall classify Legacy Token Set occurrences by module/import, public package, runtime contract, persistence/observability, tooling/release, and documentation/historical surface.
 3. While implementation proceeds, a task shall not begin if its declared dependency checkpoint is red for a newly introduced failure.
 4. When a bounded migration batch completes, the implementation shall run its focused compile/test/check command before starting the next batch.
@@ -140,7 +142,7 @@ The **Legacy Token Set** means the source product/repository names and project-s
 
 1. While names are migrated, routing, streaming, capability negotiation, frontend/backend behavior, secure sessions, billing/accounting semantics, persistence semantics, plugin boundaries, and connector behavior shall remain functionally unchanged except where the name itself is an external contract being intentionally replaced.
 2. When final convergence begins, all temporary migration aliases, manifests, helper shims, duplicate package paths, compatibility-only target/source bridges, and other migration-only workspace artifacts shall be removed from the working tree and workspace; only the external scanner inputs/evidence required for final verification may remain outside the repository.
-3. When final convergence runs, architecture guardrails, root tests, all-module checks, contract/parity checks, and repository quality gates shall pass under the target namespaces.
+3. When final convergence runs, architecture guardrails, root tests, the canonical dynamic all-module checks, contract/parity checks, and repository quality gates shall pass under the target namespaces. The all-module proof shall include maintained external fixture modules in addition to root, connector-support, and connector modules.
 4. When final convergence runs, the frozen Legacy Token Set scanner shall report zero project-brand matches across tracked paths/textual contents and the mandatory generated artifact set.
-5. After the GitHub host cutover, a clean clone from `github.com/aiproxer/aiproxer` shall run the platform-appropriate full all-module validation with the same `GOWORK` behavior as CI, build/test the standard distribution, and complete a release/configuration smoke path using only target identities.
+5. After the GitHub host cutover, a clean clone from `github.com/aiproxer/aiproxer` shall run the platform-appropriate canonical dynamic all-module validation with the same `GOWORK` behavior as CI, covering every discovered maintained module (including external fixture modules), build/test the standard distribution, and complete a release/configuration smoke path using only target identities.
 6. If any final verification gate fails because of the rebranding, the implementation shall remain incomplete and the feature shall not be declared migrated.
