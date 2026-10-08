@@ -176,6 +176,15 @@ jobs:
         shell: bash
         run: bash scripts/worktree-create.sh --self-test
 
+      # Delivery tooling is part of the repository's contract: its classification
+      # (ready / failed / blocked / stale) is what an agent or reviewer reads
+      # instead of raw check output. The self-test needs no network and no Go
+      # toolchain: it stubs gh and git.
+      - name: Validate delivery status tooling
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        shell: bash
+        run: bash scripts/pr-status.sh self-test
+
       - name: Validate test quarantine
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
         run: go run ./tools/devcheck -task=quarantine

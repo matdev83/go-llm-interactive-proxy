@@ -55,6 +55,17 @@ worktree-create:
 	@test -n '$(WORKTREE_BRANCH)' || { echo 'worktree-create: set WORKTREE_BRANCH=<name>' >&2; exit 2; }
 	bash scripts/worktree-create.sh "$(WORKTREE_BRANCH)" --base "$(WORKTREE_BASE)" $(if $(filter 1,$(SETUP)),--setup,)
 
+# Read-only delivery status for one PR. Exit codes are the contract:
+# 0 ready, 1 failed, 2 usage, 3 blocked (pending/draft/base unmerged/branch
+# gone), 4 stale (a green verdict whose revision has since moved).
+PR ?=
+.PHONY: pr-status pr-watch
+pr-status:
+	bash scripts/pr-status.sh status "$(PR)"
+
+pr-watch:
+	bash scripts/pr-status.sh watch "$(PR)"
+
 # Test parallelism defaults to the machine's logical core count. The previous
 # fixed -parallel=8 left >=8-core dev boxes half idle for t.Parallel-heavy
 # suites (measured ~2.3x faster on a 16-core box). Override with
@@ -103,6 +114,8 @@ help:
 	@echo "  make dev-doctor [MODULE=.] - effective toolchain/cache configuration and diagnostics"
 	@echo "  make dev-test/dev-build/dev-lint [DEV_EVIDENCE=<path>] - additionally record revision, scope, results and per-step logs as a verification manifest"
 	@echo "  make worktree-create WORKTREE_BRANCH=fix-short-description [WORKTREE_BASE=origin/main] [SETUP=1] - validated task worktree under <container>/worktrees/"
+	@echo "  make pr-status PR=<n> - read-only PR delivery status: head/base SHAs, mergeability, checks, stacking, stale-evidence detection"
+	@echo "  make pr-watch  PR=<n> - poll pr-status and stop on a terminal verdict (ready, failed, or stale)"
 	@echo "  make quality-checks  - generate-feature-planes -check, gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
 	@echo "  make profile-only-check [PROFILE_ONLY_BASE=<git-rev>] - fail-closed provider-profile change-surface ratchet"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
