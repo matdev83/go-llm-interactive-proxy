@@ -46,7 +46,8 @@ fails when either does. The module-wide owner-callback escape gate
 cache) runs in its own parallel `Owner callback gate (Linux)` job with its own `ci-owner-gate` cache
 lane (it type-checks the module for Linux and Windows, so it cannot share the suite's Linux-only lane)
 instead of inside the suite, and the suite itself runs
-as two shards (`heavy`: the few slow packages named in `ci.yml`; `rest`: everything else) so no single runner compiles and runs
+as three shards (`heavy`: the few slow packages; `rest` and `rest-2`: everything else, split by a stable hash;
+`scripts/ci-suite-shard.sh` assigns every package to exactly one) so no single runner compiles and runs
 every package. `LIP_PRECOMMIT_FULL=1 git commit` (or
 `make precommit-full`) runs the old complete local gate. `scripts/hooks/pre-push`
 re-checks release cleanliness and change size.
