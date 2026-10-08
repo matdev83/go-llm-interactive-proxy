@@ -3,6 +3,16 @@ name: QA
 on:
   push:
     branches: [main]
+    # Documentation-only pushes must not displace a queued code push (its run
+    # publishes the QA Go cache); see the same filter in ci.yml.
+    paths-ignore:
+      - "*.md"
+      - "docs/**/*.md"
+      - "docs/**/*.txt"
+      - "docs/**/*.png"
+      - "docs/**/*.svg"
+      - ".kiro/specs/**/*.md"
+      - ".kiro/specs/**/*.json"
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
