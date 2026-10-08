@@ -666,19 +666,19 @@ func TestScanCall_ExactJSONSemanticTokenMappingCanonicalEdgeFixtures(t *testing.
 	}
 }
 
-func TestDecodedJSONOccurrenceValue_UsesCanonicalDepthLimitAsFallback(t *testing.T) {
+func TestJSONOccurrenceTokens_UsesCanonicalDepthLimitAsFallback(t *testing.T) {
 	t.Parallel()
 
 	raw := []byte(strings.Repeat("[", 10001) + "true" + strings.Repeat("]", 10001))
 	if _, err := decodeJSONPreserveNumbers(raw); err == nil {
 		t.Fatal("canonical decoder accepted a JSON value beyond its depth limit")
 	}
-	if _, err := decodedJSONOccurrenceValue(raw); err == nil {
+	if _, err := decodedJSONOccurrenceMappings(raw); err == nil {
 		t.Fatal("occurrence mapper accepted a JSON value beyond canonical decoder depth")
 	}
 }
 
-func TestDecodedJSONOccurrenceValue_MatchesCanonicalSemanticTokens(t *testing.T) {
+func TestJSONOccurrenceTokens_MatchesCanonicalSemanticTokens(t *testing.T) {
 	t.Parallel()
 
 	cases := []string{`1e999`, `-1e999`, `1e-999`, `123456789true123456789`, `truetrue`, `falsefalse`, `nullnull`, `01`, `-01`, `1.2.3`, `1e2x`, `1e`, `1e+`, `-`, `[01]`, `[truetrue]`, `[1e999,"1234","\u1234"]`, `{"z":1e999,"a":null}`, `{"k":"first","\u006b":"last"}`, `{"k":{"old":1},"k":{"new":2}}`, `"\ud800"`, `"\udc00"`, `"\ud800\udc00"`, `"\ud800\ud800"`, `"\u0000\n\t\b\r\f\"\\\/"`, `[]suffix`, `{}suffix`, `"first""second"`, `{"k":[true,false,null,-0,1.20e+02]}`, `{"k":1,}`, `[1,]`, `{"k" 1}`, `["\q"]`, "\"" + string([]byte{0xff, 0xc0, 0x80}) + "\""}
@@ -692,7 +692,7 @@ func TestDecodedJSONOccurrenceValue_MatchesCanonicalSemanticTokens(t *testing.T)
 	for i, raw := range cases {
 		t.Run(fmt.Sprintf("case_%03d", i), func(t *testing.T) {
 			canonical, canonicalErr := decodeJSONPreserveNumbers([]byte(raw))
-			mapped, mappedErr := decodedJSONOccurrenceValue([]byte(raw))
+			tokens, mappedErr := decodedJSONOccurrenceMappings([]byte(raw))
 			if (canonicalErr == nil) != (mappedErr == nil) {
 				t.Fatalf("canonical accepted=%v mapper accepted=%v", canonicalErr == nil, mappedErr == nil)
 			}
@@ -734,8 +734,6 @@ func TestDecodedJSONOccurrenceValue_MatchesCanonicalSemanticTokens(t *testing.T)
 			}
 			walk(canonical)
 
-			var tokens []jsonStringMapping
-			mapped.semanticTokens(&tokens)
 			got := make([]string, 0, len(tokens))
 			for _, token := range tokens {
 				got = append(got, string(token.decoded))

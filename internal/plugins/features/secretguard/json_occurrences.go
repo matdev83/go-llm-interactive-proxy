@@ -31,22 +31,6 @@ type jsonMappingSpan struct {
 	rawStart, rawEnd         int
 }
 
-type jsonOccurrenceToken struct {
-	mapping     jsonStringMapping
-	stringValue bool
-}
-
-type jsonOccurrenceObjectEntry struct {
-	key   jsonStringMapping
-	value jsonOccurrenceValue
-}
-
-type jsonOccurrenceValue struct {
-	token  *jsonOccurrenceToken
-	object []jsonOccurrenceObjectEntry
-	array  []jsonOccurrenceValue
-}
-
 // collectExactJSONOccurrences maps each semantic token that the canonical JSON
 // scanner visits. It deliberately does not scan the raw JSON in addition to
 // these tokens: punctuation, escape digits, and duplicate object entries are
@@ -244,32 +228,6 @@ func (m *jsonStringMapping) rawRange(start, end int) (int, int, bool) {
 	return rawStart, rawEnd, rawStart < rawEnd
 }
 
-// decodedJSONStringMappings retains the old values-only helper for callers
-// that need string mappings. It follows the same first-value parse behavior as
-// decodeJSONPreserveNumbers and intentionally ignores trailing content.
-func decodedJSONStringMappings(raw []byte) ([]jsonStringMapping, error) {
-	root, err := decodedJSONOccurrenceValue(raw)
-	if err != nil {
-		return nil, errJSONOccurrenceMapping
-	}
-	var out []jsonStringMapping
-	root.stringValueMappings(&out)
-	return out, nil
-}
-
-func decodedJSONOccurrenceValue(raw []byte) (jsonOccurrenceValue, error) {
-	first, err := firstJSONOccurrenceValue(raw)
-	if err != nil {
-		return jsonOccurrenceValue{}, err
-	}
-	parser := jsonOccurrenceParser{raw: first}
-	value, err := parser.semanticValue()
-	if err != nil {
-		return jsonOccurrenceValue{}, errJSONOccurrenceMapping
-	}
-	return value, nil
-}
-
 func firstJSONOccurrenceValue(raw []byte) ([]byte, error) {
 	// Complete values need syntax validation only. json.Valid scans the
 	// admitted bytes directly, avoiding the decoder's growing input copy on
@@ -296,7 +254,7 @@ type jsonOccurrenceValidationTarget struct{}
 func (*jsonOccurrenceValidationTarget) UnmarshalJSON([]byte) error { return nil }
 
 // jsonOccurrenceParser maps the first JSON value already validated and bounded
-// by decodedJSONOccurrenceValue. It is not an independent JSON validator.
+// by firstJSONOccurrenceValue. It is not an independent JSON validator.
 type jsonOccurrenceParser struct {
 	raw       []byte
 	pos       int
@@ -455,101 +413,6 @@ func (p *jsonOccurrenceParser) skipValue() error {
 	return errJSONOccurrenceMapping
 }
 
-// value is retained as the values-only parser entry point used by the older
-// helper. New occurrence collection uses semanticValue so object keys and
-// scalar tokens share the canonical traversal order.
-func (p *jsonOccurrenceParser) value(out *[]jsonStringMapping) error {
-	value, err := p.semanticValue()
-	if err != nil {
-		return err
-	}
-	value.stringValueMappings(out)
-	return nil
-}
-
-func (p *jsonOccurrenceParser) semanticValue() (jsonOccurrenceValue, error) {
-	p.skipSpace()
-	if p.pos >= len(p.raw) {
-		return jsonOccurrenceValue{}, errJSONOccurrenceMapping
-	}
-	switch p.raw[p.pos] {
-	case '"':
-		mapping, err := p.string()
-		if err != nil {
-			return jsonOccurrenceValue{}, err
-		}
-		return jsonOccurrenceValue{token: &jsonOccurrenceToken{mapping: mapping, stringValue: true}}, nil
-	case '{':
-		return p.object()
-	case '[':
-		return p.array()
-	default:
-		mapping, err := p.literal()
-		if err != nil {
-			return jsonOccurrenceValue{}, err
-		}
-		return jsonOccurrenceValue{token: &jsonOccurrenceToken{mapping: mapping}}, nil
-	}
-}
-
-func (p *jsonOccurrenceParser) object() (jsonOccurrenceValue, error) {
-	p.pos++
-	p.skipSpace()
-	value := jsonOccurrenceValue{}
-	if p.consume('}') {
-		return value, nil
-	}
-	for {
-		p.skipSpace()
-		if p.pos >= len(p.raw) || p.raw[p.pos] != '"' {
-			return jsonOccurrenceValue{}, errJSONOccurrenceMapping
-		}
-		key, err := p.string()
-		if err != nil {
-			return jsonOccurrenceValue{}, err
-		}
-		p.skipSpace()
-		if !p.consume(':') {
-			return jsonOccurrenceValue{}, errJSONOccurrenceMapping
-		}
-		child, err := p.semanticValue()
-		if err != nil {
-			return jsonOccurrenceValue{}, err
-		}
-		value.object = append(value.object, jsonOccurrenceObjectEntry{key: key, value: child})
-		p.skipSpace()
-		if p.consume('}') {
-			return value, nil
-		}
-		if !p.consume(',') {
-			return jsonOccurrenceValue{}, errJSONOccurrenceMapping
-		}
-	}
-}
-
-func (p *jsonOccurrenceParser) array() (jsonOccurrenceValue, error) {
-	p.pos++
-	p.skipSpace()
-	value := jsonOccurrenceValue{}
-	if p.consume(']') {
-		return value, nil
-	}
-	for {
-		child, err := p.semanticValue()
-		if err != nil {
-			return jsonOccurrenceValue{}, err
-		}
-		value.array = append(value.array, child)
-		p.skipSpace()
-		if p.consume(']') {
-			return value, nil
-		}
-		if !p.consume(',') {
-			return jsonOccurrenceValue{}, errJSONOccurrenceMapping
-		}
-	}
-}
-
 func (p *jsonOccurrenceParser) literal() (jsonStringMapping, error) {
 	start := p.pos
 	if start >= len(p.raw) {
@@ -576,14 +439,6 @@ scalar:
 
 func rawJSONTokenMapping(raw []byte, start, end int) jsonStringMapping {
 	return jsonStringMapping{decoded: raw[start:end], rawStart: start}
-}
-
-func (p *jsonOccurrenceParser) string() (jsonStringMapping, error) {
-	start, end, err := p.stringRange()
-	if err != nil {
-		return jsonStringMapping{}, err
-	}
-	return decodeJSONStringMapping(p.raw, start, end)
 }
 
 func (p *jsonOccurrenceParser) streamingString() (jsonStringMapping, error) {
@@ -627,148 +482,6 @@ func (p *jsonOccurrenceParser) stringRange() (int, int, error) {
 		p.pos++
 	}
 	return 0, 0, errJSONOccurrenceMapping
-}
-
-func decodeJSONStringMapping(raw []byte, start, end int) (jsonStringMapping, error) {
-	if value := raw[start:end]; bytes.IndexByte(value, '\\') < 0 && utf8.Valid(value) {
-		return rawJSONTokenMapping(raw, start, end), nil
-	}
-	token := make([]byte, 0, end-start+2)
-	token = append(token, '"')
-	token = append(token, raw[start:end]...)
-	token = append(token, '"')
-	var decoded string
-	if err := json.Unmarshal(token, &decoded); err != nil {
-		return jsonStringMapping{}, errJSONOccurrenceMapping
-	}
-
-	// The decoded length is known; reserve the final map once rather than
-	// repeatedly copying growing per-byte boundary arrays for large strings.
-	mapping := jsonStringMapping{decoded: make([]byte, 0, len(decoded)), boundaries: make([]int, 1, len(decoded)+1)}
-	mapping.boundaries[0] = start
-	for pos := start; pos < end; {
-		rawStart := pos
-		if raw[pos] != '\\' {
-			r, size := utf8.DecodeRune(raw[pos:end])
-			if r == utf8.RuneError && size == 1 {
-				mapping.append([]byte(string(utf8.RuneError)), rawStart, pos+1)
-				pos++
-				continue
-			}
-			mapping.append(raw[pos:pos+size], rawStart, pos+size)
-			pos += size
-			continue
-		}
-		if pos+1 >= end {
-			return jsonStringMapping{}, errJSONOccurrenceMapping
-		}
-		if raw[pos+1] != 'u' {
-			var value byte
-			switch raw[pos+1] {
-			case '"':
-				value = '"'
-			case '\\':
-				value = '\\'
-			case '/':
-				value = '/'
-			case 'b':
-				value = '\b'
-			case 'f':
-				value = '\f'
-			case 'n':
-				value = '\n'
-			case 'r':
-				value = '\r'
-			case 't':
-				value = '\t'
-			default:
-				return jsonStringMapping{}, errJSONOccurrenceMapping
-			}
-			mapping.append([]byte{value}, rawStart, pos+2)
-			pos += 2
-			continue
-		}
-		if pos+6 > end {
-			return jsonStringMapping{}, errJSONOccurrenceMapping
-		}
-		first, ok := jsonHexQuad(raw[pos+2 : pos+6])
-		if !ok {
-			return jsonStringMapping{}, errJSONOccurrenceMapping
-		}
-		pos += 6
-		code := rune(first)
-		if first >= 0xD800 && first <= 0xDBFF && pos+6 <= end && raw[pos] == '\\' && raw[pos+1] == 'u' {
-			second, valid := jsonHexQuad(raw[pos+2 : pos+6])
-			if valid && second >= 0xDC00 && second <= 0xDFFF {
-				code = utf16.DecodeRune(rune(first), rune(second))
-				pos += 6
-			}
-		}
-		r := code
-		if code >= 0xD800 && code <= 0xDFFF {
-			r = utf8.RuneError
-		}
-		var encoded [utf8.UTFMax]byte
-		n := utf8.EncodeRune(encoded[:], r)
-		mapping.append(encoded[:n], rawStart, pos)
-	}
-	if !bytes.Equal(mapping.decoded, []byte(decoded)) {
-		return jsonStringMapping{}, errJSONOccurrenceMapping
-	}
-	return mapping, nil
-}
-
-func (m *jsonStringMapping) append(value []byte, rawStart, rawEnd int) {
-	m.boundaries[len(m.decoded)] = rawStart
-	m.decoded = append(m.decoded, value...)
-	for range value {
-		m.boundaries = append(m.boundaries, rawEnd)
-	}
-}
-
-func (v jsonOccurrenceValue) semanticTokens(out *[]jsonStringMapping) {
-	if v.token != nil {
-		*out = append(*out, v.token.mapping)
-		return
-	}
-	if v.object != nil {
-		effective := make(map[string]jsonOccurrenceObjectEntry, len(v.object))
-		for _, entry := range v.object {
-			effective[string(entry.key.decoded)] = entry
-		}
-		keys := make([]string, 0, len(effective))
-		for key := range effective {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			entry := effective[key]
-			*out = append(*out, entry.key)
-			entry.value.semanticTokens(out)
-		}
-		return
-	}
-	for _, child := range v.array {
-		child.semanticTokens(out)
-	}
-}
-
-func (v jsonOccurrenceValue) stringValueMappings(out *[]jsonStringMapping) {
-	if v.token != nil {
-		if v.token.stringValue {
-			*out = append(*out, v.token.mapping)
-		}
-		return
-	}
-	if v.object != nil {
-		for _, entry := range v.object {
-			entry.value.stringValueMappings(out)
-		}
-		return
-	}
-	for _, child := range v.array {
-		child.stringValueMappings(out)
-	}
 }
 
 func jsonHexQuad(value []byte) (uint16, bool) {

@@ -23,30 +23,6 @@ func scalarDenseJSON(size int) ([]byte, int) {
 	return []byte("[" + strings.Repeat(scalarMappingCycle, cycles) + tail), cycles * 4
 }
 
-func TestJSONScalarMappingRepair_AllocationBound(t *testing.T) {
-	for _, size := range []int{16 << 10, 128 << 10, DefaultScanMaxBytes} {
-		t.Run(strconv.Itoa(size), func(t *testing.T) {
-			raw, scalars := scalarDenseJSON(size)
-			if !json.Valid(raw) {
-				t.Fatal("invalid scalar allocation fixture")
-			}
-			allocs := testing.AllocsPerRun(1, func() {
-				root, err := decodedJSONOccurrenceValue(raw)
-				if err != nil || len(root.array) != scalars+1 {
-					t.Fatal("scalar mapping lost admitted values")
-				}
-			})
-			// Three mapping allocations per scalar plus canonical UseNumber decoding,
-			// array growth and the credential string. A per-scalar decoder exceeds this.
-			bound := float64(scalars*5 + 256)
-			t.Logf("bytes=%d scalars=%d allocs=%.0f bound=%.0f", len(raw), scalars, allocs, bound)
-			if allocs > bound {
-				t.Fatalf("scalar mapping allocations %.0f exceed %.0f", allocs, bound)
-			}
-		})
-	}
-}
-
 func TestJSONScalarMappingRepair_SemanticsAndRawRanges(t *testing.T) {
 	for _, raw := range []string{
 		`[9007199254740993,-0,1.2300e+04,true,false,null,"\u0061ccepted-secret"] trailing ignored`,
@@ -55,7 +31,7 @@ func TestJSONScalarMappingRepair_SemanticsAndRawRanges(t *testing.T) {
 		`true trailing`, `false trailing`, `null trailing`,
 		"[0,\ntrue,\tfalse,\rnull]",
 	} {
-		root, err := decodedJSONOccurrenceValue([]byte(raw))
+		mappings, err := decodedJSONOccurrenceMappings([]byte(raw))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -65,8 +41,6 @@ func TestJSONScalarMappingRepair_SemanticsAndRawRanges(t *testing.T) {
 		if err := dec.Decode(&canonical); err != nil {
 			t.Fatal(err)
 		}
-		var mappings []jsonStringMapping
-		root.semanticTokens(&mappings)
 		var got []string
 		for _, mapping := range mappings {
 			got = append(got, string(mapping.decoded))
@@ -119,7 +93,7 @@ func canonicalScalarMappingTokens(value any, out *[]string) {
 
 func TestJSONScalarMappingRepair_OuterValidationRejectsMalformedFirstValue(t *testing.T) {
 	for _, raw := range []string{`[01]`, `[1e]`, `[truefalse]`, `{"a":nul}`, `[-]`, `[1,]`, `{"a":false`, strings.Repeat("[", 10001) + "0" + strings.Repeat("]", 10001)} {
-		if _, err := decodedJSONOccurrenceValue([]byte(raw)); err == nil {
+		if _, err := decodedJSONOccurrenceMappings([]byte(raw)); err == nil {
 			t.Fatal("outer validation accepted malformed or over-depth first value")
 		}
 	}
@@ -204,8 +178,9 @@ func BenchmarkJSONScalarMappingRepair(b *testing.B) {
 			b.SetBytes(int64(len(raw)))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				root, err := decodedJSONOccurrenceValue(raw)
-				if err != nil || len(root.array) != scalars+1 {
+				count := 0
+				err := walkJSONOccurrenceTokens(raw, func(jsonStringMapping, bool, bool) bool { count++; return true })
+				if err != nil || count != scalars+1 {
 					b.Fatal("mapping failed")
 				}
 			}
@@ -240,26 +215,34 @@ func FuzzJSONScalarMappingRepair_CanonicalFirstValue(f *testing.F) {
 		dec.UseNumber()
 		var canonical any
 		canonicalErr := dec.Decode(&canonical)
-		root, err := decodedJSONOccurrenceValue(raw)
-		var streamed []string
-		streamErr := walkJSONOccurrenceTokens(raw, func(mapping jsonStringMapping, _, _ bool) bool {
-			streamed = append(streamed, string(mapping.decoded))
-			return true
-		})
+		mappings, err := decodedJSONOccurrenceMappings(raw)
 		if canonicalErr != nil {
-			if err == nil || streamErr == nil {
+			if err == nil {
 				t.Fatal("mapping accepted invalid canonical first value")
 			}
 			return
 		}
-		if err != nil || streamErr != nil {
+		if err != nil {
 			t.Fatal("mapping rejected valid canonical first value")
 		}
-		var mappings []jsonStringMapping
-		root.semanticTokens(&mappings)
 		var got, want []string
 		for _, mapping := range mappings {
 			got = append(got, string(mapping.decoded))
+			oracle := mapping
+			if mapping.encoded != nil {
+				oracle, err = decodeJSONStringMapping(raw, mapping.rawStart, mapping.rawStart+len(mapping.encoded))
+				if err != nil {
+					t.Fatal("reference rejected valid string")
+				}
+			}
+			if !mapping.materializeBoundaries() {
+				t.Fatal("streaming candidate detail rejected valid token")
+			}
+			for boundary := 0; boundary <= len(mapping.decoded); boundary++ {
+				if mapping.boundaryAt(boundary) != oracle.boundaryAt(boundary) {
+					t.Fatal("streaming candidate detail differs from eager boundary oracle")
+				}
+			}
 			if len(mapping.decoded) > 0 {
 				start, end, ok := mapping.rawRange(0, len(mapping.decoded))
 				if !ok || start < 0 || end > int(dec.InputOffset()) {
@@ -270,25 +253,6 @@ func FuzzJSONScalarMappingRepair_CanonicalFirstValue(f *testing.F) {
 		canonicalScalarMappingTokens(canonical, &want)
 		if !reflect.DeepEqual(got, want) {
 			t.Fatal("mapping differs from canonical semantic tokens")
-		}
-		if !reflect.DeepEqual(streamed, want) {
-			t.Fatal("streaming mapping differs from canonical semantic tokens")
-		}
-		index := 0
-		if err := walkJSONOccurrenceTokens(raw, func(mapping jsonStringMapping, _, _ bool) bool {
-			oracle := mappings[index]
-			index++
-			if !mapping.materializeBoundaries() {
-				t.Fatal("streaming candidate detail rejected valid token")
-			}
-			for boundary := 0; boundary <= len(mapping.decoded); boundary++ {
-				if mapping.boundaryAt(boundary) != oracle.boundaryAt(boundary) {
-					t.Fatal("streaming candidate detail differs from eager boundary oracle")
-				}
-			}
-			return true
-		}); err != nil {
-			t.Fatal("streaming candidate detail rejected valid first value")
 		}
 	})
 }
