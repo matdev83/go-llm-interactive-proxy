@@ -129,6 +129,9 @@ runs:
         if [[ -n "$MODULE_KEY" ]]; then modules_restored=true; fi
         echo "Go cache: lane=$LANE phase=$PHASE elapsed=${elapsed}s build_restored=$build_restored modules_restored=$modules_restored build_exact_hit=$BUILD_HIT modules_exact_hit=$MODULE_HIT" >> "$GITHUB_STEP_SUMMARY"
         echo "Compiler snapshot: $BUILD_KEY; module snapshot: $MODULE_KEY" >> "$GITHUB_STEP_SUMMARY"
+        if [[ "$PHASE" == restore && "$build_restored" == false ]]; then
+          echo "::warning::Go cache $LANE restored no compiler snapshot, so this job ran cold. If this repeats on a warm lane, see the 'Go cache retention' run summary for evictions."
+        fi
         if [[ "$elapsed" -gt 60 ]]; then
           echo "::warning::Go cache $LANE $PHASE took ${elapsed}s; inspect transfer/extraction before increasing snapshot budgets."
         fi
