@@ -1,4 +1,4 @@
-package archtest
+package featureplanegen
 
 import (
 	"bytes"

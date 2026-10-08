@@ -76,12 +76,13 @@ No production architecture layer is introduced. No code is split for Open Core/E
 
 ### Existing Architecture Analysis
 
-The repository uses stable public contracts, an internal policy-owning core, frontend/backend/feature plugins, infrastructure/composition, a standard distribution command, and independent connector modules. This rebrand must preserve those ownership boundaries.
+The repository uses stable public contracts, an internal policy-owning core, frontend/backend/feature plugins, infrastructure/composition, a standard distribution command, and independent connector modules. Current `main` has additionally converged standard feature composition under `internal/standardplugins/featurehost`; the rebrand must preserve that ownership boundary and must not regress concrete feature wiring back into generic core/runtime composition. This rebrand must preserve the architecture that exists at implementation start, not recreate the topology that existed when the SDD was first authored.
 
 Important brownfield constraints:
 
 - Root imports derive from one Go module path.
 - Connector-support and connector directories are independent Go modules and depend on the root and sometimes on each other through local relative replacements.
+- Current module validation also carries maintained independent fixture modules under `testdata/**` (currently enterprise/external integration fixtures). They are part of the module-graph proof even though they are not connector batches.
 - The canonical API and SDK packages are hub dependencies, so moving them causes wide compile-time fallout if not consumer-batched.
 - Standard project-specific HTTP headers are centralized but consumed across frontends/config/tests/docs.
 - Environment names and project identity are referenced by test infrastructure, scripts, CI workflows, quality/release tooling, and persistence infrastructure.
@@ -267,13 +268,15 @@ Actions:
 - run existing all-module checks;
 - record any pre-existing failures separately;
 - snapshot Issue #429 and freeze `aiproxer-rebrand-scan/v1` provenance/checksums;
+- record the exact current-`main` baseline SHA and re-inventory modules, package/command paths, standard-feature composition, CI/release tooling, and archived/active spec surfaces before any mutation;
+- discover the complete maintained module set through the repository's current dynamic module-discovery/validation path, including external fixture modules;
 - build the classified migration inventory;
 - enumerate all producible generated artifact families and their scan probes;
 - identify potentially durable branded identifiers;
 - freeze the target namespace matrix;
 - freeze non-overlapping connector batch membership before parallel connector work.
 
-**Exit:** baseline is understood; scanner provenance and artifact manifest are reproducible; every match class has an owner/wave; every connector belongs to exactly one frozen batch.
+**Exit:** baseline is understood and tied to an exact commit; scanner provenance and artifact manifest are reproducible; every match class has an owner/wave; every connector belongs to exactly one frozen batch; every maintained non-connector fixture module is explicitly owned by the serial module-graph/final-validation path.
 
 ### Wave 1 — Root module namespace
 
@@ -620,7 +623,7 @@ Every task names the smallest useful proof set: package `go test`, module-local 
 - CI/tooling wave: quality scripts, full `.github/**` source-brand scan after remaining CI edits, CI-equivalent commands where feasible.
 - Release wave: release config validation, local snapshot/build, and artifact probes from the frozen manifest.
 - Final convergence: full repository quality/test/parity/module gates plus mandatory source/artifact scans.
-- Clean clone: **the same complete all-module script and CI-equivalent `GOWORK` behavior**, not a representative connector subset, plus standard distribution/release/configuration smoke and repeated source/artifact scans.
+- Clean clone: **the repository's current canonical dynamic all-module validator with CI-equivalent `GOWORK` behavior**, not a representative connector subset. It must cover root, connector-support, connectors, and maintained external fixture modules, plus standard distribution/release/configuration smoke and repeated source/artifact scans.
 
 ### Positive identity assertions
 

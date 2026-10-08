@@ -77,9 +77,10 @@ func TestJevStateCarriesOnlyDerivedFacts(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name  string
-		input featurestate.RemoteInput
-		want  map[string]any
+		name           string
+		input          featurestate.RemoteInput
+		want           map[string]any
+		wantCategories []string
 	}{
 		{
 			name:  "populated evidence",
@@ -90,6 +91,10 @@ func TestJevStateCarriesOnlyDerivedFacts(t *testing.T) {
 				"has_ambiguous_client": false,
 				"workspace_class":      string(featurestate.WorkspaceClassProjectMarker),
 				"local_evidence_code":  string(featurestate.EvidenceCodeDistinctCluster),
+			},
+			wantCategories: []string{
+				"file_read", "file_search", "os_command",
+				"file_edit", "file_remove", "web_access", "unknown_seen",
 			},
 		},
 		{
@@ -104,6 +109,7 @@ func TestJevStateCarriesOnlyDerivedFacts(t *testing.T) {
 				"workspace_class":      "",
 				"local_evidence_code":  "",
 			},
+			wantCategories: []string{},
 		},
 		{
 			name: "an ambiguous client identity",
@@ -119,6 +125,7 @@ func TestJevStateCarriesOnlyDerivedFacts(t *testing.T) {
 				"workspace_class":      "",
 				"local_evidence_code":  "",
 			},
+			wantCategories: []string{"file_search"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -149,8 +156,16 @@ func TestJevStateCarriesOnlyDerivedFacts(t *testing.T) {
 			if !ok {
 				t.Fatalf("tool_categories is %T, want a JSON array", got["tool_categories"])
 			}
-			if len(categories) != 7 && tc.input == jevMaximalRemoteInput() {
-				t.Fatalf("tool_categories has %d entries, want every defined category", len(categories))
+			gotCategories := make([]string, 0, len(categories))
+			for _, entry := range categories {
+				name, ok := entry.(string)
+				if !ok {
+					t.Fatalf("tool_categories entry is %T, want a string", entry)
+				}
+				gotCategories = append(gotCategories, name)
+			}
+			if !slices.Equal(gotCategories, tc.wantCategories) {
+				t.Fatalf("tool_categories = %v, want %v", gotCategories, tc.wantCategories)
 			}
 		})
 	}
