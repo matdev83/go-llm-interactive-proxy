@@ -17,7 +17,7 @@ package telemetry_test
 // Three properties are pinned, and the third is what makes the first two usable:
 //
 //	THE ROWS ADD UP TO THE TOTAL. The breakdown is a partition of the same measurement,
-//	    not a second accounting: the rows' saving sums to [telemetry.TotalCounters.BytesSaved]
+//	    not a second accounting: the rows sum to [telemetry.TotalCounters.PassObservedOpportunityBytes]
 //	    exactly, so the headline figure cannot disagree with its own breakdown.
 //	CARDINALITY IS BOUNDED AND THE LABELS ARE CLOSED. The series is a fixed-size array
 //	    indexed by the pass vocabulary, an UNSTATED pass lands in its own row rather than
@@ -114,15 +114,15 @@ func TestTheOutboundTallyIsBrokenDownByPass(t *testing.T) {
 		saved += row.BytesSaved
 		eligible += row.Eligible
 	}
-	if saved != snapshot.Total.BytesSaved {
+	if saved != snapshot.Total.PassObservedOpportunityBytes {
 		t.Errorf("the rows' saving sums to %d but the generation total is %d",
-			saved, snapshot.Total.BytesSaved)
+			saved, snapshot.Total.PassObservedOpportunityBytes)
 	}
 	if eligible != snapshot.Outbound.Virtualized.Eligible {
 		t.Errorf("the rows' eligible sums to %d but the outbound tally is %d",
 			eligible, snapshot.Outbound.Virtualized.Eligible)
 	}
-	if got, want := snapshot.Total.BytesSaved, int64(130); got != want {
+	if got, want := snapshot.Total.PassObservedOpportunityBytes, int64(130); got != want {
 		t.Errorf("generation saving = %d, want %d", got, want)
 	}
 }

@@ -18,9 +18,9 @@ package telemetry
 // with escapes has the same value either way.
 //
 //	OUTBOUND. The replacement is the alias, and requirement 9.1 guarantees the alias is
-//	strictly shorter than the real root it replaces. So before - after IS a saving, and
-//	that is the figure requirement 9.5 asks an operator to be able to compute per request
-//	and per turn.
+//	strictly shorter than the real root it replaces. Each pass observes a saving
+//	opportunity. Audit can observe the SAME candidate bytes in both passes;
+//	their sum is not a distinct candidate's potential or realized saving.
 //
 //	INBOUND. The replacement is the real root, and the real root is necessarily LONGER than
 //	the alias it replaced - the alias only ever existed because it was shorter. So before
@@ -34,8 +34,8 @@ package telemetry
 // heavily as LOSING bytes on every expansion. That is arithmetically true and
 // operationally useless - the inbound cost is the price of the outbound saving, paid on
 // the client's side rather than the model's, and one net number would hide exactly the
-// two facts an operator needs. [TotalCounters.BytesSaved] is therefore the OUTBOUND
-// figure, documented as such rather than being a sum that happens to work out.
+// two facts an operator needs. [TotalCounters.PassObservedOpportunityBytes] therefore
+// sums outbound PASS observations only, not distinct candidate savings.
 //
 // Finally, no published saving is ever negative. Requirement 9.1 makes a negative outbound
 // delta unreachable through the rewriter, but the projection does not DEPEND on that
@@ -286,9 +286,9 @@ type DirectionCounters struct {
 	//
 	// It is never negative. On the INBOUND direction it is therefore always zero, because
 	// expanding an alias back to a real root grows the value; that growth is reported as
-	// [InboundCounters.BytesGrown] instead. On the OUTBOUND direction it is the realized
-	// figure requirement 9.5 asks an operator to be able to compute per request and turn.
-	BytesSaved int64 `json:"bytes_saved"`
+	// [InboundCounters.BytesGrown] instead. On the OUTBOUND direction it combines
+	// pass observations, not distinct candidates; its JSON name makes that explicit.
+	BytesSaved int64 `json:"pass_observed_opportunity_bytes"`
 	// Skipped is the total number of surfaces that contributed no rewrite.
 	Skipped int64 `json:"skipped"`
 	// Skips breaks Skipped down by the shared engine's closed reason vocabulary. It holds an
@@ -347,14 +347,14 @@ type PassCounters struct {
 	BytesBefore int64 `json:"bytes_before"`
 	// BytesAfter is the total DECODED length of the values that pass published.
 	BytesAfter int64 `json:"bytes_after"`
-	// BytesSaved is the realized saving THIS PASS performed, clamped per observation at
-	// zero.
+	// BytesSaved is THIS PASS's observed saving opportunity, clamped per observation
+	// at zero. Rewrite realizes it on that pass; audit only measures it.
 	//
 	// It is never negative, for the same reason [DirectionCounters.BytesSaved] is not: a
 	// published saving that could read negative would be the single most misleading number
 	// this package could publish, and the projection does not depend on requirement 9.1 to
 	// prevent it. It is a per-observation clamped sum rather than the row's own clamped net
-	// so that the rows partition [TotalCounters.BytesSaved] exactly; see
+	// so that the rows partition [TotalCounters.PassObservedOpportunityBytes] exactly; see
 	// [OutboundCounters.ByPass].
 	BytesSaved int64 `json:"bytes_saved"`
 }
@@ -368,17 +368,16 @@ type OutboundCounters struct {
 	// Reports is how many outbound reports this generation recorded, across BOTH passes. It
 	// is the denominator every rate on this value is read against.
 	Reports int64 `json:"reports"`
-	// ByPass breaks the outbound direction down by the pass that measured it, so a
-	// generation-wide saving is decomposable into per-pass contributions and the
-	// per-candidate realized figure requirement 9.5 asks for is readable rather than
-	// inferred. It holds one entry per pass that reported, in vocabulary order, so the
+	// ByPass breaks observations down by the pass that measured them. These rows
+	// are not distinct candidates: audit may observe the same path in both passes.
+	// It holds one entry per pass that reported, in vocabulary order, so the
 	// series is bounded by the closed pass vocabulary whatever traffic arrives. A pass
 	// that reported and measured nothing keeps its row, with a non-zero Reports count and
 	// zero figures: "the pass ran and found nothing" and "the pass did not run" are
 	// different facts, and only the second is an absent row.
 	//
 	// The rows PARTITION [OutboundCounters.Virtualized]: their eligible occurrences sum to
-	// it and their savings sum to [TotalCounters.BytesSaved]. The breakdown therefore
+	// it and their opportunities sum to [TotalCounters.PassObservedOpportunityBytes]. The breakdown therefore
 	// restates the same measurement rather than adding a second accounting of it.
 	ByPass []PassCounters `json:"by_pass,omitempty"`
 	// Virtualized is the rewrite direction's own tally: eligible occurrences, published
@@ -419,10 +418,8 @@ type InboundCounters struct {
 	// operational facts, and a deployment that only ever sees no-ops has learned nothing
 	// about whether its virtualization is doing anything.
 	Noop int64 `json:"noop"`
-	// Rejected counts decisions that failed the whole tool call closed, so no argument byte
-	// reached the client (requirements.md 4.4, 8.3). This is the only outcome in either
-	// direction that costs a client its request, which is why it is its own counter rather
-	// than one entry in a series.
+	// Rejected counts refusal decisions. Rewrite applies them fail closed;
+	// audit reports the hypothetical refusal but passes the original call.
 	Rejected int64 `json:"rejected"`
 	// Restore is the expansion direction's own tally: eligible occurrences, replacements
 	// performed, and the byte accounting. Its BytesSaved is always zero and its
@@ -454,7 +451,7 @@ type InboundCounters struct {
 // BytesGrown returns the inbound direction's decoded byte cost.
 //
 // It is published as a field rather than left as the [DirectionCounters] method alone
-// because it is the number an operator reads next to [TotalCounters.BytesSaved], and
+// because it is the number an operator reads next to [TotalCounters.PassObservedOpportunityBytes], and
 // naming both at the same level is what stops the two being compared as if they were
 // opposites.
 func (c InboundCounters) BytesGrown() int64 { return c.Restore.BytesGrown() }
@@ -471,11 +468,11 @@ type TotalCounters struct {
 	Eligible int64 `json:"eligible"`
 	// Rewritten is the summed replacement count across both directions.
 	Rewritten int64 `json:"rewritten"`
-	// BytesSaved is the OUTBOUND realized saving, and it is deliberately NOT the sum of
-	// both directions' deltas. See the file comment: the inbound delta is negative by
-	// construction, so summing would report a heavily virtualizing deployment as losing
-	// bytes on every expansion.
-	BytesSaved int64 `json:"bytes_saved"`
+	// PassObservedOpportunityBytes sums outbound per-pass opportunities, clamped
+	// per observation. It is NOT candidate savings: audit can observe the same
+	// bytes twice, and later shaping can introduce or remove paths. Candidate
+	// savings cannot be inferred from this sum without a candidate-level reader.
+	PassObservedOpportunityBytes int64 `json:"pass_observed_opportunity_bytes"`
 	// Skipped is the total number of surfaces that contributed no rewrite in either
 	// direction, over the shared engine's own closed reason vocabulary.
 	Skipped int64 `json:"skipped"`
@@ -701,11 +698,11 @@ func (a inboundCounters) snapshot() InboundCounters {
 // snapshot projects the mutable generation-wide tally onto the published value.
 func (t totalCounters) snapshot() TotalCounters {
 	return TotalCounters{
-		Reports:    t.reports,
-		Eligible:   t.eligible,
-		Rewritten:  t.rewritten,
-		BytesSaved: t.saved,
-		Skipped:    t.skipped,
+		Reports:                      t.reports,
+		Eligible:                     t.eligible,
+		Rewritten:                    t.rewritten,
+		PassObservedOpportunityBytes: t.saved,
+		Skipped:                      t.skipped,
 	}
 }
 
