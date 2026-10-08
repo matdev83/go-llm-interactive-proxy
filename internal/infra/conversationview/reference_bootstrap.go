@@ -17,6 +17,8 @@ type AuthorizedReferenceStore struct {
 	authority b2bua.BLegAllocationAuthority
 }
 
+var _ BootstrapStore = (*AuthorizedReferenceStore)(nil)
+
 func NewAuthorizedReferenceStore(store *ReferenceStore, authority b2bua.BLegAllocationAuthority) *AuthorizedReferenceStore {
 	return &AuthorizedReferenceStore{ReferenceStore: store, authority: authority}
 }

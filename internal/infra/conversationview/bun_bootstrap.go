@@ -11,6 +11,8 @@ import (
 	"github.com/uptrace/bun/dialect"
 )
 
+var _ BootstrapStore = (*BunStore)(nil)
+
 func (m *BunStore) BootstrapSteering(ctx context.Context, aLegID, producerID string, decide BootstrapDecide) (BootstrapResult, error) {
 	if err := ctx.Err(); err != nil {
 		return BootstrapResult{}, err

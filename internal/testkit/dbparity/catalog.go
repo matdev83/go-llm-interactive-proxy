@@ -287,6 +287,7 @@ func DefaultCatalog() Catalog {
 			{
 				ID: "continuity",
 				SourceRoots: []string{
+					"internal/core/b2bua",
 					"internal/core/continuity/bunstore",
 					"internal/infra/conversationview",
 				},

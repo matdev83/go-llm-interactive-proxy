@@ -14,6 +14,8 @@ type BLegAllocationAuthority interface {
 	WithBLegAllocationAuthority(context.Context, string, func(hasAllocated bool) error) error
 }
 
+var _ BLegAllocationAuthority = (*MemoryStore)(nil)
+
 // WithBLegAllocationAuthority holds the actual NextBLeg mutex, including the
 // allocation increment that precedes ID generation and attempt recording.
 func (s *MemoryStore) WithBLegAllocationAuthority(ctx context.Context, aLegID string, apply func(bool) error) error {
