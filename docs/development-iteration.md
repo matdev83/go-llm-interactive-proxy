@@ -86,6 +86,18 @@ A commit touching many packages still takes minutes, so run commits as a backgro
 with no tool timeout: a harness timeout that kills the gate mid-run leaves the
 commit unapplied and the index still staged.
 
+### Merging with auto-merge
+
+`main` requires branches to be up to date, and this repository has no merge
+queue (that needs an organization-owned repository). Instead, enable
+auto-merge on a ready PR (`gh pr merge <n> --auto --squash`, maintainer
+decision). `.github/workflows/auto-update-prs.yml` then updates the oldest
+auto-merge PR that is behind `main`, one at a time; when its required checks
+pass, GitHub merges it and the next one is updated. It needs the
+`AUTO_UPDATE_TOKEN` repository secret (fine-grained token, this repository,
+Contents and Pull requests read/write), because branch updates made with
+`GITHUB_TOKEN` do not start CI.
+
 When a gate fails, fix the cause. `--no-verify` also skips secret scanning.
 
 ### Development-host race guard

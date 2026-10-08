@@ -24,7 +24,9 @@ env:
 concurrency:
   # Push and PR events for the same branch share a group, avoiding duplicate runs.
   group: ci-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  # Runs on main publish the Go build caches (a cancelled run saves nothing), so
+  # only superseded PR / merge-queue runs are cancelled; a newer main push waits.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
 
 jobs:
   changes:
@@ -425,7 +427,9 @@ jobs:
           if [[ "${GOFLAGS:-}" =~ -skip=\^\(([^\)]*)\)\$ ]]; then
             skip="${BASH_REMATCH[1]}|${skip}"
           fi
-          go test -tags=precommit -timeout=25m -skip "^(${skip})\$" "${packages[@]}"
+          # -w drops DWARF from the ~400 test binaries (~30% faster links); stack traces
+          # and test behaviour are unchanged.
+          go test -tags=precommit -ldflags=-w -timeout=25m -skip "^(${skip})\$" "${packages[@]}"
 
       - name: Save bounded ci-suite Go cache
         if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.shard == 'rest'
