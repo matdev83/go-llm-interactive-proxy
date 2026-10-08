@@ -248,12 +248,12 @@ func TestTheLatePassNeverHoldsOrCallsAWorkspaceResolver(t *testing.T) {
 		t.Fatal("the scan proved nothing: part.go no longer reads the pinned workspace projection")
 	}
 	if !used["pathvirtualization.DeriveMapping"] {
-		t.Fatal("the scan proved nothing: part.go no longer derives the mapping from the pinned view")
+		t.Fatal("the scan proved nothing: the shared outbound operation no longer derives the mapping")
 	}
 }
 
 // allPartSelectorUses reports every QUALIFIED selector name appearing anywhere in
-// part.go, keyed "package.Symbol".
+// part.go and its shared apply operation, keyed "package.Symbol".
 //
 // It is qualified rather than bare because the pass legitimately holds a
 // pathvirtualization.Resolver - the compiled policy - and only a qualified name can tell
@@ -265,32 +265,33 @@ func allPartSelectorUses(t *testing.T) map[string]bool {
 
 	used := map[string]bool{}
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "part.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parse part.go: %v", err)
-	}
-	ast.Inspect(file, func(node ast.Node) bool {
-		sel, ok := node.(*ast.SelectorExpr)
-		if !ok {
-			return true
+	for _, name := range []string{"part.go", "apply.go"} {
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
 		}
-		switch qualifier := sel.X.(type) {
-		case *ast.Ident:
-			used[qualifier.Name+"."+sel.Sel.Name] = true
-		case *ast.SelectorExpr:
-			if outer, ok := qualifier.X.(*ast.Ident); ok {
-				used[outer.Name+"."+qualifier.Sel.Name+"."+sel.Sel.Name] = true
+		ast.Inspect(file, func(node ast.Node) bool {
+			sel, ok := node.(*ast.SelectorExpr)
+			if !ok {
+				return true
 			}
-		}
-		return true
-	})
+			switch qualifier := sel.X.(type) {
+			case *ast.Ident:
+				used[qualifier.Name+"."+sel.Sel.Name] = true
+			case *ast.SelectorExpr:
+				if outer, ok := qualifier.X.(*ast.Ident); ok {
+					used[outer.Name+"."+qualifier.Sel.Name+"."+sel.Sel.Name] = true
+				}
+			}
+			return true
+		})
+	}
 	return used
 }
 
 // handleRequestPartsFieldUses reports which resolver, view, and metadata fields the
-// pass actually reads, by walking the bodies of the two methods that make up its
-// whole decision: the request-part entry point and the workspace projection it
-// delegates to.
+// pass actually reads, by walking the request-part entry point, its workspace
+// projection, and the shared outbound operation.
 //
 // The walk is by field and method name on purpose: the names it forbids are exactly the
 // identity surfaces requirements.md 5.7 names, so a rename of one of them is itself a
@@ -302,30 +303,32 @@ func handleRequestPartsFieldUses(t *testing.T) map[string]bool {
 
 	used := map[string]bool{}
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "part.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parse part.go: %v", err)
-	}
-	wanted := map[string]bool{"HandleRequestParts": true, "projectRoot": true}
+	wanted := map[string]bool{"HandleRequestParts": true, "projectRoot": true, "apply": true}
 	found := 0
-	ast.Inspect(file, func(node ast.Node) bool {
-		method, ok := node.(*ast.FuncDecl)
-		if !ok || !wanted[method.Name.Name] {
-			return true
+	for _, name := range []string{"part.go", "apply.go"} {
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
 		}
-		found++
-		ast.Inspect(method.Body, func(inner ast.Node) bool {
-			selector, ok := inner.(*ast.SelectorExpr)
-			if !ok {
+		ast.Inspect(file, func(node ast.Node) bool {
+			method, ok := node.(*ast.FuncDecl)
+			if !ok || !wanted[method.Name.Name] {
 				return true
 			}
-			used[selector.Sel.Name] = true
-			return true
+			found++
+			ast.Inspect(method.Body, func(inner ast.Node) bool {
+				selector, ok := inner.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				used[selector.Sel.Name] = true
+				return true
+			})
+			return false
 		})
-		return false
-	})
+	}
 	if found != len(wanted) {
-		t.Fatalf("walked %d of %d methods in part.go: the late outbound pass's decision must stay inside them", found, len(wanted))
+		t.Fatalf("walked %d of %d outbound operations", found, len(wanted))
 	}
 	return used
 }
