@@ -50,7 +50,7 @@ func runCLI(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "  list             Show catalog component and test package inventory\n")
 		_, _ = fmt.Fprintf(stderr, "  sqlite           Execute canonical SQLite parity tests\n")
 		_, _ = fmt.Fprintf(stderr, "  postgres-direct  Execute canonical PostgreSQL direct parity tests (fail-closed)\n")
-		_, _ = fmt.Fprintf(stderr, "  all              Execute SQLite followed by PostgreSQL direct parity tests (default)\n\n")
+		_, _ = fmt.Fprintf(stderr, "  all              Execute SQLite and PostgreSQL direct parity tests concurrently (default)\n\n")
 		_, _ = fmt.Fprintf(stderr, "Flags:\n")
 		fs.PrintDefaults()
 	}

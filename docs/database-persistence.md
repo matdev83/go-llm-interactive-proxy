@@ -111,7 +111,7 @@ All production persistence components in this repository supporting SQLite and P
 
 - `make test-db-parity-sqlite` — Runs canonical SQLite parity tests across all registered components.
 - `make test-db-parity-postgres-direct` — Runs fail-closed direct PostgreSQL parity tests (requires direct `LIP_TEST_POSTGRES_DSN` with runner fallback to `LIP_TEST_POSTGRES_ADMIN_DSN`; Make sets `LIP_REQUIRE_POSTGRES=1`).
-- `make test-db-parity` — Runs sequential SQLite and direct PostgreSQL parity for the whole repository.
+- `make test-db-parity` — Runs SQLite and direct PostgreSQL parity for the whole repository; the two backends run concurrently, each backend's packages in order.
 
 ### CI enforcement
 

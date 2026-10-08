@@ -8,12 +8,16 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/dbparity"
 )
@@ -1680,4 +1684,155 @@ func TestPlan_PostgresDirect_DuplicateAliasesAndPrecedence(t *testing.T) {
 			t.Errorf("preflight error leaked DSN credentials: %s", err.Error())
 		}
 	})
+}
+
+func allModeOpts(runner func(*exec.Cmd) error) dbparity.PlanOptions {
+	return dbparity.PlanOptions{
+		BaseEnv:   []string{dbparity.EnvTestPostgresDSN + "=postgres://u:p@localhost/db"},
+		CmdRunner: runner,
+	}
+}
+
+func cmdBackend(cmd *exec.Cmd) string {
+	if slices.Contains(cmd.Args, "-tags=integration") {
+		return "postgres-direct"
+	}
+	return "sqlite"
+}
+
+func TestRun_AllMode_RunsBackendsConcurrently(t *testing.T) {
+	var stdout, stderr strings.Builder
+	started := map[string]chan struct{}{"sqlite": make(chan struct{}), "postgres-direct": make(chan struct{})}
+	var once sync.Map
+
+	err := dbparity.Run(context.Background(), dbparity.ModeAll, allModeOpts(func(cmd *exec.Cmd) error {
+		self := cmdBackend(cmd)
+		if _, loaded := once.LoadOrStore(self, true); !loaded {
+			close(started[self])
+		}
+		other := "sqlite"
+		if self == other {
+			other = "postgres-direct"
+		}
+		select {
+		case <-started[other]:
+			return nil
+		case <-time.After(10 * time.Second):
+			return errors.New("the other backend never started: backends ran sequentially")
+		}
+	}), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run(ModeAll) = %v, want both backends running at the same time", err)
+	}
+}
+
+func TestRun_AllMode_KeepsPerBackendOrderAndCoversEveryPlan(t *testing.T) {
+	var stdout, stderr strings.Builder
+	var mu sync.Mutex
+	got := map[string][]string{}
+
+	err := dbparity.Run(context.Background(), dbparity.ModeAll, allModeOpts(func(cmd *exec.Cmd) error {
+		mu.Lock()
+		defer mu.Unlock()
+		backend := cmdBackend(cmd)
+		got[backend] = append(got[backend], cmd.Args[len(cmd.Args)-1])
+		return nil
+	}), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("Run(ModeAll) = %v", err)
+	}
+
+	plans, err := dbparity.Plan(dbparity.ModeAll, allModeOpts(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{}
+	for _, p := range plans {
+		want[p.Backend] = append(want[p.Backend], p.Args[len(p.Args)-1])
+	}
+	if !maps.EqualFunc(got, want, slices.Equal[[]string]) {
+		t.Fatalf("executed commands per backend = %v, want %v", got, want)
+	}
+}
+
+func TestRun_AllMode_FailureStopsTheOtherBackendAndIsReported(t *testing.T) {
+	var stdout, stderr strings.Builder
+	stubErr := &stubExitError{code: 7}
+	failed := make(chan struct{})
+	sqliteStarted := make(chan struct{})
+	var startOnce sync.Once
+	var sqliteRuns atomic.Int32
+
+	err := dbparity.Run(context.Background(), dbparity.ModeAll, allModeOpts(func(cmd *exec.Cmd) error {
+		if cmdBackend(cmd) == "postgres-direct" {
+			<-sqliteStarted
+			close(failed)
+			return stubErr
+		}
+		sqliteRuns.Add(1)
+		startOnce.Do(func() { close(sqliteStarted) })
+		select {
+		case <-failed:
+			// Give the failure time to cancel the group before this command
+			// returns, so the next sqlite command must not start.
+			time.Sleep(100 * time.Millisecond)
+			return nil
+		case <-time.After(10 * time.Second):
+			return errors.New("postgres never ran")
+		}
+	}), &stdout, &stderr)
+
+	var stepErr *dbparity.RunStepError
+	if !errors.As(err, &stepErr) {
+		t.Fatalf("Run(ModeAll) = %T (%v), want *RunStepError", err, err)
+	}
+	if stepErr.Backend != "postgres-direct" {
+		t.Errorf("reported backend = %q, want the failing postgres-direct", stepErr.Backend)
+	}
+	if got := dbparity.MapExitStatus(err); got != 7 {
+		t.Errorf("exit status = %d, want 7", got)
+	}
+	if n := sqliteRuns.Load(); n != 1 {
+		t.Errorf("sqlite commands started = %d, want 1: the failure must stop the other backend", n)
+	}
+}
+
+func TestRun_AllMode_CallerCancellationIsReported(t *testing.T) {
+	var stdout, stderr strings.Builder
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := dbparity.Run(ctx, dbparity.ModeAll, allModeOpts(func(*exec.Cmd) error { return nil }), &stdout, &stderr)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run(ModeAll) with a canceled context = %v, want context.Canceled", err)
+	}
+}
+
+func TestRun_AllMode_CommandOutputIsNotInterleaved(t *testing.T) {
+	var stdout, stderr strings.Builder
+	const perCommand = 50
+	line := strings.Repeat("x", 1000)
+
+	err := dbparity.Run(context.Background(), dbparity.ModeAll, allModeOpts(func(cmd *exec.Cmd) error {
+		marker := cmdBackend(cmd)[:1]
+		for range perCommand {
+			_, _ = fmt.Fprintln(cmd.Stdout, marker+line)
+		}
+		return nil
+	}), &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines)%perCommand != 0 {
+		t.Fatalf("got %d lines, want a multiple of %d", len(lines), perCommand)
+	}
+	for i := 0; i < len(lines); i += perCommand {
+		for _, l := range lines[i : i+perCommand] {
+			if l[0] != lines[i][0] {
+				t.Fatalf("one command's output was interleaved with another's at line %d", i)
+			}
+		}
+	}
 }
