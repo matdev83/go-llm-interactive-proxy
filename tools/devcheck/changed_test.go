@@ -15,7 +15,7 @@ func (failedDiagnosticWriter) Write([]byte) (int, error) { return 0, io.ErrClose
 
 func TestPlanReportingFailureIsNotSuccess(t *testing.T) {
 	t.Parallel()
-	if err := runTestPlan(t.TempDir(), testscope.Plan{}, testPlanOptions{jobs: 1, repeat: 1, dry: true}, io.Discard, failedDiagnosticWriter{}); err == nil {
+	if err := runTestPlan(t.Context(), t.TempDir(), testscope.Plan{}, testPlanOptions{jobs: 1, repeat: 1, dry: true}, io.Discard, failedDiagnosticWriter{}); err == nil {
 		t.Fatal("ignored plan-reporting failure")
 	}
 }
@@ -37,7 +37,7 @@ func TestPlanOnlyDoesNotExecuteOrValidateTestModules(t *testing.T) {
 	t.Parallel()
 	plan := testscope.Plan{Base: "base", Modules: []testscope.Module{{Directory: "missing", Packages: []string{"./..."}}}}
 	var output, diagnostics strings.Builder
-	err := runTestPlan(t.TempDir(), plan, testPlanOptions{jobs: 1, repeat: 2, dry: true}, &output, &diagnostics)
+	err := runTestPlan(t.Context(), t.TempDir(), plan, testPlanOptions{jobs: 1, repeat: 2, dry: true}, &output, &diagnostics)
 	if err != nil || !strings.Contains(diagnostics.String(), "plan-only") || output.Len() != 0 {
 		t.Fatalf("dry-run err=%v output=%s diagnostics=%s", err, output.String(), diagnostics.String())
 	}

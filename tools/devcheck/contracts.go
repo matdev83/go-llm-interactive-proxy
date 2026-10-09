@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"regexp"
 	"slices"
 	"strings"
@@ -16,9 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/testscope"
 )
 
-func runContractCheck(root, base string, opts testPlanOptions, output, diagnostics io.Writer) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
+func runContractCheck(ctx context.Context, root, base string, opts testPlanOptions, output, diagnostics io.Writer) error {
 	planning, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	plan, err := testscope.BuildContracts(planning, root, base)
 	cancel()
@@ -39,7 +36,7 @@ func runContractCheck(root, base string, opts testPlanOptions, output, diagnosti
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GOWORK=off")
 		cmd.Stderr = diagnostics
-		listed, err := cmd.Output()
+		listed, err := commandOutput(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("list selected contracts: %w", err)
 		}
@@ -67,6 +64,7 @@ func runContractCheck(root, base string, opts testPlanOptions, output, diagnosti
 			if err != nil {
 				return err
 			}
+			command = withAnalyzerBudget(root, command)
 			if err := runContractCommandRecorded(ctx, dir, command, false, output, diagnostics, opts.recorder); err != nil {
 				return err
 			}
@@ -89,7 +87,7 @@ func runContractCommandRecorded(ctx context.Context, dir string, command []strin
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stderr = diagnostics
 	step := recorder.start("contract-check", command, dir, output)
-	stats, err := execute(cmd, test, step.output)
+	stats, err := execute(ctx, cmd, test, step.output)
 	recorder.finishRun(step, stepStats(test, stats), err)
 	return err
 }

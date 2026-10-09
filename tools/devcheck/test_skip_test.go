@@ -123,7 +123,7 @@ func TestParent(t *testing.T) {
 		t.Fatalf("write GOENV GOFLAGS: %v\n%s", err, output)
 	}
 
-	goFlags, err := effectiveGOFlags(root, env)
+	goFlags, err := effectiveGOFlags(t.Context(), root, env)
 	if err != nil {
 		t.Fatal(err)
 	}

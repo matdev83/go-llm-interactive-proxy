@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -36,11 +37,11 @@ func validateExplicitTestSkip(set bool, name, task, scope string, full bool, bas
 	return nil
 }
 
-func effectiveGOFlags(dir string, env []string) (string, error) {
+func effectiveGOFlags(ctx context.Context, dir string, env []string) (string, error) {
 	cmd := exec.Command("go", "env", "GOFLAGS")
 	cmd.Dir = dir
 	cmd.Env = env
-	output, err := cmd.Output()
+	output, err := commandOutput(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("read effective GOFLAGS: %w", err)
 	}

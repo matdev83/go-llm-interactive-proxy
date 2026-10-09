@@ -19,6 +19,7 @@ export GOMAXPROCS
 endif
 DEV_JOBS ?= 4
 DEV_REPEAT ?= 1
+DEV_TIMEOUT ?= 30m
 DEV_BASE ?=
 DEV_PLAN ?= 0
 DEV_FULL ?= 0
@@ -31,19 +32,19 @@ DEV_CONSUMER ?=
 
 .PHONY: dev-test dev-test-changed dev-contract-check dev-delivery-plan dev-build dev-lint dev-doctor
 dev-test:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=test -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
+	$(GO) run -buildvcs=false ./tools/devcheck -task=test -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -timeout="$(DEV_TIMEOUT)" -evidence="$(DEV_EVIDENCE)"
 dev-test-changed:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=test -scope=changed -module="$(MODULE)" -packages="$(PKGS)" -base="$(DEV_BASE)" -plan=$(DEV_PLAN) -full=$(DEV_FULL) -fresh=$(DEV_FRESH) -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
+	$(GO) run -buildvcs=false ./tools/devcheck -task=test -scope=changed -module="$(MODULE)" -packages="$(PKGS)" -base="$(DEV_BASE)" -plan=$(DEV_PLAN) -full=$(DEV_FULL) -fresh=$(DEV_FRESH) -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -timeout="$(DEV_TIMEOUT)" -evidence="$(DEV_EVIDENCE)"
 dev-contract-check:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=contracts -scope=changed -module="$(MODULE)" -packages="$(PKGS)" -base="$(DEV_BASE)" -plan=$(DEV_PLAN) -full=$(DEV_FULL) -fresh=$(DEV_FRESH) -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
+	$(GO) run -buildvcs=false ./tools/devcheck -task=contracts -scope=changed -module="$(MODULE)" -packages="$(PKGS)" -base="$(DEV_BASE)" -plan=$(DEV_PLAN) -full=$(DEV_FULL) -fresh=$(DEV_FRESH) -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -timeout="$(DEV_TIMEOUT)" -evidence="$(DEV_EVIDENCE)"
 dev-delivery-plan:
-	@$(GO) run -buildvcs=false ./tools/devcheck -task=delivery -base="$(DEV_BASE)" -head="$(DEV_HEAD)" -consumer="$(DEV_CONSUMER)" -evidence="$(DEV_EVIDENCE)"
+	@$(GO) run -buildvcs=false ./tools/devcheck -task=delivery -base="$(DEV_BASE)" -head="$(DEV_HEAD)" -consumer="$(DEV_CONSUMER)" -timeout="$(DEV_TIMEOUT)" -evidence="$(DEV_EVIDENCE)"
 dev-build:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=build -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
+	$(GO) run -buildvcs=false ./tools/devcheck -task=build -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -timeout="$(DEV_TIMEOUT)" -evidence="$(DEV_EVIDENCE)"
 dev-lint:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=lint -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
+	$(GO) run -buildvcs=false ./tools/devcheck -task=lint -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -timeout="$(DEV_TIMEOUT)" -evidence="$(DEV_EVIDENCE)"
 dev-doctor:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=doctor -module="$(MODULE)" -evidence="$(DEV_EVIDENCE)"
+	$(GO) run -buildvcs=false ./tools/devcheck -task=doctor -module="$(MODULE)" -timeout="$(DEV_TIMEOUT)" -evidence="$(DEV_EVIDENCE)"
 
 # Dry by default; cleanup is a deliberate operation, never an iteration step.
 .PHONY: dev-cache-maintenance
