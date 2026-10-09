@@ -15,6 +15,8 @@ const (
 	OperationGeminiGenerateContent Operation = "gemini.generate_content"
 	// OperationContextCompaction identifies protocol-neutral context compaction.
 	OperationContextCompaction Operation = "context.compaction"
+	// OperationDecisionEvaluate identifies protocol-neutral typed decision evaluation.
+	OperationDecisionEvaluate Operation = "decision.evaluate"
 )
 
 // DeliveryMode records whether the client requested streaming or non-streaming delivery.

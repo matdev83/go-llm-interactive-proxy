@@ -26,8 +26,12 @@ func runContractCheck(ctx context.Context, root, base string, opts testPlanOptio
 		return err
 	}
 	if opts.dry {
+		opts.recorder.skip("contract and lint execution", "plan-only request")
 		_, err := fmt.Fprintln(diagnostics, "plan-only: no contracts or lint executed")
 		return err
+	}
+	if len(plan.Tests) == 0 && len(plan.Lint) == 0 && len(plan.Scripts) == 0 && len(plan.QA) == 0 && len(plan.Groups) == 0 {
+		opts.recorder.skip("contract and lint execution", "no checks selected")
 	}
 	for _, script := range plan.Scripts {
 		command := append([]string{"bash"}, strings.Fields(script)...)
@@ -57,6 +61,9 @@ func runContractCheck(ctx context.Context, root, base string, opts testPlanOptio
 		}
 	}
 	if opts.automationOnly {
+		if len(plan.Scripts) == 0 && len(plan.QA) == 0 {
+			opts.recorder.skip("automation checks", "no checks selected")
+		}
 		return nil
 	}
 	if len(plan.Tests) != 0 {
@@ -74,6 +81,19 @@ func runContractCheck(ctx context.Context, root, base string, opts testPlanOptio
 			return err
 		}
 	}
+	for _, group := range plan.Groups {
+		cmd := exec.CommandContext(ctx, "go", "test", "-mod=readonly", "-trimpath", "-list", contractPattern(group.Tests), group.Package)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Stderr = diagnostics
+		listed, err := commandOutput(ctx, cmd)
+		if err != nil {
+			return fmt.Errorf("list selected contracts in %s: %w", group.Package, err)
+		}
+		if err := validateListedContracts(group.Tests, string(listed)); err != nil {
+			return err
+		}
+	}
 	for n := 1; n <= opts.repeat; n++ {
 		if len(plan.Tests) != 0 {
 			command, err := commandFor("test", "./internal/archtest", opts.jobs, opts.fresh)
@@ -81,6 +101,16 @@ func runContractCheck(ctx context.Context, root, base string, opts testPlanOptio
 				return err
 			}
 			command = slices.Insert(command, len(command)-1, "-trimpath", "-run", contractPattern(plan.Tests))
+			if err := runContractCommandRecorded(ctx, root, command, true, output, diagnostics, opts.recorder); err != nil {
+				return err
+			}
+		}
+		for _, group := range plan.Groups {
+			command, err := commandFor("test", group.Package, opts.jobs, opts.fresh)
+			if err != nil {
+				return err
+			}
+			command = slices.Insert(command, len(command)-1, "-trimpath", "-run", contractPattern(group.Tests))
 			if err := runContractCommandRecorded(ctx, root, command, true, output, diagnostics, opts.recorder); err != nil {
 				return err
 			}
@@ -117,7 +147,8 @@ func runContractCommandRecorded(ctx context.Context, dir string, command []strin
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stderr = diagnostics
 	step := recorder.start("contract-check", command, dir, output)
-	stats, err := execute(ctx, cmd, test, step.output)
+	cmd.Stderr = step.stderr(diagnostics)
+	stats, err := execute(ctx, cmd, test, step.stdout(test), step.rawLog())
 	recorder.finishRun(step, stepStats(test, stats), err)
 	return err
 }

@@ -106,6 +106,8 @@ func standardBackendBuildYAML(id string) string {
 		return "backend_prefix: custom-anthropic\nbase_url: http://127.0.0.1:9/v1\n"
 	case CustomOpenResponsesCompatibleID:
 		return "backend_prefix: custom-openresponses\nbase_url: http://127.0.0.1:9/openresponses/v1\n"
+	case CustomSystemOneCompatibleID:
+		return "backend_prefix: custom-systemone\nbase_url: http://127.0.0.1:9/v1\nmodels:\n  source: inline\n  items:\n    - canonical_id: jev\n      native_id: jev\n"
 	default:
 		return ""
 	}
@@ -137,6 +139,8 @@ func standardBackendWantPrefix(id string) string {
 		return "custom-anthropic"
 	case CustomOpenResponsesCompatibleID:
 		return "custom-openresponses"
+	case CustomSystemOneCompatibleID:
+		return "custom-systemone"
 	default:
 		return id
 	}

@@ -22,6 +22,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/evidence"
 	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/testscope"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/internal/scopeplan"
 )
 
 type testStats struct {
@@ -60,11 +61,15 @@ func run(ctx context.Context) (err error) {
 	planOnly := flag.Bool("plan", false, "print changed-scope plan without running tests")
 	full := flag.Bool("full", false, "run all maintained modules' default tests instead of selecting")
 	evidencePath := flag.String("evidence", "", "write a verification manifest (revision, scope, results, logs) to this path")
+	outputMode := flag.String("output", "stream", "stream or summary (summary requires -evidence)")
 	timeout := flag.Duration("timeout", commandTimeout, "total development-check time budget")
 	automationOnly := flag.Bool("automation-only", false, "contracts: run only known automation self-tests and consumer contracts")
 	flag.Parse()
 	if *automationOnly && *task != "contracts" {
 		return errors.New("automation-only requires task=contracts")
+	}
+	if (*outputMode != "stream" && *outputMode != "summary") || (*outputMode == "summary" && *evidencePath == "") {
+		return errors.New("output must be stream or summary; summary requires -evidence so detailed logs are retained")
 	}
 	if flag.NArg() != 0 || *jobs < 1 || *repeat < 1 || *timeout <= 0 {
 		return errors.New("jobs/repeat/timeout must be positive; use named flags for scope")
@@ -83,7 +88,7 @@ func run(ctx context.Context) (err error) {
 	if *task == "delivery" && *evidencePath != "" {
 		return errors.New("delivery produces a planning report, not a verification manifest; evidence is unsupported")
 	}
-	recorder := newEvidenceRecorder(*evidencePath, *task, evidence.Scope{
+	recorder := newEvidenceRecorder(ctx, *evidencePath, *task, evidence.Scope{
 		Kind:     *scope,
 		Module:   *module,
 		Packages: strings.Fields(*packages),
@@ -95,11 +100,15 @@ func run(ctx context.Context) (err error) {
 		Full:     *full,
 	}, root)
 	if recorder != nil {
+		recorder.quiet, recorder.report = *outputMode == "summary", os.Stderr
 		defer func() {
 			if writeErr := recorder.finish(err); writeErr != nil {
 				err = errors.Join(err, writeErr)
 			}
 		}()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if *task == "delivery" {
 		if *module != "." || *packages != "" || *scope != "explicit" || *full || *planOnly || *fresh || *repeat != 1 {
@@ -109,7 +118,7 @@ func run(ctx context.Context) (err error) {
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GOWORK=off")
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		_, err := execute(ctx, cmd, false, os.Stdout)
+		_, err := execute(ctx, cmd, false, os.Stdout, nil)
 		return err
 	}
 	if *head != "" || *consumer != "" {
@@ -125,8 +134,19 @@ func run(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
+	if *task == "test" {
+		for _, exclusion := range quarantine {
+			recorder.skip(exclusion.Test, "quarantined: "+exclusion.Issue)
+		}
+	}
+	if skipTest.set {
+		recorder.skip(skipTest.name, "explicit requested test exclusion")
+	}
+	if *planOnly {
+		recorder.skip("execution", "plan-only request")
+	}
 	if *task == "quarantine" {
-		if err := checkQuarantine(root, quarantine); err != nil {
+		if err := checkQuarantine(ctx, root, quarantine); err != nil {
 			return err
 		}
 		fmt.Println(skipPattern(quarantine))
@@ -211,7 +231,8 @@ func run(ctx context.Context) (err error) {
 			cmd.Env = append(os.Environ(), "GOWORK=off")
 			cmd.Stderr = os.Stderr
 			step := recorder.start(fmt.Sprintf("repeat-%d-command-%d-of-%d", n, index+1, len(commands)), command, dir, os.Stdout)
-			stats, executeErr := execute(ctx, cmd, *task == "test", step.output)
+			cmd.Stderr = step.stderr(os.Stderr)
+			stats, executeErr := execute(ctx, cmd, *task == "test", step.stdout(*task == "test"), step.rawLog())
 			recorded := stepStats(*task == "test", stats)
 			recorder.finishRun(step, recorded, executeErr)
 			fmt.Fprintf(os.Stderr, "elapsed=%.3fs passed=%d cached=%d failed=%d skipped=%d\n", time.Since(start).Seconds(), stats.Passed, stats.Cached, stats.Failed, stats.Skipped)
@@ -237,13 +258,8 @@ func commandFor(task, scope string, jobs int, fresh bool) ([]string, error) {
 	if len(packages) == 0 {
 		return nil, errors.New("explicit scope required: set PKGS='./path/to/package/...' (use ./... deliberately for the full module)")
 	}
-	for _, p := range packages {
-		if p != "." && !strings.HasPrefix(p, "./") {
-			return nil, fmt.Errorf("package %q must be relative to MODULE", p)
-		}
-		if slices.Contains(strings.Split(strings.ReplaceAll(p, "\\", "/"), "/"), "..") {
-			return nil, fmt.Errorf("package %q escapes the selected module", p)
-		}
+	if err := scopeplan.ValidatePackages(packages); err != nil {
+		return nil, err
 	}
 	var command []string
 	switch task {
@@ -339,25 +355,7 @@ func isArchTestPattern(packagePattern string) bool {
 }
 
 func moduleDirectory(root, module string) (string, error) {
-	if filepath.IsAbs(module) {
-		return "", errors.New("MODULE must be relative to the repository root")
-	}
-	dir, err := filepath.EvalSymlinks(filepath.Join(root, module))
-	if err != nil {
-		return "", err
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(root, dir)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", errors.New("MODULE must stay within the repository")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
-		return "", fmt.Errorf("MODULE must contain go.mod: %w", err)
-	}
-	return dir, nil
+	return scopeplan.Directory(root, module)
 }
 
 func consumeTests(input io.Reader, output io.Writer) (testStats, error) {
@@ -434,7 +432,7 @@ func doctor(ctx context.Context, dir string) error {
 			lint.Dir = dir
 			var output strings.Builder
 			lint.Stderr = &output
-			_, err := execute(ctx, lint, false, &output)
+			_, err := execute(ctx, lint, false, &output, nil)
 			fmt.Print(output.String())
 			if err != nil {
 				if ctx.Err() != nil {

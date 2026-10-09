@@ -33,7 +33,7 @@ func TestContracts_ManifestRecordsFailedCommandAndLog(t *testing.T) {
 	}
 	t.Setenv("DEVCHECK_TEST_HELPER", "fail")
 	path := filepath.Join(t.TempDir(), "manifest.json")
-	recorder := newEvidenceRecorder(path, "contracts", evidence.Scope{Kind: "changed"}, ".")
+	recorder := newEvidenceRecorder(t.Context(), path, "contracts", evidence.Scope{Kind: "changed"}, ".")
 	err = runContractCommandRecorded(t.Context(), ".", []string{exe, "-test.run=^TestDevcheckHelperProcess$"}, true, io.Discard, io.Discard, recorder)
 	if err == nil {
 		t.Fatal("failed contract reported as success")

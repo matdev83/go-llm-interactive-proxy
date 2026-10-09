@@ -9,6 +9,10 @@ on:
     paths:
       - "tools/taskrunner/**"
       - "tools/devcheck/**"
+      - "tools/internal/scopeplan/**"
+      - "tools/localscope/**"
+      - "tools/worktreeclean/**"
+      - "scripts/worktree-create.sh"
       - ".github/workflows/taskrunner-process-tree.yml"
       - ".github/actions/go-cache/**"
       - "scripts/ci-go-cache.py"
@@ -60,7 +64,7 @@ jobs:
                 relevant=true
                 break
                 ;;
-              tools/taskrunner/**|tools/devcheck/**|.github/workflows/taskrunner-process-tree.yml|go.mod|go.sum)
+              tools/taskrunner/**|tools/devcheck/**|tools/internal/scopeplan/**|tools/localscope/**|tools/worktreeclean/**|scripts/worktree-create.sh|.github/workflows/taskrunner-process-tree.yml|go.mod|go.sum)
                 relevant=true
                 break
                 ;;
@@ -127,12 +131,26 @@ jobs:
         run: |
           race=()
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then race=(-race); fi
-          go test "${race[@]}" -count=1 -timeout=10m ./tools/devcheck
+          go test "${race[@]}" -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            # A separate UID has no unrelated, non-dumpable user services. Keep
+            # the real ownership guard enabled rather than skipping integration.
+            user="lipclean${GITHUB_RUN_ID}"
+            fixture=$(mktemp -d /var/tmp/lip-cleanup.XXXXXX)
+            trap 'sudo userdel "$user"; sudo rm -rf -- "$fixture"' EXIT
+            go test "${race[@]}" -c -o "$fixture/cleanup.test" ./tools/worktreeclean
+            sudo useradd --no-create-home --shell /bin/bash "$user"
+            sudo chown -R "$user" "$fixture"
+            sudo -u "$user" env -i PATH=/usr/bin:/bin HOME="$fixture" TMPDIR="$fixture" LIP_REQUIRE_CLEANUP_INTEGRATION=1 \
+              "$fixture/cleanup.test" -test.v -test.timeout=10m
+          else
+            LIP_REQUIRE_CLEANUP_INTEGRATION=1 go test "${race[@]}" -v -count=1 -timeout=10m ./tools/worktreeclean
+          fi
 
       - name: Devcheck compatibility (Windows)
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os == 'Windows'
         shell: pwsh
-        run: go test -count=1 -timeout=10m ./tools/devcheck
+        run: go test -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope ./tools/worktreeclean
 
       - name: Report unrelated PR bypass
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite != 'true'

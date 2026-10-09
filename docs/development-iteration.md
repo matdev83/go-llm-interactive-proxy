@@ -139,8 +139,11 @@ own modules; test-only packages retain vet and tests. Metadata changes check the
 whole affected module, and removing a module with surviving sources expands
 checks to its parent module. Root metadata still triggers all-module tidy.
 Feature-plane and protobuf generation run when their inputs or checking scripts
-change. The cheap goroutine and regex guardrails remain repository-wide.
-Standalone quality checks and full pre-commit mode retain their previous scope.
+change; workflow edits run `scripts/check-workflows.sh` (actionlint) when it is
+installed, and CI preflight installs the pinned tool and runs it on every PR that
+touches `.github/workflows` regardless. The cheap goroutine and regex guardrails
+remain repository-wide. Standalone quality checks and full pre-commit mode retain
+their previous scope.
 
 Measured against `eef98f56` on Linux `agent-dev`, Go 1.26.6, golangci-lint
 2.14.0, a two-CPU quota, stable shared caches, and the normal host Go guard:
@@ -298,8 +301,27 @@ fresh-directory workload with shared caches; warm-worktree gains can differ.
 
 ### Creating a task worktree
 
-`make worktree-create WORKTREE_BRANCH=fix-short-description` creates the worktree at
-the validated location. Add `WORKTREE_BASE=<ref>` to branch from something other
+Creation is dry-run-first: the validated plan makes no changes until
+`WORKTREE_APPLY=1` (or script `--apply`) is explicitly supplied. `SETUP=1` runs
+diagnostics only after applied creation.
+
+`make worktree-cleanup WORKTREE_PATH=/exact/absolute/task/path
+WORKTREE_BRANCH=exact-task-branch WORKTREE_PR=<merged-pr>` plans cleanup of only
+that selected worktree/local branch. Add `WORKTREE_APPLY=1` to apply. It checks
+layout/repository/branch identity, tracked/untracked/ignored work, active process
+working directories, merged PR/head identity, merge presence in fetched main and
+delivered changed-path equivalence. It rechecks the snapshot before removal,
+never forces worktree deletion, and never removes remote branches.
+
+Ignored files block cleanup. `WORKTREE_DISCARD_CODEGRAPH=1` is narrow, explicit
+authorization for generated `.codegraph/` files only; any other ignored file
+still blocks. Stop task-local index servers/users separately first. Active-user
+inspection covers same-user processes with Linux `/proc` and macOS `lsof`; unsupported/unreadable
+platform checks refuse cleanup. Process inspection is cooperative, not a sandbox
+or proof against writers without visible working-directory ownership.
+
+`make worktree-create WORKTREE_BRANCH=fix-short-description` plans the worktree at
+the validated location. Add `WORKTREE_APPLY=1` to create it and `WORKTREE_BASE=<ref>` to branch from something other
 than `origin/main`, or `SETUP=1` to run `make dev-doctor` in the new worktree.
 
 The directory name is the branch with slashes folded to dashes
@@ -328,15 +350,19 @@ surprise at commit.
 
 `make pr-status PR=<n>` prints one PR's head and base SHA with their OIDs,
 mergeability, per-check buckets, stacking, and a one-line verdict. `make pr-watch
-PR=<n>` polls it and stops on a terminal verdict. Both are read-only: they never
-merge, close, comment, edit, or push, and the self-test greps the script for those
-verbs so the guarantee cannot rot.
+PR=<n>` polls it, prints the report only on a transition, and stops on a terminal
+verdict; an unchanged poll is silent so a long watch stays readable. Both are
+read-only: they never merge, close, comment, edit, or push, and the self-test
+greps the script for those verbs so the guarantee cannot rot.
 
-Only required checks are classified. Intentional skips are accepted; absent or
-unreadable required-check evidence stays blocked. Readiness also requires GitHub's
-`CLEAN` merge state, so behind branches and unresolved protection requirements
-cannot become ready merely because the reported checks are green. The revision
-is re-read after checks to detect movement during observation.
+Check evidence is bound to the observed head commit: the tool reads that commit's
+own check runs and statuses, never a check list that belongs to an earlier head.
+The required contexts come from the base branch's protection; an unreadable
+inventory, or a required context that has no run on this head, stays blocked and
+names the missing check. Intentional skips are accepted. Readiness also requires
+GitHub's `CLEAN` merge state, so behind branches and unresolved protection
+requirements cannot become ready merely because the reported checks are green. The
+revision is re-read after checks to detect movement during observation.
 
 The exit code is the contract, and the distinction between `failed` and `blocked`
 is the point:
@@ -484,6 +510,18 @@ remote certification includes these fixtures without changing workflow scope.
 
 ### Explicit local scope
 
+Change collection and direct package ownership share `tools/internal/scopeplan`:
+staged checks use only the index; working checks union staged, unstaged and
+untracked paths; base checks use the committed branch comparison. `devcheck`
+automatic selection includes both branch and working changes. Hooks and Bash/
+PowerShell quality adapters consume `tools/localscope` rather than independently
+walking module boundaries. Deleted module metadata checks surviving parent
+sources; removed packages are omitted from direct checks without hiding consumer
+coverage in the existing expanded planners/CI. Scope output remains phase-specific.
+Inspect the shared direct plan with `go run ./tools/localscope -mode staged`,
+`-mode changed`, `-mode base -base <ref>`, or explicit `-mode explicit -module
+connectors/name -packages './...'`. Native CI keeps comprehensive coverage.
+
 `devcheck` handles interrupt/termination signals and delegates check commands to
 the existing process-tree runner. Cancellation stops descendants and prevents
 later repeats/modules from starting; requested manifests still record failure
@@ -491,8 +529,10 @@ and retain completed test counters and step logs. `DEV_TIMEOUT` (default `30m`,
 or `devcheck -timeout`) bounds the complete run; increase it explicitly for long
 checks. Existing Go test-binary timeout flags are unchanged. POSIX `dev-lint` and
 contract lint use the repository resource guard automatically; cancellation also
-terminates slot-waiting commands. Scope-discovery and evidence-metadata probes
-are not migrated to the process-tree runner in this slice.
+terminates slot-waiting commands. Scope-discovery, quarantine validation and
+evidence-metadata subprocesses use the same process-tree owner and caller
+context. Machine-readable probe output remains complete, not diagnostic-truncated;
+cancelled planning cannot report a successful full-scope fallback.
 Native CLI/tooling regressions run in the taskrunner process-tree workflow;
 manual dispatch additionally enables focused Unix race checks for `devcheck`.
 
@@ -588,7 +628,35 @@ Use `GODEBUG=gocachetest=1 go test ./path/to/package` for result-cache miss reas
 and `go build -x ./path/to/package` to distinguish compilation from linking.
 Record exact commands, OS, toolchain, scope, and cold/warm state with measurements.
 
+### Reproducible benchmark comparisons
+
+`make bench-compare BENCH_BASELINE=/absolute/baseline BENCH_CANDIDATE=/absolute/candidate
+PKGS='./path/to/pkg' BENCH_PATTERN='BenchmarkName$' BENCH_FIXTURES='path/to/testdata'
+BENCH_OUT=/new/external/evidence/directory` compares two existing clean worktrees
+without creating or deleting resources. `MODULE` selects the same nested module
+on both sides; `BENCH_SAMPLES` defaults to 10 and `BENCH_TIME` to 1s.
+
+The command checks matching fixture contents and toolchain/build settings, runs
+identical flags with alternating baseline/candidate order, retains every raw
+sample plus a report, and invokes benchstat at a pinned revision. It refuses empty
+benchmark selection, changed sources/fixtures, and overwritten evidence paths.
+Fewer than six repetitions warn that timing evidence is insufficient. Inspect
+`benchstat.txt` intervals/significance yourself; the command never declares a
+speedup from a lower mean or from a smoke run. This is not a noisy PR timing gate.
+
 ### Verification manifests
+
+Use `DEV_OUTPUT=summary` with `DEV_EVIDENCE=<path>` for concise verification
+output and complete retained stdout/stderr logs. Streaming remains the default;
+summary mode refuses to discard details without an evidence destination. Each
+step records its actual module/package scope and full-log path. Requested
+quarantine/explicit/inherited-GOFLAGS exclusions and omitted execution are recorded in `skips`;
+plan-only or empty selected checks report `skipped`, not successful verification.
+Missing logs or failed recorded steps cannot return a passing report/exit status.
+
+```
+make dev-test PKGS='./tools/devcheck/...' DEV_OUTPUT=summary DEV_EVIDENCE=~/scratch-ci/verification.json
+```
 
 Set `DEV_EVIDENCE=<path>` on a verification `dev-*` target (including
 `dev-contract-check`) to record what the check actually

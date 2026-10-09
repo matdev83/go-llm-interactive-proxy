@@ -48,44 +48,12 @@ function Test-AgentSkillPath {
 }
 
 function Get-QualityPackages {
-    $stagedGoFiles = @(git diff --cached --name-only --diff-filter=ACMRD 2>$null | Where-Object { $_ -match '\.go$' })
-    if (-not $stagedGoFiles -or $stagedGoFiles.Count -eq 0) {
-        $stagedGoFiles = @(git diff --name-only --diff-filter=ACMRD 2>$null | Where-Object { $_ -match '\.go$' })
-    }
-    if (-not $stagedGoFiles -or $stagedGoFiles.Count -eq 0) {
-        $stagedGoFiles = @(git ls-files --others --exclude-standard 2>$null | Where-Object { $_ -match '\.go$' })
-    }
-    if (-not $stagedGoFiles -or $stagedGoFiles.Count -eq 0) {
-        return @("./...")
-    }
-
-    $forceFull = $false
-    $packageSet = [System.Collections.Generic.HashSet[string]]::new()
-
-    foreach ($file in $stagedGoFiles) {
-        $normalized = $file -replace '\\', '/'
-        if (Test-AgentSkillPath $normalized) {
-            continue
-        }
-        $dir = Split-Path -Parent $normalized
-        if ([string]::IsNullOrWhiteSpace($dir) -or $dir -eq '.') {
-            $forceFull = $true
-            break
-        }
-        if (Test-UnderNestedGoModule $normalized) {
-            continue
-        }
-        if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot $dir))) {
-            continue
-        }
-        [void]$packageSet.Add("./$dir/...")
-    }
-
-    if ($forceFull -or $packageSet.Count -eq 0) {
-        return @("./...")
-    }
-
-    return @($packageSet | Sort-Object)
+    $json = & go -C $RepositoryRoot run -buildvcs=false ./tools/localscope -mode changed -metadata=false
+    if ($LASTEXITCODE -ne 0) { throw "Shared quality scope planning failed" }
+    $plan = ($json -join "`n") | ConvertFrom-Json
+    $packages = @($plan.modules | Where-Object { $_.directory -eq "." } | ForEach-Object { $_.packages })
+    if ($packages.Count -eq 0 -or $packages -contains ".") { return @("./...") }
+    return @($packages | ForEach-Object { "$_/..." } | Sort-Object -Unique)
 }
 
 $qualityPackages = @(Get-QualityPackages)

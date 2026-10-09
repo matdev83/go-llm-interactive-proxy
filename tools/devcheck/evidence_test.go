@@ -17,7 +17,7 @@ import (
 // reader to trust evidence that does not exist.
 func TestRecorderTeesCommandOutputToLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
-	recorder := newEvidenceRecorder(path, "build", evidence.Scope{Kind: "explicit", Module: "."}, t.TempDir())
+	recorder := newEvidenceRecorder(t.Context(), path, "build", evidence.Scope{Kind: "explicit", Module: "."}, t.TempDir())
 	var streamed strings.Builder
 
 	step := recorder.start("module-a", []string{"sh", "-c", "printf streamed"}, t.TempDir(), &streamed)
@@ -57,7 +57,7 @@ func TestRecorderTeesCommandOutputToLog(t *testing.T) {
 // a failure, so a red run cannot be filed as evidence of anything.
 func TestRecorderRecordsFailedCommand(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
-	recorder := newEvidenceRecorder(path, "build", evidence.Scope{Kind: "explicit", Module: "."}, t.TempDir())
+	recorder := newEvidenceRecorder(t.Context(), path, "build", evidence.Scope{Kind: "explicit", Module: "."}, t.TempDir())
 
 	step := recorder.start("go-build", []string{"sh", "-c", "exit 3"}, t.TempDir(), os.Stdout)
 	runErr := exec.Command("sh", "-c", "exit 3").Run()
@@ -83,7 +83,7 @@ func TestRecorderRecordsFailedCommand(t *testing.T) {
 // failed. The blocker is the actionable fact; the command error is downstream.
 func TestRecorderBlockOutranksCommandFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
-	recorder := newEvidenceRecorder(path, "lint", evidence.Scope{Kind: "explicit", Module: "."}, t.TempDir())
+	recorder := newEvidenceRecorder(t.Context(), path, "lint", evidence.Scope{Kind: "explicit", Module: "."}, t.TempDir())
 	recorder.block("required tool golangci-lint is unavailable")
 	recorder.block("a later condition that adds nothing")
 
@@ -104,7 +104,7 @@ func TestRecorderBlockOutranksCommandFailure(t *testing.T) {
 // Claim: without -evidence the recorder is absent and command output is
 // untouched. Recording must be strictly opt-in.
 func TestRecorderAbsentWithoutPath(t *testing.T) {
-	recorder := newEvidenceRecorder("", "test", evidence.Scope{Kind: "explicit"}, t.TempDir())
+	recorder := newEvidenceRecorder(t.Context(), "", "test", evidence.Scope{Kind: "explicit"}, t.TempDir())
 	if recorder != nil {
 		t.Fatalf("recorder = %+v, want none", recorder)
 	}
@@ -167,4 +167,17 @@ func readManifest(t *testing.T, path string) *evidence.Manifest {
 		t.Fatalf("decode manifest: %v\n%s", err, data)
 	}
 	return manifest
+}
+
+func TestRecorder_MissingLogsCannotReturnSuccess(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	recorder := newEvidenceRecorder(t.Context(), path, "test", evidence.Scope{Kind: "explicit"}, t.TempDir())
+	recorder.block("cannot retain full command logs")
+	if err := recorder.finish(nil); err == nil {
+		t.Fatal("missing log evidence returned success")
+	}
+	manifest := readManifest(t, path)
+	if manifest.Outcome != evidence.OutcomeBlocked || manifest.FailureReason != "cannot retain full command logs" {
+		t.Fatalf("lost evidence blocker: %+v", manifest)
+	}
 }

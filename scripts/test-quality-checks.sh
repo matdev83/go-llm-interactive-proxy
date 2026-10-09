@@ -16,6 +16,9 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/quality-checks-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 BIN="$TMP/bin"
 mkdir -p "$BIN"
+SHARED_SCOPE_BINARY="$TMP/localscope"
+export SHARED_SCOPE_BINARY
+(cd "$SCRIPT_DIR/.." && "$REAL_GO" build -o "$SHARED_SCOPE_BINARY" ./tools/localscope)
 
 fail() {
 	echo "FAIL: $*" >&2
@@ -70,6 +73,10 @@ case "${GO_FAIL:-}:$*" in
 	vet:vet\ *) exit 42 ;;
 	tidy:mod\ tidy\ *) exit 43 ;;
 esac
+if [[ " $* " == *" ./tools/localscope "* ]]; then
+	shift 3
+	exec "$SHARED_SCOPE_BINARY" "$@"
+fi
 if [[ "${1:-}" == list ]]; then
 	shift
 	if [[ "${1:-}" == -f ]]; then shift 2; fi
@@ -201,6 +208,10 @@ EOF
 #!/usr/bin/env bash
 printf 'proto\n' >>"$FAKE_GUARD_LOG"
 buf lint
+EOF
+	cat >"$repo/scripts/check-workflows.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'workflows\n' >>"$FAKE_GUARD_LOG"
 EOF
 	cat >"$repo/scripts/lint-all-modules.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -600,6 +611,7 @@ printf 'name: changed CI\n' >"$REPO/.github/workflows/ci.yml"
 git -C "$REPO" add .github/workflows/ci.yml
 expect_pass "$REPO" --staged
 assert_contains "$TMP/buf.log" 'BUF lint'
+assert_contains "$TMP/guards.log" workflows
 
 new_repo script-policy
 printf '\n# staged policy trigger\n' >>"$REPO/scripts/quality-checks.sh"
@@ -607,6 +619,7 @@ git -C "$REPO" add scripts/quality-checks.sh
 expect_pass "$REPO" --staged
 assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
 assert_contains "$TMP/buf.log" 'BUF lint'
+assert_contains "$TMP/guards.log" workflows
 
 # Empty staged scope does not widen to the root module, while the two cheap
 # source guardrails continue to run.
@@ -618,6 +631,7 @@ assert_not_contains "$TMP/go.log" 'GO vet '
 assert_not_contains "$TMP/go.log" 'GO mod tidy'
 assert_not_contains "$TMP/go.log" 'generate-feature-planes.go'
 assert_not_contains "$TMP/buf.log" BUF
+assert_not_contains "$TMP/guards.log" workflows
 assert_cheap_guards
 
 # Formatting, build, vet, tidy, and Git-scope failures must fail the staged gate.
@@ -646,6 +660,7 @@ assert_contains "$TMP/go.log" 'GO build ./...'
 assert_contains "$TMP/go.log" 'GO vet ./...'
 assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
 assert_contains "$TMP/buf.log" 'BUF lint'
+assert_contains "$TMP/guards.log" workflows
 
 # Mandatory staged/direct lint shares the archtest trimpath compiler variant
 # with the preceding local build and test checks, while other scopes retain the

@@ -39,6 +39,7 @@ const (
 	FamilyOpenAIResponses Family = "openai-responses-compatible"
 	FamilyAnthropic       Family = "anthropic-compatible"
 	FamilyOpenResponses   Family = "openresponses-compatible"
+	FamilySystemOne       Family = "systemone-compatible"
 )
 
 type PathPolicy string
@@ -173,6 +174,9 @@ func Validate(p Profile) error {
 	if p.Models.Policy == DiscoveryStatic && len(p.Models.Static) == 0 {
 		return fmt.Errorf("profile %q: static discovery requires models", p.ID)
 	}
+	if p.Family == FamilySystemOne && p.Models.Policy != DiscoveryStatic {
+		return fmt.Errorf("profile %q: System One requires static discovery", p.ID)
+	}
 	famCaps, ok := familyCapabilities(p.Family)
 	if !ok {
 		return fmt.Errorf("profile %q: unknown family %q", p.ID, p.Family)
@@ -186,7 +190,7 @@ func Validate(p Profile) error {
 	if (p.Family == FamilyAnthropic && p.Auth.Mode == AuthBearerEnv) || (p.Family != FamilyAnthropic && p.Auth.Mode == AuthAPIKeyEnv) {
 		return fmt.Errorf("profile %q: auth mode %q is not supported by family %q", p.ID, p.Auth.Mode, p.Family)
 	}
-	if p.Family != FamilyOpenAIChat && p.Family != FamilyOpenAIResponses && len(p.Headers) > 0 {
+	if p.Family != FamilyOpenAIChat && p.Family != FamilyOpenAIResponses && p.Family != FamilySystemOne && len(p.Headers) > 0 {
 		return fmt.Errorf("profile %q: static headers are not supported by family %q", p.ID, p.Family)
 	}
 	if len(p.Headers) > MaxHeaders {
@@ -294,6 +298,8 @@ func Compile(p Profile) (Compiled, error) {
 
 func familyCapabilities(f Family) (lipapi.BackendCaps, bool) {
 	switch f {
+	case FamilySystemOne:
+		return lipapi.NewBackendCaps(lipapi.CapabilityDecisions), true
 	case FamilyOpenAIChat, FamilyOpenAIResponses:
 		return lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools, lipapi.CapabilityVision, lipapi.CapabilityDocuments, lipapi.CapabilityReasoning, lipapi.CapabilityParallelToolCalls), true
 	case FamilyAnthropic:

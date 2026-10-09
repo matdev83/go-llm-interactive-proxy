@@ -72,6 +72,18 @@ const (
 	MaxContentPartsPerItem             = 2_048
 	MaxJSONDepth                       = 64
 
+	// Decision contract byte bounds. The JSON payload fields (evidence, instructions,
+	// criteria, option and level descriptions) align with the part text cap so one
+	// opaque decision payload cannot force unbounded allocations; question ids and
+	// option names are short labels.
+	MaxDecisionQuestionIDBytes        = 256
+	MaxDecisionOptionNameBytes        = 256
+	MaxDecisionEvidenceBytes          = MaxPartTextBytes
+	MaxDecisionInstructionsBytes      = MaxPartTextBytes
+	MaxDecisionCriteriaBytes          = MaxPartTextBytes
+	MaxDecisionOptionDescriptionBytes = MaxPartTextBytes
+	MaxDecisionLevelBytes             = MaxPartTextBytes
+
 	// MaxAllowedToolRefs bounds the OpenResponses allowed_tools subset size to
 	// the pinned wire schema maxLen (128 refs).
 	MaxAllowedToolRefs = 128

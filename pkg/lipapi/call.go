@@ -69,6 +69,8 @@ type Call struct {
 	Instructions []Message
 	Messages     []Message
 	Items        []Item
+	// Decision is exclusive request authority for typed evaluations.
+	Decision *DecisionRequest `json:",omitempty"`
 	// PreviousResponseID identifies a proxy-owned continuation parent. It allows
 	// an item-authoritative continuation request to carry an intentionally empty
 	// input item slice; the continuation resolver supplies the materialized items.
@@ -100,7 +102,18 @@ func (c Call) HasItemAuthority() bool {
 
 // Validate checks canonical invariants and unsupported combinations for this call.
 func (c Call) Validate() error {
-	if c.HasItemAuthority() {
+	if c.Decision != nil {
+		if len(c.Messages) > 0 || len(c.Instructions) > 0 || c.Items != nil || c.PreviousResponseID != "" ||
+			len(c.Tools) > 0 || c.ToolChoice.Mode != "" || c.ToolChoice.Name != "" || len(c.ToolChoice.AllowedTools) > 0 {
+			return &ValidationError{Field: "Decision", Message: "conflicting decision and message, item, continuation or tool authorities"}
+		}
+		if err := c.validateEnvelopeSizes(); err != nil {
+			return err
+		}
+		if err := c.Decision.Validate(); err != nil {
+			return err
+		}
+	} else if c.HasItemAuthority() {
 		if len(c.Messages) > 0 || len(c.Instructions) > 0 {
 			return &ValidationError{Field: "Items", Message: "conflicting raw item and legacy message authorities"}
 		}

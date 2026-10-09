@@ -189,6 +189,33 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
         run: go run ./tools/devcheck -task=quarantine
 
+      # A workflow GitHub rejects produces no check runs at all, so its required
+      # checks never start and an older head can look green. Lint workflow edits
+      # here, with a pinned actionlint and the same retry policy as buf.
+      - name: Lint workflows
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "$BASE_SHA...HEAD" -- .github/workflows)
+          if [[ -z "$changed" ]]; then
+            echo "Workflow lint bypassed: no workflow changes detected."
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7; then
+              gopath=$(go env GOPATH)
+              export PATH="$gopath/bin:$PATH"
+              break
+            fi
+            echo "go install actionlint failed (attempt $attempt/3)" >&2
+            sleep $((attempt * 15))
+            [[ $attempt -lt 3 ]] || exit 1
+          done
+          bash scripts/check-workflows.sh
+
       - name: Install buf
         if: needs.changes.result == 'success' && needs.changes.outputs.proto == 'true' && github.event_name == 'pull_request'
         # buf pulls ~100 modules from proxy.golang.org; a single transient proxy error
@@ -662,22 +689,11 @@ jobs:
     if: always() && !cancelled()
     # Required status check: see repo-hygiene above. Always run the job so it
     # reports success (not skip) on docs-only PRs; guard steps.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
-    services:
-      postgres:
-        image: ${{ needs.changes.outputs.test == 'true' && 'postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73' || '' }}
-        env:
-          POSTGRES_USER: lip
-          POSTGRES_PASSWORD: lip
-          POSTGRES_DB: lip_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U lip"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    env:
+      PG_BIN: /usr/lib/postgresql/17/bin
+      PGPASSWORD: lip
     steps:
       - name: Fail closed if scope detection failed
         if: needs.changes.result != 'success'
@@ -691,6 +707,35 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      # Keep PostgreSQL 17 coverage without relying on Docker Hub's shared
+      # anonymous pull quota. The disposable cluster belongs to this job only.
+      - name: Provision native PostgreSQL 17
+        if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PG_DATA="$RUNNER_TEMP/lip-postgres-parity"
+          echo "PG_DATA=$PG_DATA" >> "$GITHUB_ENV"
+          key="$RUNNER_TEMP/postgresql-key.asc"
+          curl --fail --silent --show-error --retry 3 https://www.postgresql.org/media/keys/ACCC4CF8.asc -o "$key"
+          fingerprint=$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" { print $10; exit }')
+          test "$fingerprint" = B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+          sudo install -m 644 "$key" /usr/share/keyrings/lip-postgresql.asc
+          echo 'deb [signed-by=/usr/share/keyrings/lip-postgresql.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/lip-postgresql.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-17
+          sudo systemctl stop postgresql
+          "$PG_BIN/postgres" --version | grep -E '^postgres \(PostgreSQL\) 17\.'
+          install -d -m 700 "$PG_DATA"
+          password_file="$RUNNER_TEMP/lip-postgres-password"
+          umask 077
+          printf '%s\n' "$PGPASSWORD" > "$password_file"
+          "$PG_BIN/initdb" -D "$PG_DATA" -U lip --auth-local=trust --auth-host=scram-sha-256 --pwfile="$password_file"
+          rm -f "$password_file"
+          "$PG_BIN/pg_ctl" -D "$PG_DATA" -l "$RUNNER_TEMP/lip-postgres.log" -o "-h 127.0.0.1 -p 5433 -k $PG_DATA" -w -t 60 start
+          "$PG_BIN/createdb" -h 127.0.0.1 -p 5433 -U lip lip_test
+          echo "$PG_BIN" >> "$GITHUB_PATH"
 
       - name: Set up Go
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
@@ -710,8 +755,8 @@ jobs:
         shell: bash
         env:
           LIP_REQUIRE_POSTGRES: '1'
-          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
-          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@127.0.0.1:5433/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@127.0.0.1:5433/lip_test?sslmode=disable
         run: |
           set -euo pipefail
           if [[ -z "${LIP_TEST_POSTGRES_DSN:-}" || -z "${LIP_TEST_POSTGRES_ADMIN_DSN:-}" ]]; then
@@ -726,17 +771,25 @@ jobs:
             echo "Error: LIP_REQUIRE_POSTGRES must be set to 1" >&2
             exit 1
           fi
-          pg_isready -h localhost -p 5432 -U lip -d lip_test
+          pg_isready -h 127.0.0.1 -p 5433 -U lip -d lip_test
           echo "PostgreSQL test environment verified for direct parity execution."
 
       - name: Run database dialect parity tests
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         env:
           LIP_REQUIRE_POSTGRES: '1'
-          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
-          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@127.0.0.1:5433/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@127.0.0.1:5433/lip_test?sslmode=disable
           LIP_TEST_PARALLEL: '4'
         run: make test-db-parity
+
+      - name: Stop native PostgreSQL
+        if: always() && needs.changes.outputs.test == 'true'
+        shell: bash
+        run: |
+          if [[ -f "$PG_DATA/postmaster.pid" ]]; then
+            "$PG_BIN/pg_ctl" -D "$PG_DATA" -m fast -w -t 60 stop
+          fi
 
       - name: Save bounded ci-db Go cache
         if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true'

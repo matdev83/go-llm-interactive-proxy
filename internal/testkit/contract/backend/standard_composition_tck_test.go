@@ -61,6 +61,10 @@ func TestStandardComposition_CertifiesEveryInProcessFamily(t *testing.T) {
 	mux.Handle("/v1/responses", countingHandler(probe, openairesponses.NewHandler(openairesponses.Config{AllowMissingBearer: true})))
 	mux.Handle("/responses", countingHandler(probe, openResponsesCompatHandler()))
 	mux.Handle("/responses/compact", countingHandler(probe, openResponsesCompatHandler()))
+	mux.Handle("/systemone", countingHandler(probe, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"model":"m","answers":{"q":{"type":"noul","noul":0.7}},"usage":{"input_tokens":1,"output_tokens":2}}`)
+	})))
 	mux.Handle("/v1/chat/completions", countingHandler(probe, openaichat.NewHandler(openaichat.Config{AllowMissingBearer: true})))
 	mux.Handle("/v1/messages", countingHandler(probe, anthropicmessages.NewHandler(anthropicmessages.Config{AllowMissingAPIKey: true})))
 	mux.Handle("/v1beta/models/m:generateContent", countingHandler(probe, gemini.NewHandler(gemini.Config{AllowMissingAPIKey: true})))
@@ -80,6 +84,12 @@ func TestStandardComposition_CertifiesEveryInProcessFamily(t *testing.T) {
 	for _, id := range standardplugins.EssentialBackendKinds() {
 		t.Run(id, func(t *testing.T) {
 			be, model := buildStandardFamily(t, reg, id, srv.URL, tckClient)
+			if id == standardplugins.CustomSystemOneCompatibleID {
+				// Decision-only families do not claim the legacy chat scenario corpus.
+				// Execute their typed positive and hard-negative boundary contract.
+				certifyStandardDecisionFamily(t, be, model, probe)
+				return
+			}
 			if id == standardplugins.CustomOpenResponsesCompatibleID {
 				delete(be.Caps, lipapi.CapabilityStreaming)
 			}
@@ -188,6 +198,8 @@ func buildStandardFamily(t *testing.T, reg *pluginreg.Registry, id, baseURL stri
 	case standardplugins.CustomAnthropicCompatibleID, standardplugins.CustomOpenResponsesCompatibleID:
 		raw = "backend_prefix: " + id + "\nbase_url: " + baseURL + "\napi_key_env_var_root: TCK_KEY\n"
 		t.Setenv("TCK_KEY", "test-key")
+	case standardplugins.CustomSystemOneCompatibleID:
+		raw = "backend_prefix: " + id + "\nbase_url: " + baseURL + "\nmodels:\n  source: inline\n  items:\n    - canonical_id: m\n      native_id: m\n"
 	default:
 		t.Fatalf("unhandled standard family %q", id)
 	}
@@ -213,5 +225,45 @@ func operationForFamily(id string) lipapi.Operation {
 		return lipapi.OperationOpenAIChatCompletions
 	default:
 		return ""
+	}
+}
+
+func certifyStandardDecisionFamily(t *testing.T, be execbackend.Backend, model string, probe *standardProbe) {
+	t.Helper()
+	probe.Reset()
+	call := lipapi.Call{Decision: &lipapi.DecisionRequest{Evidence: []byte(`"tck-evidence"`), Questions: []lipapi.DecisionQuestion{{ID: "q", Kind: lipapi.DecisionKindNoul}}}, Invocation: lipapi.Invocation{
+		Operation: lipapi.OperationDecisionEvaluate, DeliveryMode: lipapi.DeliveryModeNonStreaming, TransportMode: lipapi.TransportModeNonStreaming,
+	}}
+	candidate := routing.AttemptCandidate{Primary: routing.Primary{Backend: standardplugins.CustomSystemOneCompatibleID, Model: model}}
+	stream, err := be.Open(t.Context(), call, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	var events []lipapi.Event
+	for {
+		event, err := stream.Recv(t.Context())
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, event)
+	}
+	if lipapi.ValidateEventSequence(events) != nil || len(events) != 4 || events[1].Kind != lipapi.EventDecisionResult || events[1].Decision == nil || events[1].Decision.Answers[0].PTrue != 0.7 || events[2].InputTokens != 1 || events[2].OutputTokens != 2 || probe.RequestCount() != 1 {
+		t.Fatalf("decision family failed canonical/wire contract: %+v, requests=%d", events, probe.RequestCount())
+	}
+	if body := string(probe.LastRequest().Body); !strings.Contains(body, `"questions"`) || !strings.Contains(body, `"tck-evidence"`) {
+		t.Fatalf("decision semantics missing upstream: %s", body)
+	}
+	chat := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}}
+	streaming := call
+	streaming.Invocation.TransportMode = lipapi.TransportModeStreaming
+	for _, unsupported := range []lipapi.Call{chat, streaming} {
+		stream, err := be.Open(t.Context(), unsupported, candidate)
+		if stream != nil || !lipapi.IsReject(err) || probe.RequestCount() != 1 {
+			t.Fatalf("unsupported decision-family semantics reached upstream: err=%v requests=%d", err, probe.RequestCount())
+		}
 	}
 }
