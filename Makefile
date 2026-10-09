@@ -21,6 +21,13 @@ DEV_JOBS ?= 4
 DEV_REPEAT ?= 1
 DEV_TIMEOUT ?= 30m
 DEV_OUTPUT ?= stream
+BENCH_BASELINE ?=
+BENCH_CANDIDATE ?=
+BENCH_PATTERN ?=
+BENCH_FIXTURES ?=
+BENCH_OUT ?=
+BENCH_SAMPLES ?= 10
+BENCH_TIME ?= 1s
 DEV_BASE ?=
 DEV_PLAN ?= 0
 DEV_FULL ?= 0
@@ -47,6 +54,10 @@ dev-lint:
 dev-doctor:
 	$(GO) run -buildvcs=false ./tools/devcheck -task=doctor -module="$(MODULE)" -timeout="$(DEV_TIMEOUT)" -evidence="$(DEV_EVIDENCE)"
 
+.PHONY: bench-compare
+bench-compare:
+	$(GO) run -buildvcs=false ./tools/benchcompare -baseline="$(BENCH_BASELINE)" -candidate="$(BENCH_CANDIDATE)" -module="$(MODULE)" -packages="$(PKGS)" -bench="$(BENCH_PATTERN)" -fixtures="$(BENCH_FIXTURES)" -out="$(BENCH_OUT)" -samples=$(BENCH_SAMPLES) -benchtime="$(BENCH_TIME)"
+
 # Dry by default; cleanup is a deliberate operation, never an iteration step.
 .PHONY: dev-cache-maintenance
 dev-cache-maintenance:
@@ -57,10 +68,18 @@ dev-cache-maintenance:
 # the existing layout. SETUP=1 additionally runs the repository's doctor.
 WORKTREE_BRANCH ?=
 WORKTREE_BASE ?= origin/main
+WORKTREE_APPLY ?= 0
+WORKTREE_PATH ?=
+WORKTREE_PR ?=
+WORKTREE_DISCARD_CODEGRAPH ?= 0
 .PHONY: worktree-create
 worktree-create:
 	@test -n '$(WORKTREE_BRANCH)' || { echo 'worktree-create: set WORKTREE_BRANCH=<name>' >&2; exit 2; }
-	bash scripts/worktree-create.sh "$(WORKTREE_BRANCH)" --base "$(WORKTREE_BASE)" $(if $(filter 1,$(SETUP)),--setup,)
+	bash scripts/worktree-create.sh "$(WORKTREE_BRANCH)" --base "$(WORKTREE_BASE)" $(if $(filter 1,$(WORKTREE_APPLY)),--apply,) $(if $(filter 1,$(SETUP)),--setup,)
+
+.PHONY: worktree-cleanup
+worktree-cleanup:
+	$(GO) run -buildvcs=false ./tools/worktreeclean -path="$(WORKTREE_PATH)" -branch="$(WORKTREE_BRANCH)" -pr=$(WORKTREE_PR) $(if $(filter 1,$(WORKTREE_APPLY)),-apply,) $(if $(filter 1,$(WORKTREE_DISCARD_CODEGRAPH)),-discard-codegraph,)
 
 # Read-only delivery status for one PR. Exit codes are the contract:
 # 0 ready, 1 failed, 2 usage, 3 blocked (pending/draft/base unmerged/branch

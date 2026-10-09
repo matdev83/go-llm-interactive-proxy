@@ -36,6 +36,8 @@ func DefaultCollectLimits() CollectLimits {
 type EventKind string
 
 const (
+	// EventDecisionResult carries a complete typed decision and commits output.
+	EventDecisionResult  EventKind = "decision_result"
 	EventResponseStarted EventKind = "response_started"
 	EventMessageStarted  EventKind = "message_started"
 	EventTextDelta       EventKind = "text_delta"
@@ -93,6 +95,8 @@ func isContentClassKind(k EventKind) bool {
 // Event is one canonical streaming item.
 type Event struct {
 	Kind EventKind
+	// Decision carries the validated result on EventDecisionResult only.
+	Decision *DecisionResult `json:",omitempty"`
 
 	MessageIndex int
 	Delta        string
@@ -233,7 +237,14 @@ func ValidateEventEnvelope(ev *Event) error {
 	if ev.Kind != EventItem && ev.Item != nil {
 		return &ValidationError{Field: "Item", Message: "only allowed on item events"}
 	}
+	if ev.Kind != EventDecisionResult && ev.Decision != nil {
+		return &ValidationError{Field: "Decision", Message: "only allowed on decision_result"}
+	}
 	switch ev.Kind {
+	case EventDecisionResult:
+		if ev.Decision == nil {
+			return &ValidationError{Field: "Decision", Message: "required for decision_result"}
+		}
 	case EventReasoningPart:
 		if ev.Reasoning == nil {
 			return &ValidationError{Field: "Reasoning", Message: "required for reasoning_part"}
@@ -772,6 +783,7 @@ func reasoningAggregateWouldExceed(textLen, exactLen, add, maxLen int) bool {
 func ValidateEventSequence(events []Event) error {
 	var sawResponseStarted bool
 	var sawMessage bool
+	var sawDecision bool
 
 	for _, ev := range events {
 		switch ev.Kind {
@@ -791,6 +803,14 @@ func ValidateEventSequence(events []Event) error {
 			}
 			// Usage, warnings, and standalone item carriers may appear without a
 			// message frame on some adapters.
+		case EventDecisionResult:
+			if !sawResponseStarted {
+				return fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
+			}
+			if sawDecision {
+				return fmt.Errorf("duplicate %s", EventDecisionResult)
+			}
+			sawDecision = true
 		case EventError:
 			if !sawResponseStarted {
 				return fmt.Errorf("%s before %s", EventError, EventResponseStarted)

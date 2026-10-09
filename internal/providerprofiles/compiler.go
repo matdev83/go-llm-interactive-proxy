@@ -24,6 +24,8 @@ func FamilyBinding(f Family) (Binding, error) {
 		return Binding{Family: f, FactoryKind: "custom-anthropic-compatible"}, nil
 	case FamilyOpenResponses:
 		return Binding{Family: f, FactoryKind: "custom-openresponses-compatible"}, nil
+	case FamilySystemOne:
+		return Binding{Family: f, FactoryKind: "custom-systemone-compatible"}, nil
 	default:
 		return Binding{}, fmt.Errorf("unknown provider family %q", f)
 	}

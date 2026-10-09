@@ -1,6 +1,49 @@
 [
   {
     "api_version": "lip.provider-profile/v1",
+    "id": "typesafe",
+    "family": "systemone-compatible",
+    "endpoint": { "base_url": "https://api.typesafe.ai/v1", "path_policy": "family_default" },
+    "auth": { "mode": "bearer_env", "env_var": "TYPESAFE_API_KEY" },
+    "models": {
+      "discovery": "static",
+      "namespace": { "mode": "preserve" },
+      "static": [
+        { "canonical_id": "jev-latest", "native_id": "jev-latest", "display_name": "jev-latest" },
+        { "canonical_id": "jev-preview", "native_id": "jev-preview", "display_name": "jev-preview" },
+        { "canonical_id": "jev-1.13.0", "native_id": "jev-1.13.0", "display_name": "jev-1.13.0" }
+      ]
+    }
+  },
+  {
+    "api_version": "lip.provider-profile/v1",
+    "id": "openrouter-systemone",
+    "family": "systemone-compatible",
+    "endpoint": { "base_url": "https://openrouter.ai/api/v1", "path_policy": "family_default" },
+    "auth": { "mode": "bearer_env", "env_var": "OPENROUTER_API_KEY" },
+    "models": {
+      "discovery": "static",
+      "namespace": { "mode": "preserve" },
+      "static": [
+        { "canonical_id": "typesafe/jev-1.13", "native_id": "typesafe/jev-1.13", "display_name": "typesafe/jev-1.13" },
+        { "canonical_id": "~typesafe/jev-latest", "native_id": "~typesafe/jev-latest", "display_name": "~typesafe/jev-latest" }
+      ]
+    }
+  },
+  {
+    "api_version": "lip.provider-profile/v1",
+    "id": "commandcode-systemone",
+    "family": "systemone-compatible",
+    "endpoint": { "base_url": "https://api.commandcode.ai/provider/v1", "path_policy": "family_default" },
+    "auth": { "mode": "bearer_env", "env_var": "CMD_API_KEY" },
+    "models": {
+      "discovery": "static",
+      "namespace": { "mode": "preserve" },
+      "static": [ { "canonical_id": "typesafe/jev", "native_id": "typesafe/jev", "display_name": "typesafe/jev" } ]
+    }
+  },
+  {
+    "api_version": "lip.provider-profile/v1",
     "id": "groq",
     "family": "openai-responses-compatible",
     "endpoint": {

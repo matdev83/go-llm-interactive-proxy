@@ -3,6 +3,7 @@ package lipapi
 import (
 	"encoding/json"
 	"maps"
+	"slices"
 )
 
 // CloneCall returns a deep copy of c suitable as an immutable baseline for per-attempt derivation.
@@ -11,6 +12,7 @@ func CloneCall(c Call) Call {
 	out.Instructions = cloneMessages(c.Instructions)
 	out.Messages = cloneMessages(c.Messages)
 	out.Items = cloneItems(c.Items)
+	out.Decision = cloneDecisionRequest(c.Decision)
 	out.Tools = cloneTools(c.Tools)
 	out.Options = CloneGenerationOptions(c.Options)
 	if len(c.ToolChoice.AllowedTools) > 0 {
@@ -34,6 +36,30 @@ func CloneCall(c Call) Call {
 		maps.Copy(out.Session.Metadata, c.Session.Metadata)
 	}
 	return out
+}
+
+func cloneDecisionRequest(in *DecisionRequest) *DecisionRequest {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Evidence = slices.Clone(in.Evidence)
+	out.Questions = slices.Clone(in.Questions)
+	for i := range out.Questions {
+		q := &out.Questions[i]
+		q.Instructions = slices.Clone(q.Instructions)
+		q.TrueCriteria = slices.Clone(q.TrueCriteria)
+		q.FalseCriteria = slices.Clone(q.FalseCriteria)
+		q.Options = slices.Clone(q.Options)
+		for j := range q.Options {
+			q.Options[j].Description = slices.Clone(q.Options[j].Description)
+		}
+		q.Levels = slices.Clone(q.Levels)
+		for j := range q.Levels {
+			q.Levels[j] = slices.Clone(q.Levels[j])
+		}
+	}
+	return &out
 }
 
 // CloneGenerationOptions returns a copy with independent pointer fields.

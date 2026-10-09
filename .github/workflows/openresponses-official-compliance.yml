@@ -193,7 +193,15 @@ jobs:
           test "$STATIC_ARCHTEST_OUTCOME" = success
           test "$SUITE_OUTCOME" = success
           test -s openresponses-official-output.txt
-          ! grep -Eiq 'SKIPPED|skipped [1-9]|no `node` binary|dependencies are not installed|reported zero cases' openresponses-official-output.txt
+          # The exact 17/17 summary assertion below is authoritative for skip
+          # counts; this scan catches skip/zero-case markers that could coexist
+          # with a matching summary. It deliberately omits a bare
+          # case-insensitive SKIPPED, which matches the summary's own
+          # "0 skipped".
+          if grep -Eiq "skipped [1-9]|no \`node\` binary|dependencies are not installed|reported zero cases" openresponses-official-output.txt; then
+            echo "official compliance output reports skipped or zero cases" >&2
+            exit 1
+          fi
           grep -Eq 'official compliance suite: 17/17 passed, 0 failed, 0 skipped' openresponses-official-output.txt
 
       - name: Fail closed if scope detection failed

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/internal/scopeplan"
 	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
 
@@ -83,31 +84,8 @@ func commandOutput(ctx context.Context, dir, name string, args ...string) ([]byt
 }
 
 func changedPaths(ctx context.Context, root, mode, base string) ([]string, error) {
-	commands := [][]string{{"diff", "--cached", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD"}}
-	if mode == "base" {
-		if base == "" || strings.HasPrefix(base, "-") {
-			return nil, fmt.Errorf("-mode=base needs a -base commit, got %q", base)
-		}
-		commands = [][]string{{"diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD", base + "...HEAD", "--"}}
-	} else if mode == "changed" {
-		commands = append(commands, []string{"diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD"}, []string{"ls-files", "--others", "--exclude-standard", "-z"})
-	} else if mode != "staged" {
-		return nil, fmt.Errorf("invalid scope mode %q", mode)
-	}
-	var paths []string
-	for _, args := range commands {
-		out, err := commandOutput(ctx, root, "git", args...)
-		if err != nil {
-			return nil, err
-		}
-		for name := range strings.SplitSeq(string(out), "\x00") {
-			if name != "" {
-				paths = append(paths, filepath.ToSlash(name))
-			}
-		}
-	}
-	slices.Sort(paths)
-	return slices.Compact(paths), nil
+	paths, _, err := scopeplan.Changes(ctx, root, mode, base)
+	return paths, err
 }
 
 func requiresFullLint(name string) bool {
@@ -127,12 +105,7 @@ func requiresFullLint(name string) bool {
 }
 
 func isSkillPath(name string) bool {
-	for _, prefix := range []string{".agents/", ".codex/", ".cursor/", ".kiro/", ".opencode/", ".pi/"} {
-		if strings.HasPrefix(name, prefix+"skills/") {
-			return true
-		}
-	}
-	return false
+	return scopeplan.IsSkill(name)
 }
 
 func buildLintPlan(ctx context.Context, root, mode, base string, direct bool) (lintPlan, error) {
@@ -153,6 +126,17 @@ func buildLintPlan(ctx context.Context, root, mode, base string, direct bool) (l
 		// Preserve the standalone clean-checkout root gate without expanding it
 		// to unrelated independent modules.
 		return lintPlan{Modules: []moduleScope{{Directory: ".", Packages: []string{"./..."}}}}, nil
+	}
+	if direct {
+		selected, err := scopeplan.Direct(root, paths, false)
+		if err != nil {
+			return lintPlan{}, err
+		}
+		plan := lintPlan{Modules: []moduleScope{}}
+		for _, module := range selected.Modules {
+			plan.Modules = append(plan.Modules, moduleScope{Directory: module.Directory, Packages: module.Packages})
+		}
+		return plan, nil
 	}
 	byModule := map[string][]string{}
 	for _, name := range paths {
@@ -219,14 +203,6 @@ func buildLintPlan(ctx context.Context, root, mode, base string, direct bool) (l
 			}
 			seeds = append(seeds, seed)
 		}
-		if direct {
-			// A deleted package has nothing left to lint; CI lints its consumers.
-			selected := directPackages(graph, seeds)
-			if len(selected) > 0 {
-				plan.Modules = append(plan.Modules, moduleScope{Directory: module, Packages: relativePatterns(selected, modulePath)})
-			}
-			continue
-		}
 		selected := affectedPackages(graph, seeds)
 		// Unresolved/deleted package selection must never silently omit evidence.
 		if len(selected) == 0 {
@@ -248,17 +224,6 @@ func relativePatterns(selected []string, modulePath string) []string {
 		}
 	}
 	return patterns
-}
-
-func directPackages(graph []listedPackage, seeds []string) []string {
-	var selected []string
-	for _, pkg := range graph {
-		if slices.Contains(seeds, pkg.ImportPath) {
-			selected = append(selected, pkg.ImportPath)
-		}
-	}
-	slices.Sort(selected)
-	return selected
 }
 
 func affectedPackages(graph []listedPackage, seeds []string) []string {

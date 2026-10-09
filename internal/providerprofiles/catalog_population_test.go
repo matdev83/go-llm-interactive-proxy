@@ -37,6 +37,18 @@ type expectedProfile struct {
 // Each batch in Tasks 2-4 extends this table in the same commit.
 var expectedCatalogProfiles = []expectedProfile{
 	{
+		ID: "typesafe", Family: providerprofiles.FamilySystemOne, BaseURL: "https://api.typesafe.ai/v1", AuthMode: providerprofiles.AuthBearerEnv, EnvVar: "TYPESAFE_API_KEY", Discovery: providerprofiles.DiscoveryStatic,
+		StaticModels: []providerprofiles.Model{{CanonicalID: "jev-latest", NativeID: "jev-latest", DisplayName: "jev-latest"}, {CanonicalID: "jev-preview", NativeID: "jev-preview", DisplayName: "jev-preview"}, {CanonicalID: "jev-1.13.0", NativeID: "jev-1.13.0", DisplayName: "jev-1.13.0"}},
+	},
+	{
+		ID: "openrouter-systemone", Family: providerprofiles.FamilySystemOne, BaseURL: "https://openrouter.ai/api/v1", AuthMode: providerprofiles.AuthBearerEnv, EnvVar: "OPENROUTER_API_KEY", Discovery: providerprofiles.DiscoveryStatic,
+		StaticModels: []providerprofiles.Model{{CanonicalID: "typesafe/jev-1.13", NativeID: "typesafe/jev-1.13", DisplayName: "typesafe/jev-1.13"}, {CanonicalID: "~typesafe/jev-latest", NativeID: "~typesafe/jev-latest", DisplayName: "~typesafe/jev-latest"}},
+	},
+	{
+		ID: "commandcode-systemone", Family: providerprofiles.FamilySystemOne, BaseURL: "https://api.commandcode.ai/provider/v1", AuthMode: providerprofiles.AuthBearerEnv, EnvVar: "CMD_API_KEY", Discovery: providerprofiles.DiscoveryStatic,
+		StaticModels: []providerprofiles.Model{{CanonicalID: "typesafe/jev", NativeID: "typesafe/jev", DisplayName: "typesafe/jev"}},
+	},
+	{
 		ID:        "groq",
 		Family:    providerprofiles.FamilyOpenAIResponses,
 		BaseURL:   "https://api.groq.com/openai/v1",
@@ -2109,6 +2121,11 @@ var dedicatedBackendAndConnectorIDs = map[string]bool{
 }
 
 func isDedicatedProductOrFamily(id string) bool {
+	// The approved decision family is separate from Command Code's existing
+	// executable chat connectors; its profile does not replace their IDs.
+	if id == "commandcode-systemone" {
+		return false
+	}
 	if dedicatedBackendAndConnectorIDs[id] {
 		return true
 	}
