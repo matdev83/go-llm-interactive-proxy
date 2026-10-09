@@ -11,6 +11,8 @@ type CapabilitySet struct {
 type Capability string
 
 const (
+	// CapabilityDecisions requires faithful typed decision evaluation.
+	CapabilityDecisions         Capability = "decisions"
 	CapabilityStreaming         Capability = "streaming"
 	CapabilityTools             Capability = "tools"
 	CapabilityVision            Capability = "vision"
@@ -91,6 +93,9 @@ func RequiredCapabilities(c Call) []Capability {
 				}
 			}
 		}
+	}
+	if c.Decision != nil {
+		add(CapabilityDecisions)
 	}
 	if c.HasItemAuthority() {
 		for _, item := range NormalizedItems(c) {
