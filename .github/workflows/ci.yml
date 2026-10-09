@@ -206,7 +206,8 @@ jobs:
           fi
           for attempt in 1 2 3; do
             if go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7; then
-              export PATH="$(go env GOPATH)/bin:$PATH"
+              gopath=$(go env GOPATH)
+              export PATH="$gopath/bin:$PATH"
               break
             fi
             echo "go install actionlint failed (attempt $attempt/3)" >&2

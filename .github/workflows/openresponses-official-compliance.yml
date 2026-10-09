@@ -193,7 +193,10 @@ jobs:
           test "$STATIC_ARCHTEST_OUTCOME" = success
           test "$SUITE_OUTCOME" = success
           test -s openresponses-official-output.txt
-          ! grep -Eiq 'SKIPPED|skipped [1-9]|no `node` binary|dependencies are not installed|reported zero cases' openresponses-official-output.txt
+          if grep -Eiq "SKIPPED|skipped [1-9]|no \`node\` binary|dependencies are not installed|reported zero cases" openresponses-official-output.txt; then
+            echo "official compliance output reports skipped or zero cases" >&2
+            exit 1
+          fi
           grep -Eq 'official compliance suite: 17/17 passed, 0 failed, 0 skipped' openresponses-official-output.txt
 
       - name: Fail closed if scope detection failed
