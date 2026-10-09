@@ -376,11 +376,21 @@ higher is retained. To update an existing guard, inspect and back up the install
 `install -m 755 scripts/go-dev-guard.sh "$HOME/.local/bin/go"`. CI markers and Windows retain their existing resource defaults; race
 blocking on development hosts remains active even with CI markers. Elsewhere,
 leave package concurrency unset for Go's native default. Across sessions, the
-guard admits at most `LIP_GO_SLOTS` (default 2) heavy commands (`build`, `test`,
+guard budgets `LIP_GO_SLOTS` (default 2) heavy commands (`build`, `test`,
 `vet`, `install`) host-wide; others print a waiting notice and queue for a free
 slot (`flock` on `$HOME/.cache/lip-go-slots`). Commands started by a slotted
-command inherit its slot, and after `LIP_GO_SLOT_WAIT` seconds (default 900) a
-waiting command runs anyway. Make and Bash
+command inherit its slot. `LIP_GO_SLOT_MODE=advisory` (default) waits up to
+`LIP_GO_SLOT_WAIT` seconds (default 900), then explicitly reports that it is
+running without a slot. `LIP_GO_SLOT_MODE=hard` instead returns **75**
+(`EX_TEMPFAIL`, resource-blocked), without starting the toolchain. A zero wait
+attempts every slot once before applying that policy. Invalid modes return 2.
+Nested commands retaining `LIP_GO_SLOT_HELD` reuse their parent's slot under
+either policy; children that scrub that variable must retain advisory policy
+or a bounded wait to avoid waiting indefinitely behind their own parent.
+For a hard, immediate admission check:
+`LIP_GO_SLOT_MODE=hard LIP_GO_SLOT_WAIT=0 go test ./path/to/package`.
+This policy does not yet coordinate external analyzers or cache maintenance.
+Make and Bash
 gates pass explicit package flags, which take precedence over `GOFLAGS`; use
 `LIP_TEST_PACKAGES`, `LIP_TEST_PARALLEL`, and `DEV_JOBS` for their budget overrides,
 or replace Make's complete `GO_TEST_FLAGS` string.
