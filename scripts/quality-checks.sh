@@ -115,6 +115,7 @@ declare -a STAGED_PATHS=() STAGED_GO_FILES_EXISTING=() STAGED_MODULES=() STAGED_
 declare -A STAGED_MODULE_INDEX=() STAGED_TIDY_SEEN=() STAGED_MODULE_ALL=() STAGED_DELETED_MODULES=()
 STAGED_FEATURE_PLANES=false
 STAGED_PROTOBUF=false
+STAGED_WORKFLOWS=false
 
 module_for_path() {
 	local path="$1" dir
@@ -233,6 +234,11 @@ collect_staged_scope() {
 		case "$file" in
 			api/*|go.mod|go.sum|scripts/proto-check.sh|scripts/quality-checks.sh|.github/workflows/ci.yml)
 				STAGED_PROTOBUF=true
+				;;
+		esac
+		case "$file" in
+			.github/workflows/*|scripts/check-workflows.sh|scripts/quality-checks.sh)
+				STAGED_WORKFLOWS=true
 				;;
 		esac
 
@@ -595,6 +601,11 @@ if [[ "$QUALITY_MODE" != "staged" || "$STAGED_PROTOBUF" == true ]]; then
 	run_guard protobuf bash "$script_dir/proto-check.sh"
 else
 	echo "Skipping protobuf checks: no staged protobuf or pinned-tool inputs changed."
+fi
+if [[ "$QUALITY_MODE" != "staged" || "$STAGED_WORKFLOWS" == true ]]; then
+	run_guard workflows bash "$script_dir/check-workflows.sh"
+else
+	echo "Skipping workflow lint: no staged workflow files changed."
 fi
 if [ "${LIP_SKIP_LINT:-}" != "1" ]; then
 	run_guard lint bash "$script_dir/lint-all-modules.sh" --changed

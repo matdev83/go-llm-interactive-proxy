@@ -74,17 +74,50 @@ fetch_view() {
 	gh pr view "$pr" --json "$pr_view_fields"
 }
 
+# fetch_required_contexts prints the base branch's required status-check
+# contexts, one per line. An unreadable inventory fails rather than returning an
+# empty list: silently shrinking the required set is exactly how a workflow
+# GitHub rejects (no check runs at all) reads as "ready".
+fetch_required_contexts() {
+	local base_ref=$1 protection
+	protection=$(gh api "repos/{owner}/{repo}/branches/$base_ref/protection" 2>/dev/null) || return 1
+	jq -r '[(.required_status_checks.contexts // [])[], ((.required_status_checks.checks // [])[] | .context)] | unique | .[]' <<<"$protection"
+}
+
+# fetch_checks reads evidence bound to the observed head commit only. Checks
+# attached to an older head never answer for this one, so the sources are the
+# commit's own check runs and legacy statuses, filtered to the required
+# contexts. A required context with no entry on this head is reported as
+# missing, which keeps the verdict blocked.
 fetch_checks() {
-	local pr=$1
-	local checks
-	# gh returns 1 for failed checks while still emitting valid JSON. Preserve
-	# that evidence; transport errors or absent required checks stay blocked.
-	checks=$(gh pr checks "$pr" --required --json name,bucket,state,link 2>/dev/null) || true
-	if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$checks"; then
-		printf '%s\n' "$checks"
-	else
-		echo '[]'
-	fi
+	local head=$1 required_json=$2 runs statuses
+	runs=$(gh api "repos/{owner}/{repo}/commits/$head/check-runs?per_page=100" 2>/dev/null) || runs=""
+	statuses=$(gh api "repos/{owner}/{repo}/commits/$head/status" 2>/dev/null) || statuses=""
+	jq -n --argjson runs "${runs:-null}" --argjson statuses "${statuses:-null}" --argjson req "$required_json" '
+		def rank: {fail: 4, missing: 3, pending: 2, skipping: 1, pass: 0}[.] // 3;
+		[
+			($runs.check_runs[]? | select(.name as $n | $req | index($n)) | {
+				name,
+				state: (.conclusion // .status // "pending"),
+				bucket: (
+					if .conclusion == null then "pending"
+					elif .conclusion == "success" then "pass"
+					elif .conclusion == "skipped" or .conclusion == "neutral" then "skipping"
+					else "fail" end),
+				link: (.details_url // "")
+			}),
+			($statuses.statuses[]? | select(.context as $c | $req | index($c)) | {
+				name: .context,
+				state,
+				bucket: (if .state == "success" then "pass" elif .state == "failure" or .state == "error" then "fail" else "pending" end),
+				link: (.target_url // "")
+			})
+		] as $found
+		| ($found + [$req[] | select(. as $c | ($found | map(.name) | index($c)) | not) | {name: ., bucket: "missing", state: "MISSING", link: ""}])
+		| group_by(.name)
+		| map(sort_by(.bucket | rank) | last)
+		| sort_by(.name)
+	'
 }
 
 # find_base_pr resolves the PR that owns this PR's base branch. A PR based on
@@ -222,6 +255,7 @@ log_snapshot() {
 # called directly rather than in a command substitution so the summary reaches
 # the terminal during `watch`.
 REPORT_EXIT=""
+REPORT_COUNTS=""
 report_once() {
 	local pr=$1 view checks state is_draft head_ref head_oid base_ref base_oid
 	local mergeable merge_state url merged_at base_pr base_state head_gone
@@ -229,7 +263,6 @@ report_once() {
 
 	[[ "$pr" =~ ^[1-9][0-9]*$ ]] || die "PR must be a positive number"
 	view=$(fetch_view "$pr") || die "cannot read PR $pr"
-	checks=$(fetch_checks "$pr")
 	local refreshed
 	refreshed=$(fetch_view "$pr") || die "cannot refresh PR $pr"
 	if [[ $(jq -c '[.headRefOid,.baseRefOid]' <<<"$view") != "$(jq -c '[.headRefOid,.baseRefOid]' <<<"$refreshed")" ]]; then
@@ -249,6 +282,18 @@ report_once() {
 	merge_state=$(json_get '.mergeStateStatus' <<<"$view")
 	url=$(json_get '.url' <<<"$view")
 	merged_at=$(json_get '.mergedAt' <<<"$view")
+
+	# Required-check evidence must belong to the head observed here. The
+	# inventory comes from the base branch's protection, so a context whose run
+	# never started is visible as missing instead of absent from the list.
+	local required_text required_json inventory_note=""
+	if required_text=$(fetch_required_contexts "$base_ref"); then
+		required_json=$(jq -Rn --arg v "$required_text" '$v | split("\n") | map(select(length > 0))')
+		checks=$(fetch_checks "$head_oid" "$required_json")
+	else
+		checks='[]'
+		inventory_note="required-check inventory unavailable for base $base_ref; refusing to assume readiness"
+	fi
 
 	base_pr=$(find_base_pr "$base_ref")
 	base_state=$(base_pr_state "$base_pr")
@@ -304,10 +349,19 @@ report_once() {
 	fi
 
 	jq -r '.[] | "  check:    \(.bucket)  \(.name)"' <<<"$checks" | sort
-	printf '  counts:   pass=%s fail=%s pending=%s\n' \
-		"$(jq '[.[] | select(.bucket == "pass")] | length' <<<"$checks")" \
-		"$(jq '[.[] | select(.bucket == "fail" or .bucket == "cancel" or .bucket == "canceling")] | length' <<<"$checks")" \
-		"$(jq '[.[] | select(.bucket == "pending")] | length' <<<"$checks")"
+	local passes fails pendings missing
+	passes=$(jq '[.[] | select(.bucket == "pass")] | length' <<<"$checks")
+	fails=$(jq '[.[] | select(.bucket == "fail")] | length' <<<"$checks")
+	pendings=$(jq '[.[] | select(.bucket == "pending")] | length' <<<"$checks")
+	printf '  counts:   pass=%s fail=%s pending=%s\n' "$passes" "$fails" "$pendings"
+	REPORT_COUNTS="pass=$passes fail=$fails pending=$pendings"
+	missing=$(jq -r '[.[] | select(.bucket == "missing") | .name] | join(", ")' <<<"$checks")
+	if [[ -n "$missing" ]]; then
+		printf '  reason:   required checks without evidence on this head: %s\n' "$missing"
+	fi
+	if [[ -n "$inventory_note" ]]; then
+		printf '  reason:   %s\n' "$inventory_note"
+	fi
 
 	if [[ "$head_gone" == true && "$state" != MERGED ]]; then
 		printf '  reason:   head branch is missing on the remote; restore it before delivery\n'
@@ -343,11 +397,12 @@ cmd_status() {
 	return "$(exit_from_label "$REPORT_EXIT")"
 }
 
-# watch prints a summary only when something changed, and stops as soon as the
-# PR reaches a terminal verdict. A PR whose head moves mid-watch reports the new
-# head rather than the previous run's result.
+# watch prints the full report only on a transition and stops as soon as the PR
+# reaches a terminal verdict. An unchanged poll is silent, so a long watch costs
+# one line per real change instead of a wall of repeated reports. A PR whose
+# head moves mid-watch reports the new head rather than the previous result.
 cmd_watch() {
-	local pr="" interval=20 timeout=0 start=$SECONDS previous="" current
+	local pr="" interval=20 timeout=0 start=$SECONDS previous="" current signal last="" capture
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--interval)
@@ -371,13 +426,24 @@ cmd_watch() {
 	[[ -n "$pr" ]] || die "usage: pr-status.sh watch <PR> [--interval N] [--timeout N]"
 	[[ "$interval" =~ ^[1-9][0-9]*$ && "$timeout" =~ ^[0-9]+$ ]] || die "interval must be positive and timeout non-negative integer seconds"
 
+	# The report is captured so an unchanged poll reaches no terminal. The file
+	# lives with the recorded state instead of /tmp so it survives a restart and
+	# is cleaned with the rest of the tool's cache.
+	mkdir -p "$LIP_PR_STATE_DIR"
+	capture="$LIP_PR_STATE_DIR/pr-$pr.watch-report"
+
 	while :; do
-		report_once "$pr"
+		report_once "$pr" >"$capture"
 		current=$REPORT_EXIT
+		signal="$current|$REPORT_COUNTS"
+		if [[ "$signal" != "$last" ]]; then
+			cat "$capture"
+		fi
 		if [[ "$current" != "$previous" ]]; then
 			echo "--- change: $current ---"
 			previous=$current
 		fi
+		last=$signal
 		case "$current" in
 		"$EXIT_READY")
 			return 0
@@ -428,62 +494,43 @@ cmd_self_test() {
 	cat >"$fake" <<'STUB'
 #!/usr/bin/env bash
 # Fake gh driven by $FAKE_PR_SCENARIO. Records every invocation so the test can
-# assert the script never asked for anything mutating.
+# assert the script never asked for anything mutating. Evidence is keyed by the
+# commit the script names: checks for another head must never answer.
 printf '%s\n' "$*" >>"$FAKE_GH_CALLS"
-case "${FAKE_PR_SCENARIO:-green}" in
-green)
-	case "$*" in
-	*"pr list"*) echo '{"number":null}' ;;
-	*"pr checks"*) echo '[{"name":"Go suite","bucket":"pass","state":"SUCCESS","link":"l"},{"name":"Lint","bucket":"pass","state":"SUCCESS","link":"l"}]' ;;
+scenario="${FAKE_PR_SCENARIO:-green}"
+case "$*" in
+*"pr list"*)
+	if [[ "$scenario" == "stacked-unmerged" ]]; then
+		echo '[{"number":7,"state":"OPEN"}]'
+	else
+		echo '{"number":null}'
+	fi
+	;;
+*"pr view 7"*) echo '{"state":"OPEN"}' ;;
+*"api repos/{owner}/{repo}/branches/"*)
+	if [[ "$scenario" == "no-inventory" ]]; then exit 1; fi
+	echo '{"required_status_checks":{"contexts":["Go suite","Lint"]}}'
+	;;
+*"api repos/{owner}/{repo}/commits/"*"/check-runs"*)
+	case "$scenario" in
+	missing) echo '{"check_runs":[]}' ;;
+	failing) echo '{"check_runs":[{"name":"Go suite","status":"completed","conclusion":"failure","details_url":"l"}]}' ;;
+	pending) echo '{"check_runs":[{"name":"Go suite","status":"in_progress","conclusion":null,"details_url":"l"}]}' ;;
+	skipped) echo '{"check_runs":[{"name":"Go suite","status":"completed","conclusion":"success","details_url":"l"},{"name":"Lint","status":"completed","conclusion":"skipped","details_url":"l"}]}' ;;
+	*) echo '{"check_runs":[{"name":"Go suite","status":"completed","conclusion":"success","details_url":"l"},{"name":"Lint","status":"completed","conclusion":"success","details_url":"l"}]}' ;;
+	esac
+	;;
+*"api repos/{owner}/{repo}/commits/"*"/status"*)
+	echo '{"statuses":[]}'
+	;;
+*"pr view"*)
+	case "$scenario" in
+	merged) echo '{"number":1,"state":"MERGED","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","url":"https://example.invalid/1","mergedAt":"2026-10-08T00:00:00Z"}' ;;
+	stacked-unmerged) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/y","headRefOid":"aaaa111","baseRefName":"feat/x","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","url":"https://example.invalid/1","mergedAt":null}' ;;
+	newhead) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"cccc333","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","url":"https://example.invalid/1","mergedAt":null}' ;;
+	failing) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"UNSTABLE","url":"https://example.invalid/1","mergedAt":null}' ;;
+	pending) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","url":"https://example.invalid/1","mergedAt":null}' ;;
 	*) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","url":"https://example.invalid/1","mergedAt":null}' ;;
-	esac
-	;;
-skipped)
-	case "$*" in
-	*"pr checks"*) echo '[{"name":"Go suite","bucket":"pass"},{"name":"Optional","bucket":"skipping"}]' ;;
-	*) echo '{"state":"OPEN","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}' ;;
-	esac
-	;;
-missing)
-	case "$*" in
-	*"pr checks"*) echo '[]'; exit 1 ;;
-	*) echo '{"state":"OPEN","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}' ;;
-	esac
-	;;
-failing)
-	case "$*" in
-	*"pr list"*) echo '{"number":null}' ;;
-	*"pr checks"*) echo '[{"name":"Go suite","bucket":"fail","state":"FAILURE","link":"l"},{"name":"Lint","bucket":"pass","state":"SUCCESS","link":"l"}]'; exit 1 ;;
-	*) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"UNSTABLE","url":"https://example.invalid/1","mergedAt":null}' ;;
-	esac
-	;;
-pending)
-	case "$*" in
-	*"pr list"*) echo '{"number":null}' ;;
-	*"pr checks"*) echo '[{"name":"Go suite","bucket":"pending","state":"PENDING","link":"l"}]' ;;
-	*) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","url":"https://example.invalid/1","mergedAt":null}' ;;
-	esac
-	;;
-stacked-unmerged)
-	case "$*" in
-	*"pr list"*) echo '[{"number":7,"state":"OPEN"}]' ;;
-	*"pr view 7"*) echo '{"state":"OPEN"}' ;;
-	*"pr checks"*) echo '[{"name":"Go suite","bucket":"pass","state":"SUCCESS","link":"l"}]' ;;
-	*) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/y","headRefOid":"aaaa111","baseRefName":"feat/x","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","url":"https://example.invalid/1","mergedAt":null}' ;;
-	esac
-	;;
-newhead)
-	case "$*" in
-	*"pr list"*) echo '{"number":null}' ;;
-	*"pr checks"*) echo '[{"name":"Go suite","bucket":"pass","state":"SUCCESS","link":"l"}]' ;;
-	*) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"cccc333","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","url":"https://example.invalid/1","mergedAt":null}' ;;
-	esac
-	;;
-merged)
-	case "$*" in
-	*"pr list"*) echo '{"number":null}' ;;
-	*"pr checks"*) echo '[]' ;;
-	*) echo '{"number":1,"state":"MERGED","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","url":"https://example.invalid/1","mergedAt":"2026-10-08T00:00:00Z"}' ;;
 	esac
 	;;
 esac
@@ -509,10 +556,21 @@ STUB
 	[[ $rc -eq $EXIT_READY ]] || { echo "FAIL: green expected ready($EXIT_READY), got $rc" >&2; echo "$out" >&2; return 1; }
 	grep -q 'head:     feat/x @ aaaa111' <<<"$out" || { echo "FAIL: head SHA not reported" >&2; echo "$out" >&2; return 1; }
 	grep -q 'verdict:  ready' <<<"$out" || { echo "FAIL: ready verdict not printed" >&2; return 1; }
+	# Evidence is keyed to the observed commit: the check-runs read must name it.
+	grep -q 'commits/aaaa111/check-runs' "$FAKE_GH_CALLS" || { echo "FAIL: checks not bound to the observed head" >&2; return 1; }
 	out=$(FAKE_PR_SCENARIO=skipped bash "$script" status 1) && rc=0 || rc=$?
 	[[ $rc -eq $EXIT_READY ]] || { echo "FAIL: intentionally skipped check blocked readiness ($rc)" >&2; return 1; }
 	out=$(FAKE_PR_SCENARIO=missing bash "$script" status 1) && rc=0 || rc=$?
 	[[ $rc -eq $EXIT_BLOCKED ]] || { echo "FAIL: missing required checks reported ready ($rc)" >&2; return 1; }
+	grep -q 'required checks without evidence on this head: Go suite, Lint' <<<"$out" || { echo "FAIL: missing checks not named on this head" >&2; echo "$out" >&2; return 1; }
+	if out=$(FAKE_PR_SCENARIO=no-inventory bash "$script" status 5); then
+		echo "FAIL: unreadable required-check inventory expected non-zero" >&2
+		return 1
+	else
+		rc=$?
+	fi
+	[[ $rc -eq $EXIT_BLOCKED ]] || { echo "FAIL: unreadable inventory expected blocked($EXIT_BLOCKED), got $rc" >&2; return 1; }
+	grep -q 'required-check inventory unavailable for base main' <<<"$out" || { echo "FAIL: unreadable inventory not explained" >&2; echo "$out" >&2; return 1; }
 	[[ $(classify OPEN false MERGEABLE BEHIND '[{"bucket":"pass"}]' '' false) == "$EXIT_BLOCKED" ]] || { echo "FAIL: behind branch reported ready" >&2; return 1; }
 	[[ $(classify CLOSED false MERGEABLE CLEAN '[{"bucket":"pass"}]' '' false) == "$EXIT_BLOCKED" ]] || { echo "FAIL: closed PR reported ready" >&2; return 1; }
 	local snapshot
@@ -540,6 +598,7 @@ STUB
 	grep -q 'STALE: recorded evidence was for head aaaa111' <<<"$out" || { echo "FAIL: stale head not named" >&2; echo "$out" >&2; return 1; }
 	# Recording the newly observed head is what lets the next run re-verify.
 	grep -q 'head_oid=cccc333' "$fixture/state/pr-1.state" || { echo "FAIL: moved head not recorded" >&2; return 1; }
+	grep -q 'commits/cccc333/check-runs' "$FAKE_GH_CALLS" || { echo "FAIL: moved head checks were not read for the new revision" >&2; return 1; }
 
 	if out=$(FAKE_PR_SCENARIO=failing bash "$script" status 1); then
 		echo "FAIL: failing expected non-zero, got success" >&2
@@ -569,6 +628,17 @@ STUB
 
 	out=$(FAKE_PR_SCENARIO=merged bash "$script" status 1) && rc=0 || rc=$?
 	[[ $rc -eq $EXIT_READY ]] || { echo "FAIL: merged expected ready, got $rc" >&2; return 1; }
+
+	# An unchanged poll must reach no terminal: the full report prints on the
+	# first observation and on a real transition, not on every interval.
+	out=$(FAKE_PR_SCENARIO=pending bash "$script" watch 6 --interval 1 --timeout 2) && rc=0 || rc=$?
+	[[ $rc -eq $EXIT_BLOCKED ]] || { echo "FAIL: watch of a blocked PR expected blocked($EXIT_BLOCKED), got $rc" >&2; return 1; }
+	if [[ $(grep -c '^  verdict:' <<<"$out") -ne 1 ]]; then
+		echo "FAIL: watch reprinted an unchanged report" >&2
+		echo "$out" >&2
+		return 1
+	fi
+	grep -q 'watch timed out after 2s' <<<"$out" || { echo "FAIL: watch timeout not reported" >&2; return 1; }
 
 	# A head branch that vanished leaves a live PR undeliverable.
 	if out=$(FAKE_GIT_LSREMOTE_EXIT=1 FAKE_PR_SCENARIO=green bash "$script" status 1); then

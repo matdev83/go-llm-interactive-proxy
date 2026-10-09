@@ -189,6 +189,32 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
         run: go run ./tools/devcheck -task=quarantine
 
+      # A workflow GitHub rejects produces no check runs at all, so its required
+      # checks never start and an older head can look green. Lint workflow edits
+      # here, with a pinned actionlint and the same retry policy as buf.
+      - name: Lint workflows
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "$BASE_SHA...HEAD" -- .github/workflows)
+          if [[ -z "$changed" ]]; then
+            echo "Workflow lint bypassed: no workflow changes detected."
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7; then
+              export PATH="$(go env GOPATH)/bin:$PATH"
+              break
+            fi
+            echo "go install actionlint failed (attempt $attempt/3)" >&2
+            sleep $((attempt * 15))
+            [[ $attempt -lt 3 ]] || exit 1
+          done
+          bash scripts/check-workflows.sh
+
       - name: Install buf
         if: needs.changes.result == 'success' && needs.changes.outputs.proto == 'true' && github.event_name == 'pull_request'
         # buf pulls ~100 modules from proxy.golang.org; a single transient proxy error
