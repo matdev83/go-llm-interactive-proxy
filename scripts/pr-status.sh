@@ -76,9 +76,15 @@ fetch_view() {
 
 fetch_checks() {
 	local pr=$1
-	# A PR with no runs yet exits non-zero ("no checks reported"), which is a
-	# blocked state, not a script error.
-	gh pr checks "$pr" --json name,bucket,state,link 2>/dev/null || echo '[]'
+	local checks
+	# gh returns 1 for failed checks while still emitting valid JSON. Preserve
+	# that evidence; transport errors or absent required checks stay blocked.
+	checks=$(gh pr checks "$pr" --required --json name,bucket,state,link 2>/dev/null) || true
+	if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$checks"; then
+		printf '%s\n' "$checks"
+	else
+		echo '[]'
+	fi
 }
 
 # find_base_pr resolves the PR that owns this PR's base branch. A PR based on
@@ -114,11 +120,15 @@ classify() {
 	local state=$1 is_draft=$2 mergeable=$3 merge_state=$4 checks=$5 base_state=$6 head_gone=$7
 	local failing pending
 
-	failing=$(jq '[.[] | select(.bucket == "fail" or .bucket == "canceling")] | length' <<<"$checks")
-	pending=$(jq '[.[] | select(.bucket == "pending" or .bucket == "skipping")] | length' <<<"$checks")
+	failing=$(jq '[.[] | select(.bucket == "fail" or .bucket == "cancel" or .bucket == "canceling")] | length' <<<"$checks")
+	pending=$(jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length' <<<"$checks")
 
 	if [[ "$state" == MERGED ]]; then
 		echo "$EXIT_READY"
+		return
+	fi
+	if [[ "$state" != OPEN ]] || [[ $(jq 'length' <<<"$checks") == 0 ]]; then
+		echo "$EXIT_BLOCKED"
 		return
 	fi
 	if [[ "$head_gone" == true ]]; then
@@ -154,7 +164,7 @@ classify() {
 	fi
 	# Unmergeable for an unstated reason is a conflict the author must resolve,
 	# not a green light.
-	if [[ "$mergeable" != MERGEABLE && "$merge_state" != CLEAN && "$merge_state" != HAS_HOOKS && "$merge_state" != UNSTABLE ]]; then
+	if [[ "$mergeable" != MERGEABLE || "$merge_state" != CLEAN ]]; then
 		echo "$EXIT_BLOCKED"
 		return
 	fi
@@ -217,8 +227,17 @@ report_once() {
 	local mergeable merge_state url merged_at base_pr base_state head_gone
 	local prior_head prior_base exit_name summary draft_note=""
 
+	[[ "$pr" =~ ^[1-9][0-9]*$ ]] || die "PR must be a positive number"
 	view=$(fetch_view "$pr") || die "cannot read PR $pr"
 	checks=$(fetch_checks "$pr")
+	local refreshed
+	refreshed=$(fetch_view "$pr") || die "cannot refresh PR $pr"
+	if [[ $(jq -c '[.headRefOid,.baseRefOid]' <<<"$view") != "$(jq -c '[.headRefOid,.baseRefOid]' <<<"$refreshed")" ]]; then
+		echo "stale: head or base moved while reading checks"
+		REPORT_EXIT=$EXIT_STALE
+		return
+	fi
+	view=$refreshed
 
 	state=$(json_get '.state' <<<"$view")
 	is_draft=$(json_get '.isDraft' <<<"$view")
@@ -287,8 +306,8 @@ report_once() {
 	jq -r '.[] | "  check:    \(.bucket)  \(.name)"' <<<"$checks" | sort
 	printf '  counts:   pass=%s fail=%s pending=%s\n' \
 		"$(jq '[.[] | select(.bucket == "pass")] | length' <<<"$checks")" \
-		"$(jq '[.[] | select(.bucket == "fail" or .bucket == "canceling")] | length' <<<"$checks")" \
-		"$(jq '[.[] | select(.bucket == "pending" or .bucket == "skipping")] | length' <<<"$checks")"
+		"$(jq '[.[] | select(.bucket == "fail" or .bucket == "cancel" or .bucket == "canceling")] | length' <<<"$checks")" \
+		"$(jq '[.[] | select(.bucket == "pending")] | length' <<<"$checks")"
 
 	if [[ "$head_gone" == true && "$state" != MERGED ]]; then
 		printf '  reason:   head branch is missing on the remote; restore it before delivery\n'
@@ -350,6 +369,7 @@ cmd_watch() {
 		esac
 	done
 	[[ -n "$pr" ]] || die "usage: pr-status.sh watch <PR> [--interval N] [--timeout N]"
+	[[ "$interval" =~ ^[1-9][0-9]*$ && "$timeout" =~ ^[0-9]+$ ]] || die "interval must be positive and timeout non-negative integer seconds"
 
 	while :; do
 		report_once "$pr"
@@ -418,10 +438,22 @@ green)
 	*) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","url":"https://example.invalid/1","mergedAt":null}' ;;
 	esac
 	;;
+skipped)
+	case "$*" in
+	*"pr checks"*) echo '[{"name":"Go suite","bucket":"pass"},{"name":"Optional","bucket":"skipping"}]' ;;
+	*) echo '{"state":"OPEN","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}' ;;
+	esac
+	;;
+missing)
+	case "$*" in
+	*"pr checks"*) echo '[]'; exit 1 ;;
+	*) echo '{"state":"OPEN","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}' ;;
+	esac
+	;;
 failing)
 	case "$*" in
 	*"pr list"*) echo '{"number":null}' ;;
-	*"pr checks"*) echo '[{"name":"Go suite","bucket":"fail","state":"FAILURE","link":"l"},{"name":"Lint","bucket":"pass","state":"SUCCESS","link":"l"}]' ;;
+	*"pr checks"*) echo '[{"name":"Go suite","bucket":"fail","state":"FAILURE","link":"l"},{"name":"Lint","bucket":"pass","state":"SUCCESS","link":"l"}]'; exit 1 ;;
 	*) echo '{"number":1,"state":"OPEN","isDraft":false,"title":"slice","headRefName":"feat/x","headRefOid":"aaaa111","baseRefName":"main","baseRefOid":"bbbb222","mergeable":"MERGEABLE","mergeStateStatus":"UNSTABLE","url":"https://example.invalid/1","mergedAt":null}' ;;
 	esac
 	;;
@@ -477,6 +509,12 @@ STUB
 	[[ $rc -eq $EXIT_READY ]] || { echo "FAIL: green expected ready($EXIT_READY), got $rc" >&2; echo "$out" >&2; return 1; }
 	grep -q 'head:     feat/x @ aaaa111' <<<"$out" || { echo "FAIL: head SHA not reported" >&2; echo "$out" >&2; return 1; }
 	grep -q 'verdict:  ready' <<<"$out" || { echo "FAIL: ready verdict not printed" >&2; return 1; }
+	out=$(FAKE_PR_SCENARIO=skipped bash "$script" status 1) && rc=0 || rc=$?
+	[[ $rc -eq $EXIT_READY ]] || { echo "FAIL: intentionally skipped check blocked readiness ($rc)" >&2; return 1; }
+	out=$(FAKE_PR_SCENARIO=missing bash "$script" status 1) && rc=0 || rc=$?
+	[[ $rc -eq $EXIT_BLOCKED ]] || { echo "FAIL: missing required checks reported ready ($rc)" >&2; return 1; }
+	[[ $(classify OPEN false MERGEABLE BEHIND '[{"bucket":"pass"}]' '' false) == "$EXIT_BLOCKED" ]] || { echo "FAIL: behind branch reported ready" >&2; return 1; }
+	[[ $(classify CLOSED false MERGEABLE CLEAN '[{"bucket":"pass"}]' '' false) == "$EXIT_BLOCKED" ]] || { echo "FAIL: closed PR reported ready" >&2; return 1; }
 	local snapshot
 	snapshot=$(compgen -G "$fixture/logs/pr-1-*.json" || true)
 	if [[ -z "$snapshot" ]] || [[ ! -s $snapshot ]]; then

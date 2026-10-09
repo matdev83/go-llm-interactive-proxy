@@ -319,6 +319,12 @@ PR=<n>` polls it and stops on a terminal verdict. Both are read-only: they never
 merge, close, comment, edit, or push, and the self-test greps the script for those
 verbs so the guarantee cannot rot.
 
+Only required checks are classified. Intentional skips are accepted; absent or
+unreadable required-check evidence stays blocked. Readiness also requires GitHub's
+`CLEAN` merge state, so behind branches and unresolved protection requirements
+cannot become ready merely because the reported checks are green. The revision
+is re-read after checks to detect movement during observation.
+
 The exit code is the contract, and the distinction between `failed` and `blocked`
 is the point:
 
