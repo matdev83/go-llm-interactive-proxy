@@ -467,7 +467,8 @@ Record exact commands, OS, toolchain, scope, and cold/warm state with measuremen
 
 ### Verification manifests
 
-Set `DEV_EVIDENCE=<path>` on any `dev-*` target to record what the check actually
+Set `DEV_EVIDENCE=<path>` on a verification `dev-*` target (including
+`dev-contract-check`) to record what the check actually
 proved, as JSON beside a per-step log per command:
 
 ```
@@ -488,6 +489,12 @@ its `failure_reason` names the blocker. A `passed` manifest over a dirty tree
 still describes a tree nobody else has, so quote the revision and digest with
 the result. This is developer feedback, not a delivery gate; CI remains
 authoritative.
+
+`dev-delivery-plan` is a planning report, not verification; it rejects
+`DEV_EVIDENCE` rather than emitting a passing manifest with no checks. Task
+handoff artifacts use the separate acceptance/recovery protocol in
+`docs/agent-handoffs.md`; native verification manifests remain command evidence,
+not reviewer approval or interchangeable source fingerprints.
 
 ## Why earlier improvements stopped being sufficient
 

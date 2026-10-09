@@ -4,8 +4,11 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/evidence"
 )
 
 func TestContracts_MissingTestsCannotPass(t *testing.T) {
@@ -20,6 +23,31 @@ func TestContracts_MissingTestsCannotPass(t *testing.T) {
 	pattern := regexp.MustCompile(contractPattern(names))
 	if !pattern.MatchString("TestOne") || pattern.MatchString("TestOneOther") {
 		t.Fatalf("filter does not select exact contracts: %s", pattern)
+	}
+}
+
+func TestContracts_ManifestRecordsFailedCommandAndLog(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVCHECK_TEST_HELPER", "fail")
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	recorder := newEvidenceRecorder(path, "contracts", evidence.Scope{Kind: "changed"}, ".")
+	err = runContractCommandRecorded(t.Context(), ".", []string{exe, "-test.run=^TestDevcheckHelperProcess$"}, true, io.Discard, io.Discard, recorder)
+	if err == nil {
+		t.Fatal("failed contract reported as success")
+	}
+	if err := recorder.finish(err); err != nil {
+		t.Fatal(err)
+	}
+	manifest := readManifest(t, path)
+	if manifest.Outcome != evidence.OutcomeFailed || len(manifest.Steps) != 1 || manifest.Steps[0].ExitCode != 7 || manifest.Steps[0].Tests == nil || manifest.Steps[0].Tests.Failed != 1 {
+		t.Fatalf("contract evidence lost the failure: %+v", manifest)
+	}
+	data, err := os.ReadFile(manifest.Steps[0].LogPath)
+	if err != nil || len(data) == 0 {
+		t.Fatalf("missing actual contract log: %v", err)
 	}
 }
 
