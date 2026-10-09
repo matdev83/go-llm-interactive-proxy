@@ -301,8 +301,27 @@ fresh-directory workload with shared caches; warm-worktree gains can differ.
 
 ### Creating a task worktree
 
-`make worktree-create WORKTREE_BRANCH=fix-short-description` creates the worktree at
-the validated location. Add `WORKTREE_BASE=<ref>` to branch from something other
+Creation is dry-run-first: the validated plan makes no changes until
+`WORKTREE_APPLY=1` (or script `--apply`) is explicitly supplied. `SETUP=1` runs
+diagnostics only after applied creation.
+
+`make worktree-cleanup WORKTREE_PATH=/exact/absolute/task/path
+WORKTREE_BRANCH=exact-task-branch WORKTREE_PR=<merged-pr>` plans cleanup of only
+that selected worktree/local branch. Add `WORKTREE_APPLY=1` to apply. It checks
+layout/repository/branch identity, tracked/untracked/ignored work, active process
+working directories, merged PR/head identity, merge presence in fetched main and
+delivered changed-path equivalence. It rechecks the snapshot before removal,
+never forces worktree deletion, and never removes remote branches.
+
+Ignored files block cleanup. `WORKTREE_DISCARD_CODEGRAPH=1` is narrow, explicit
+authorization for generated `.codegraph/` files only; any other ignored file
+still blocks. Stop task-local index servers/users separately first. Active-user
+inspection covers same-user processes with Linux `/proc` and macOS `lsof`; unsupported/unreadable
+platform checks refuse cleanup. Process inspection is cooperative, not a sandbox
+or proof against writers without visible working-directory ownership.
+
+`make worktree-create WORKTREE_BRANCH=fix-short-description` plans the worktree at
+the validated location. Add `WORKTREE_APPLY=1` to create it and `WORKTREE_BASE=<ref>` to branch from something other
 than `origin/main`, or `SETUP=1` to run `make dev-doctor` in the new worktree.
 
 The directory name is the branch with slashes folded to dashes

@@ -2,7 +2,7 @@
 # worktree-create.sh creates a task worktree at the correct, validated location
 # or refuses to.
 #
-#   scripts/worktree-create.sh fix-short-description [--base origin/main] [--setup]
+#   scripts/worktree-create.sh fix-short-description [--base origin/main] [--apply] [--setup]
 #
 # The repository layout is a constraint, not a convention: `<container>/branches/`
 # holds the long-lived checkouts and `<container>/worktrees/` holds task worktrees.
@@ -10,13 +10,14 @@
 # discovered only after the work is done. This script moves that failure to the
 # moment of creation, before anything is written.
 #
+# Dry-run is the default; --apply explicitly authorizes creation.
 # Everything is validated first: destination, branch, base, repository identity
 # and worktree ownership. Only then does git run. The only action beyond creating
 # the worktree is the layout guard, which proves the result satisfies the rule
 # that would otherwise stop the commit.
 #
 # Exit codes:
-#   0 created, or an identical worktree already exists
+#   0 validated dry run, created, or an identical worktree already exists
 #   1 refused: a validation failed (nothing was created)
 #   2 usage error
 set -euo pipefail
@@ -202,9 +203,16 @@ self_test() {
 		-c 'user.name=Worktree Test' -c user.email=worktree@example.invalid \
 		commit -qm guard
 
+	out=$(cd "$container/branches/main" && bash "$script" fix/dry-demo --base main 2>&1) && rc=0 || rc=$?
+	[[ $rc -eq 0 && ! -e "$container/worktrees/fix-dry-demo" ]] ||
+		{ echo "FAIL: default worktree creation was not dry-run-only" >&2; return 1; }
+	if git -C "$container/branches/main" show-ref --verify --quiet refs/heads/fix/dry-demo; then
+		echo "FAIL: dry run created a branch" >&2; return 1
+	fi
+
 	# Claim: the worktree is created at the derived absolute path on a new branch,
 	# and the repository's own layout guard was consulted.
-	out=$(cd "$container/branches/main" && bash "$script" fix/demo --base main 2>&1) && rc=0 || rc=$?
+	out=$(cd "$container/branches/main" && bash "$script" fix/demo --base main --apply 2>&1) && rc=0 || rc=$?
 	[[ $rc -eq 0 ]] || { echo "FAIL: create returned $rc" >&2; echo "$out" >&2; return 1; }
 	[[ -d "$container/worktrees/fix-demo/.git" || -f "$container/worktrees/fix-demo/.git" ]] ||
 		{ echo "FAIL: worktree not created at $container/worktrees/fix-demo" >&2; return 1; }
@@ -277,7 +285,7 @@ self_test() {
 }
 
 main() {
-	local branch="" base=origin/main want_path="" setup=false
+	local branch="" base=origin/main want_path="" setup=false apply=false
 	# No subcommand to skip: the outer dispatch already handled --self-test, so
 	# the first argument is the branch name.
 	while [[ $# -gt 0 ]]; do
@@ -292,6 +300,10 @@ main() {
 			;;
 		--setup)
 			setup=true
+			shift
+			;;
+		--apply)
+			apply=true
 			shift
 			;;
 		-h | --help | help)
@@ -356,6 +368,11 @@ main() {
 	fi
 	if ! base_ref_exists "$repo" "$base"; then
 		refuse "base ref does not resolve locally: $base (fetch it first)"
+	fi
+	if [[ "$apply" != true ]]; then
+		printf 'dry run: create branch %s from %s at %s\n' "$branch" "$base" "$dest"
+		printf 'rerun with --apply to create it; no files or refs changed\n'
+		return 0
 	fi
 
 	# Absolute paths on both ends. A relative destination resolves against the

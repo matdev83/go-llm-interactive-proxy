@@ -11,6 +11,8 @@ on:
       - "tools/devcheck/**"
       - "tools/internal/scopeplan/**"
       - "tools/localscope/**"
+      - "tools/worktreeclean/**"
+      - "scripts/worktree-create.sh"
       - ".github/workflows/taskrunner-process-tree.yml"
       - ".github/actions/go-cache/**"
       - "scripts/ci-go-cache.py"
@@ -62,7 +64,7 @@ jobs:
                 relevant=true
                 break
                 ;;
-              tools/taskrunner/**|tools/devcheck/**|tools/internal/scopeplan/**|tools/localscope/**|.github/workflows/taskrunner-process-tree.yml|go.mod|go.sum)
+              tools/taskrunner/**|tools/devcheck/**|tools/internal/scopeplan/**|tools/localscope/**|tools/worktreeclean/**|scripts/worktree-create.sh|.github/workflows/taskrunner-process-tree.yml|go.mod|go.sum)
                 relevant=true
                 break
                 ;;
@@ -129,12 +131,12 @@ jobs:
         run: |
           race=()
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then race=(-race); fi
-          go test "${race[@]}" -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope
+          go test "${race[@]}" -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope ./tools/worktreeclean
 
       - name: Devcheck compatibility (Windows)
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os == 'Windows'
         shell: pwsh
-        run: go test -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope
+        run: go test -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope ./tools/worktreeclean
 
       - name: Report unrelated PR bypass
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite != 'true'

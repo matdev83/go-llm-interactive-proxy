@@ -68,10 +68,18 @@ dev-cache-maintenance:
 # the existing layout. SETUP=1 additionally runs the repository's doctor.
 WORKTREE_BRANCH ?=
 WORKTREE_BASE ?= origin/main
+WORKTREE_APPLY ?= 0
+WORKTREE_PATH ?=
+WORKTREE_PR ?=
+WORKTREE_DISCARD_CODEGRAPH ?= 0
 .PHONY: worktree-create
 worktree-create:
 	@test -n '$(WORKTREE_BRANCH)' || { echo 'worktree-create: set WORKTREE_BRANCH=<name>' >&2; exit 2; }
-	bash scripts/worktree-create.sh "$(WORKTREE_BRANCH)" --base "$(WORKTREE_BASE)" $(if $(filter 1,$(SETUP)),--setup,)
+	bash scripts/worktree-create.sh "$(WORKTREE_BRANCH)" --base "$(WORKTREE_BASE)" $(if $(filter 1,$(WORKTREE_APPLY)),--apply,) $(if $(filter 1,$(SETUP)),--setup,)
+
+.PHONY: worktree-cleanup
+worktree-cleanup:
+	$(GO) run -buildvcs=false ./tools/worktreeclean -path="$(WORKTREE_PATH)" -branch="$(WORKTREE_BRANCH)" -pr=$(WORKTREE_PR) $(if $(filter 1,$(WORKTREE_APPLY)),-apply,) $(if $(filter 1,$(WORKTREE_DISCARD_CODEGRAPH)),-discard-codegraph,)
 
 # Read-only delivery status for one PR. Exit codes are the contract:
 # 0 ready, 1 failed, 2 usage, 3 blocked (pending/draft/base unmerged/branch
