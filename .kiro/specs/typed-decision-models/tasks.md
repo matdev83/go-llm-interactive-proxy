@@ -24,7 +24,7 @@
   - _Boundary: DecisionContract_
   - _Validation: go test ./pkg/lipapi/_
 
-- [ ] 2. Core touchpoints
+- [x] 2. Core touchpoints
 - [x] 2.1 (P) Size billing quotes for decision calls
   - Extend the default request-size estimator to count decision evidence, instruction and criteria bytes for calls carrying a decision; leave chat estimates unchanged.
   - Observable completion: a decision call yields an available, non-zero estimate proportional to its payload, and existing estimator tests still pass.
@@ -39,7 +39,7 @@
   - _Boundary: CoreTouchpoints_
   - _Validation: go test ./internal/core/runtime/ -run 'SecretGuard'_
 
-- [ ] 2.3 (P) Refuse decision calls at the executable-connector bridge
+- [x] 2.3 (P) Refuse decision calls at the executable-connector bridge
   - The host-side connector invocation builder rejects a call carrying a decision with a capability reject instead of silently dropping it.
   - Observable completion: an adapter test shows a decision call is refused and a chat call converts unchanged.
   - _Requirements: 3.1, 3.5_
