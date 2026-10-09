@@ -47,7 +47,7 @@
   - _Validation: go test ./internal/infra/backendplugins/adapter/_
 
 - [ ] 3. System One-compatible backend family
-- [ ] 3.1 (P) Translate decisions to and from the System One upstream wire
+- [x] 3.1 (P) Translate decisions to and from the System One upstream wire
   - Build the upstream body (candidate native model, original evidence bytes, questions in request order with original criteria) and send only authorization, content type and profile safe headers.
   - Parse bounded responses (1 MiB cap, no trailing data), drop fields outside the System One contract, align answers to request order, run result validation, and emit started, decision result, usage and finished events.
   - Map `usage.input_tokens`/`output_tokens` with presence and an upstream `usage.cost` to provider-reported cost evidence.
