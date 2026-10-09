@@ -6,6 +6,7 @@ import (
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	frontopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
+	frontsystemone "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/systemone"
 	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"gopkg.in/yaml.v3"
 )
@@ -79,4 +80,11 @@ func anthropicFrontendRouteClaims(instanceID string, _ yaml.Node) ([]httpcontrac
 
 func geminiFrontendRouteClaims(instanceID string, _ yaml.Node) ([]httpcontract.RouteClaim, error) {
 	return frontgemini.RouteClaims(instanceID)
+}
+
+func systemOneFrontendRouteClaims(instanceID string, n yaml.Node) ([]httpcontract.RouteClaim, error) {
+	if _, err := frontsystemone.DecodeConfig(n); err != nil {
+		return nil, err
+	}
+	return frontsystemone.RouteClaims(instanceID)
 }

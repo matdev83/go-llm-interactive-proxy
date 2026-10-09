@@ -85,13 +85,14 @@ func FiveFrontendsFixture() []SyntheticFrontendFixture {
 	}
 }
 
-// ThousandProviderProfilesFixture returns 1,000 synthetic provider profiles bound across 4 backend families.
+// ThousandProviderProfilesFixture returns 1,000 synthetic provider profiles bound across 5 backend families.
 func ThousandProviderProfilesFixture() []SyntheticProviderProfileFixture {
 	families := []string{
 		"openai-responses-compatible",
 		"openai-legacy-compatible",
 		"anthropic-compatible",
 		"openresponses-compatible",
+		"systemone-compatible",
 	}
 	profiles := make([]SyntheticProviderProfileFixture, 1000)
 	for i := range 1000 {
@@ -138,8 +139,8 @@ func ValidateNonCartesianFixture(frontends []SyntheticFrontendFixture, profiles 
 		fmt.Fprintf(&source, "%q: %q,\n", family, family)
 	}
 	source.WriteString("}\n")
-	if len(families) != 4 {
-		return fmt.Errorf("profiles resolve to %d families, want 4", len(families))
+	if len(families) != 5 {
+		return fmt.Errorf("profiles resolve to %d families, want 5", len(families))
 	}
 	findings, err := scanSource("generated-scale-fixture.go", []byte(source.String()))
 	if err != nil {

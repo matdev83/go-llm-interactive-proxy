@@ -47,6 +47,12 @@ type HookErrorWriter interface {
 	WriteHookError(w http.ResponseWriter, err error) error
 }
 
+// DecodeErrorWriter optionally preserves protocol-specific decode error fields.
+// Frontends without it retain the existing invalid-JSON response.
+type DecodeErrorWriter interface {
+	WriteDecodeError(w http.ResponseWriter, err error) error
+}
+
 // DecodeContext supplies request inputs for protocol decode.
 type DecodeContext struct {
 	Ctx              context.Context
@@ -386,7 +392,11 @@ func ServeHTTP[Opts any](spec *Spec[Opts], w http.ResponseWriter, r *http.Reques
 		log := diag.LoggerOrDefault(spec.Log)
 		diag.LogError(ctx, log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
 		streamdebug.LogDecodeFailure(ctx, log, spec.FrontendID, body, err)
-		spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidJSON(w))
+		if writer, ok := spec.Wire.(DecodeErrorWriter); ok {
+			spec.logWriteJSONErr(ctx, "write error json failed", writer.WriteDecodeError(w, err))
+		} else {
+			spec.logWriteJSONErr(ctx, "write error json failed", spec.Wire.WriteInvalidJSON(w))
+		}
 		return
 	}
 	if decoded != nil && decoded.Call != nil {

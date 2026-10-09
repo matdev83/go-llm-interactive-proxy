@@ -26,8 +26,8 @@ func TestNonCartesianScale_ThousandProfilesDoNotMultiplyCartesianPairs(t *testin
 	if len(profiles) != 1000 {
 		t.Fatalf("expected 1000 profiles in fixture, got %d", len(profiles))
 	}
-	if len(families) != 4 {
-		t.Fatalf("expected 4 compatible backend families in standardplugins, got %d", len(families))
+	if len(families) != 5 {
+		t.Fatalf("expected 5 compatible backend families in standardplugins, got %d", len(families))
 	}
 
 	// Generate and scan source directly from these actual fixture dimensions;
