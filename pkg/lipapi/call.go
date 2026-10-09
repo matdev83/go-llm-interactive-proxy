@@ -70,7 +70,7 @@ type Call struct {
 	Messages     []Message
 	Items        []Item
 	// Decision is exclusive request authority for typed evaluations.
-	Decision *DecisionRequest
+	Decision *DecisionRequest `json:",omitempty"`
 	// PreviousResponseID identifies a proxy-owned continuation parent. It allows
 	// an item-authoritative continuation request to carry an intentionally empty
 	// input item slice; the continuation resolver supplies the materialized items.

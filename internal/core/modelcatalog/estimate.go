@@ -74,10 +74,12 @@ func (DefaultSizeEstimator) Estimate(ctx context.Context, call lipapi.Call) Size
 	if call.Decision != nil {
 		body = addSaturatingInt64(body, int64(len(call.Decision.Evidence)))
 		for _, q := range call.Decision.Questions {
+			body = addSaturatingInt64(body, int64(len(q.ID)))
 			body = addSaturatingInt64(body, int64(len(q.Instructions)))
 			body = addSaturatingInt64(body, int64(len(q.TrueCriteria)))
 			body = addSaturatingInt64(body, int64(len(q.FalseCriteria)))
 			for _, option := range q.Options {
+				body = addSaturatingInt64(body, int64(len(option.Name)))
 				body = addSaturatingInt64(body, int64(len(option.Description)))
 			}
 			for _, level := range q.Levels {

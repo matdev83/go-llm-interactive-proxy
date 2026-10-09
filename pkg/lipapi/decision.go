@@ -133,7 +133,7 @@ func (q DecisionQuestion) validate(field string, seenIDs map[string]struct{}) er
 	if q.ID == "" {
 		return &ValidationError{Field: idField, Message: "question ID is required"}
 	}
-	if err := validateExactStringField(idField, q.ID, MaxDecisionQuestionIDBytes); err != nil {
+	if err := validateStringField(idField, q.ID, MaxDecisionQuestionIDBytes); err != nil {
 		return err
 	}
 	if _, exists := seenIDs[q.ID]; exists {
@@ -211,7 +211,7 @@ func (q DecisionQuestion) validateOptions(field string) error {
 		if o.Name == "" {
 			return &ValidationError{Field: optionField + ".Name", Message: "option name is required"}
 		}
-		if err := validateExactStringField(optionField+".Name", o.Name, MaxDecisionOptionNameBytes); err != nil {
+		if err := validateStringField(optionField+".Name", o.Name, MaxDecisionOptionNameBytes); err != nil {
 			return err
 		}
 		if _, exists := seenNames[o.Name]; exists {
