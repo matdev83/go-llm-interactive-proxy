@@ -217,6 +217,7 @@ func multiUserBackendApprovals() []MultiUserBackendApproval {
 		{FactoryKind: CustomOpenAIResponsesCompatibleID, CredentialClass: MultiUserCredentialOperatorStatic, ExecutionLocation: MultiUserExecutionRemoteProvider, Reference: operatorAPIKey},
 		{FactoryKind: CustomAnthropicCompatibleID, CredentialClass: MultiUserCredentialOperatorStatic, ExecutionLocation: MultiUserExecutionRemoteProvider, Reference: operatorAPIKey},
 		{FactoryKind: CustomOpenResponsesCompatibleID, CredentialClass: MultiUserCredentialOperatorStatic, ExecutionLocation: MultiUserExecutionRemoteProvider, Reference: operatorAPIKey},
+		{FactoryKind: CustomSystemOneCompatibleID, CredentialClass: MultiUserCredentialOperatorStatic, ExecutionLocation: MultiUserExecutionRemoteProvider, Reference: "operator environment bearer key; stateless remote System One evaluation; explicitly approved shared use"},
 
 		// First-party hosted connectors: operator API key over remote HTTPS.
 		{FactoryKind: "azure-openai", CredentialClass: MultiUserCredentialOperatorStatic, ExecutionLocation: MultiUserExecutionRemoteProvider, Reference: operatorAPIKey},

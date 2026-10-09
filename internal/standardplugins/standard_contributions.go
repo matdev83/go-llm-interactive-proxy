@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/systemonecompat"
 	frontanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
 	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
@@ -34,6 +35,9 @@ type standardFrontendContribution struct {
 	diagnostics diag.InstanceDiagnosticProjector
 	contract    contrib.ContractSubject
 }
+
+// CustomSystemOneCompatibleID is the decision-only compatible backend kind.
+const CustomSystemOneCompatibleID = systemonecompat.ID
 
 type standardBackendContribution struct {
 	id               string
@@ -132,6 +136,7 @@ func standardBackendContributions(keys UpstreamAPIKeys) []standardBackendContrib
 		{id: CustomOpenAILegacyCompatibleID, lifecycleFactory: wrapCompatibleLifecycle(providerprofiles.FamilyOpenAIChat, openaicompat.LifecycleOpenAILegacyCompatible), metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), execProfile: inferenceProfile(), family: string(providerprofiles.FamilyOpenAIChat), essentialOrder: 8, compatibleOrder: 1, contract: contrib.ContractSubject{ID: CustomOpenAILegacyCompatibleID, Kind: "backend"}},
 		{id: CustomAnthropicCompatibleID, lifecycleFactory: wrapCompatibleLifecycle(providerprofiles.FamilyAnthropic, anthropic.LifecycleAnthropicCompatible), metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), execProfile: inferenceProfile(), family: string(providerprofiles.FamilyAnthropic), essentialOrder: 9, compatibleOrder: 3, contract: contrib.ContractSubject{ID: CustomAnthropicCompatibleID, Kind: "backend"}},
 		{id: CustomOpenResponsesCompatibleID, lifecycleFactory: wrapCompatibleLifecycle(providerprofiles.FamilyOpenResponses, openresponsescompat.LifecycleOpenResponsesCompatible), metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), execProfile: inferenceProfile(), family: string(providerprofiles.FamilyOpenResponses), essentialOrder: 10, compatibleOrder: 4, contract: contrib.ContractSubject{ID: CustomOpenResponsesCompatibleID, Kind: "backend"}},
+		{id: CustomSystemOneCompatibleID, lifecycleFactory: wrapCompatibleLifecycle(providerprofiles.FamilySystemOne, systemonecompat.LifecycleSystemOneCompatible), metadataSource: contrib.SourceBuiltinCompatible, source: pluginreg.BackendSourceBuiltinCompatible, profile: staticProfile(), execProfile: inferenceProfile(), family: string(providerprofiles.FamilySystemOne), essentialOrder: 11, compatibleOrder: 5, contract: contrib.ContractSubject{ID: CustomSystemOneCompatibleID, Kind: "backend"}},
 	}
 	profiles, err := providerprofiles.EmbeddedCatalog()
 	if err != nil {

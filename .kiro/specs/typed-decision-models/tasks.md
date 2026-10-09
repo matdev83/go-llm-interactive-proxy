@@ -46,7 +46,7 @@
   - _Boundary: CoreTouchpoints_
   - _Validation: go test ./internal/infra/backendplugins/adapter/_
 
-- [ ] 3. System One-compatible backend family
+- [x] 3. System One-compatible backend family
 - [x] 3.1 (P) Translate decisions to and from the System One upstream wire
   - Build the upstream body (candidate native model, original evidence bytes, questions in request order with original criteria) and send only authorization, content type and profile safe headers.
   - Parse bounded responses (1 MiB cap, no trailing data), drop fields outside the System One contract, align answers to request order, run result validation, and emit started, decision result, usage and finished events.
@@ -65,7 +65,7 @@
   - _Boundary: SystemOneBackend_
   - _Validation: go test ./internal/plugins/backends/systemonecompat/_
 
-- [ ] 3.3 Register the family and its catalog profiles
+- [x] 3.3 Register the family and its catalog profiles
   - Add the `systemone-compatible` family (capabilities `decisions`, static discovery required) and its factory kind binding, the `custom-systemone-compatible` backend contribution, and the profile family builder.
   - Add catalog profiles for TypeSafe, OpenRouter and Command Code System One endpoints with bearer environment credentials and static models, and update the catalog inventory expectations.
   - Observable completion: catalog compile and inventory tests list the three profiles under the new family, and a profile-referenced instance builds a decision-capable backend.
@@ -109,3 +109,6 @@
   - _Boundary: Integration_
   - _Depends: 2.1, 2.2, 2.3, 3.3, 4.3_
   - _Validation: go test ./internal/infra/runtimebundle/ -run 'Decision' && go run ./cmd/lipstd check-config --config config/examples/custom-systemone-compatible.yaml_
+
+## Implementation Notes
+- Task 3.3: the maintainer explicitly approved the host-owned multi-user policy addition for operator-owned credentials. Unknown and personal-auth factories remain denied; the existing shared-deployment gate remains enabled.

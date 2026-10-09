@@ -36,6 +36,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"custom-openai-legacy-compatible",
 		"custom-openai-responses-compatible",
 		"custom-openresponses-compatible",
+		"custom-systemone-compatible",
 		"gemini",
 		"openai-legacy",
 		"openai-responses",

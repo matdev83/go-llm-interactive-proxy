@@ -39,6 +39,7 @@ const (
 	FamilyOpenAIResponses Family = "openai-responses-compatible"
 	FamilyAnthropic       Family = "anthropic-compatible"
 	FamilyOpenResponses   Family = "openresponses-compatible"
+	FamilySystemOne       Family = "systemone-compatible"
 )
 
 type PathPolicy string
@@ -173,6 +174,9 @@ func Validate(p Profile) error {
 	if p.Models.Policy == DiscoveryStatic && len(p.Models.Static) == 0 {
 		return fmt.Errorf("profile %q: static discovery requires models", p.ID)
 	}
+	if p.Family == FamilySystemOne && p.Models.Policy != DiscoveryStatic {
+		return fmt.Errorf("profile %q: System One requires static discovery", p.ID)
+	}
 	famCaps, ok := familyCapabilities(p.Family)
 	if !ok {
 		return fmt.Errorf("profile %q: unknown family %q", p.ID, p.Family)
@@ -294,6 +298,8 @@ func Compile(p Profile) (Compiled, error) {
 
 func familyCapabilities(f Family) (lipapi.BackendCaps, bool) {
 	switch f {
+	case FamilySystemOne:
+		return lipapi.NewBackendCaps(lipapi.CapabilityDecisions), true
 	case FamilyOpenAIChat, FamilyOpenAIResponses:
 		return lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools, lipapi.CapabilityVision, lipapi.CapabilityDocuments, lipapi.CapabilityReasoning, lipapi.CapabilityParallelToolCalls), true
 	case FamilyAnthropic:
