@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/compatmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openresponsescompat"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/systemonecompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/providerprofiles"
 	"gopkg.in/yaml.v3"
 )
@@ -237,6 +238,14 @@ func CompileProviderProfile(profile providerprofiles.Profile) (providerprofiles.
 type profileFamilyBuilder func(profile providerprofiles.CompiledProfile, instanceID string, node yaml.Node, upstream *http.Client) (execbackend.Backend, error)
 
 var profileFamilyBuilders = map[providerprofiles.Family]profileFamilyBuilder{
+	providerprofiles.FamilySystemOne: func(profile providerprofiles.CompiledProfile, instanceID string, node yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		headers := http.Header{}
+		for _, header := range profile.Profile.Headers {
+			headers.Set(header.Name, header.Value)
+		}
+		be, err := systemonecompat.BuildCompatibleWithHeaders(instanceID, node, upstream, headers)
+		return applyProfileCapabilities(be, err, profile)
+	},
 	providerprofiles.FamilyOpenAIChat: func(profile providerprofiles.CompiledProfile, instanceID string, node yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 		be, err := openaicompat.BuildCompatibleWithHeaders(instanceID, profile.Binding.FactoryKind, node, upstream, openaicompat.FlavorChat, openaicompat.CompatibleTransportCaps(openaicompat.FlavorChat), profileHeaders(profile.Profile.Headers))
 		return applyProfileCapabilities(be, err, profile)

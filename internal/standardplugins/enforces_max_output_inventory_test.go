@@ -58,6 +58,8 @@ func standardBackendEnforcesMaxOutput(id string) (bool, bool) {
 		// MaxOutputTokens (max_output_tokens) on both streaming and
 		// non-streaming transport, so an authority spend-cap clamp binds.
 		return true, true
+	case CustomSystemOneCompatibleID:
+		return false, true
 	default:
 		return false, false
 	}
