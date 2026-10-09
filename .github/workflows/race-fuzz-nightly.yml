@@ -26,7 +26,7 @@ jobs:
     name: race-fuzz (${{ matrix.lane }})
     runs-on: ubuntu-latest
     # The complete generated billing sweeps exceeded 25m under race instrumentation.
-    timeout-minutes: ${{ matrix.lane == 'billing' && 75 || 40 }}
+    timeout-minutes: ${{ (matrix.lane == 'billing' || matrix.lane == 'billingstore') && 75 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +34,9 @@ jobs:
         # half of the whole nightly, so they run weekly. Billing paths also get
         # the non-race exhaustive schema certification in ci.yml on every PR that
         # touches them. Manual dispatch runs every lane.
-        lane: ${{ fromJSON(github.event.schedule == '47 5 * * 1' && '["billing"]' || github.event.schedule == '17 4 * * *' && '["broad","support","runtime","architecture"]' || '["broad","billing","support","runtime","architecture"]') }}
+        # Billing-store coverage remains daily, just as it was in broad; only
+        # scheduling and its measured package budget change, not test coverage.
+        lane: ${{ fromJSON(github.event.schedule == '47 5 * * 1' && '["billing"]' || github.event.schedule == '17 4 * * *' && '["broad","billingstore","support","runtime","architecture"]' || '["broad","billing","billingstore","support","runtime","architecture"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

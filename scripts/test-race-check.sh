@@ -16,7 +16,7 @@ case "$1 $2" in
   'env CGO_ENABLED') echo 1; exit 0 ;;
   'env CC') echo bash; exit 0 ;;
   'list ./...')
-    printf '%s\n' example/internal/core/billing example/internal/core/runtime example/internal/archtest example/pkg/lipapi
+    printf '%s\n' example/internal/core/billing example/internal/infra/billingstore example/internal/core/runtime example/internal/archtest example/pkg/lipapi
     exit 0 ;;
 esac
 [[ " $* " == *' -c '* ]] && exit 0
@@ -32,14 +32,15 @@ cd "$fixture"
 verify_coverage() {
   local calls
   calls="$(cat "$SCAN_CALLS")"
-  [[ "$(wc -l < "$SCAN_CALLS")" -eq 5 ]]
-  for package in example/pkg/lipapi ./internal/core/runtime ./internal/archtest/...; do
+  [[ "$(wc -l < "$SCAN_CALLS")" -eq 6 ]]
+  for package in example/pkg/lipapi ./internal/infra/billingstore ./internal/core/runtime ./internal/archtest/...; do
     [[ "$(grep -F -- " $package" "$SCAN_CALLS" | wc -l)" -eq 1 ]]
   done
   [[ "$(grep -F -- ' ./internal/core/billing' "$SCAN_CALLS" | wc -l)" -eq 2 ]]
   [[ "$(grep -F -- ' -skip ^TestSupportAgreementShadowPredicate$' "$SCAN_CALLS" | wc -l)" -eq 1 ]]
   [[ "$(grep -F -- ' -run ^TestSupportAgreementShadowPredicate$' "$SCAN_CALLS" | wc -l)" -eq 1 ]]
   [[ "$(grep -F -- ' -timeout=60m -skip ^TestSupportAgreementShadowPredicate$' "$SCAN_CALLS" | wc -l)" -eq 1 ]]
+  [[ "$(grep -F -- ' -timeout=60m ./internal/infra/billingstore' "$SCAN_CALLS" | wc -l)" -eq 1 ]]
   while IFS= read -r call; do
     [[ " $call " == *' -race '* && " $call " == *' -tags=precommit,integration '* && " $call " == *' -count=1 '* ]]
     [[ " $call " == *' -p=4 '* && " $call " == *' -parallel=4 '* ]]
@@ -49,7 +50,7 @@ verify_coverage() {
 bash "$script_dir/race-check.sh" --strict > "$fixture/success.log" 2>&1
 verify_coverage
 cp "$SCAN_CALLS" "$fixture/all-calls"
-for match in ' example/pkg/lipapi ' ' -skip ^TestSupportAgreementShadowPredicate$ ' ' -run ^TestSupportAgreementShadowPredicate$ ' ' ./internal/core/runtime ' ' ./internal/archtest/... '; do
+for match in ' example/pkg/lipapi ' ' -skip ^TestSupportAgreementShadowPredicate$ ' ' -run ^TestSupportAgreementShadowPredicate$ ' ' ./internal/infra/billingstore ' ' ./internal/core/runtime ' ' ./internal/archtest/... '; do
   : > "$SCAN_CALLS"
   export FAIL_MATCH="$match"
   status=0

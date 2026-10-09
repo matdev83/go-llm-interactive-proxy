@@ -16,13 +16,13 @@ while [[ $# -gt 0 ]]; do
 		LANE="$2"; shift 2 ;;
 	*)
 		echo "Unknown argument: $1"
-		echo "Usage: $0 [--staged] [--strict] [--lane all|broad|billing|support|runtime|architecture]"
+		echo "Usage: $0 [--staged] [--strict] [--lane all|broad|billing|billingstore|support|runtime|architecture]"
 		exit 2
 		;;
 	esac
 done
 case "$LANE" in
-all|broad|billing|support|runtime|architecture) ;;
+all|broad|billing|billingstore|support|runtime|architecture) ;;
 *) echo "Unknown race lane: $LANE" >&2; exit 2 ;;
 esac
 if [[ "$STAGED" == true && "$LANE" != all ]]; then
@@ -200,7 +200,7 @@ elif [[ "$LANE" == all || "$LANE" == broad ]]; then
 	}
 	# Exhaustive billing sweeps and durable runtime tests must not compete with
 	# the broad scan for CPU. Every package still runs once with both tags.
-	mapfile -t PACKAGES < <(printf '%s\n' "$packages_list" | grep -vE '/internal/archtest(/|$)|/internal/core/(billing|runtime)$')
+	mapfile -t PACKAGES < <(printf '%s\n' "$packages_list" | grep -vE '/internal/archtest(/|$)|/internal/core/(billing|runtime)$|/internal/infra/billingstore$')
 	if [[ ${#PACKAGES[@]} -eq 0 ]]; then
 		echo "ERROR: race scan package set is empty; refusing to run go test with no package args" >&2
 		exit 1
@@ -247,6 +247,13 @@ if [[ "$STAGED" == true && ${#NESTED_SCOPES[@]} -gt 0 ]]; then
 	done < <(printf '%s\n' "${NESTED_SCOPES[@]}" | sort -u)
 fi
 if [[ "$STAGED" != true ]]; then
+	if [[ "$LANE" == all || "$LANE" == billingstore ]]; then
+		# Durable-store settlement sweeps hit the broad lane's default 10m
+		# package timeout under race instrumentation. Keep every test and both
+		# tags, but isolate this package with the exhaustive billing budget.
+		echo "Running billing-store race scan separately (60m package timeout)"
+		run_race_scan -timeout=60m ./internal/infra/billingstore
+	fi
 	if [[ "$LANE" == all || "$LANE" == billing ]]; then
 		echo "Running billing race scan separately (60m package timeout)"
 		run_race_scan -timeout=60m -skip '^TestSupportAgreementShadowPredicate$' ./internal/core/billing
