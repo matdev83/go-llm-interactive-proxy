@@ -2,16 +2,4 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-# main and dev receive merges and author nothing. The layout guard below checks
-# where a worktree lives; this checks what is checked out in it.
-bash "$repo_root/scripts/check-merge-receiver-branch.sh"
-# Host-pinned structural guard (no-op unless hostname is exactly agent-dev):
-# no git worktree may live outside <container>/worktrees/ (except branches/main).
-bash "$repo_root/scripts/check-worktree-layout.sh"
-# Invoke through `bash` rather than relying on the executable bit: several
-# helper scripts are tracked mode 100644, so direct execution fails with 126 on
-# a fresh clone. Matches the legacy .githooks/pre-commit.
-bash "$repo_root/scripts/check-change-size.sh" --staged
-bash "$repo_root/scripts/check-staged-secrets.sh"
-bash "$repo_root/scripts/check-release-clean.sh" --staged
-bash "$repo_root/scripts/quality-gate.sh"
+go run "$repo_root/tools/handoff" -task=guard -repo="$repo_root" -index-file="${GIT_INDEX_FILE:-}" -- bash "$repo_root/scripts/staged-commit-checks.sh"

@@ -18,6 +18,8 @@ type ContractPlan struct {
 	Tests   []string
 	Reasons []string
 	Lint    []Module
+	QA      []string
+	Scripts []string
 }
 
 // BuildContracts includes branch, index, working-tree and untracked changes.
@@ -36,6 +38,7 @@ func BuildContracts(ctx context.Context, root, base string) (ContractPlan, error
 	}
 	plan := ContractPlan{Base: comparison, Changed: paths}
 	plan.Tests, plan.Reasons = selectContracts(paths)
+	plan.QA, plan.Scripts = selectAutomation(paths)
 	packages := make(map[string][]string)
 	for _, name := range paths {
 		if !strings.HasSuffix(name, ".go") {
@@ -72,6 +75,28 @@ func BuildContracts(ctx context.Context, root, base string) (ContractPlan, error
 		plan.Lint = append(plan.Lint, Module{Directory: module, Packages: slices.Compact(selected)})
 	}
 	return plan, nil
+}
+
+// Known automation inputs reuse their existing self-tests and consumer contracts.
+// This is routing, not another source scanner or a full-suite fallback.
+func selectAutomation(paths []string) ([]string, []string) {
+	var qa, scripts []string
+	for _, name := range paths {
+		switch name {
+		case "scripts/race-check.sh", "scripts/test-race-check.sh", "scripts/go-dev-guard.sh", "scripts/test-go-dev-guard.sh", ".github/workflows/race-fuzz-nightly.yml":
+			qa = append(qa, "TestRaceCheckDevHostGuard", "TestRaceCheckStagedScanPartitionsArchtestFromOrdinaryScopes")
+			scripts = append(scripts, "scripts/test-race-check.sh")
+		case "scripts/quality-checks.sh", "scripts/quality-gate.sh", "scripts/test-quality-checks.sh", "scripts/hooks/pre-commit", "scripts/staged-commit-checks.sh", ".githooks/pre-commit":
+			scripts = append(scripts, "scripts/test-quality-checks.sh")
+		}
+		if strings.HasPrefix(name, ".github/workflows/") || name == "scripts/ci-scope.sh" {
+			scripts = append(scripts, "scripts/ci-scope.sh --self-test")
+			qa = append(qa, "TestQAFastPreflight_MainPushLaneScopes")
+		}
+	}
+	slices.Sort(qa)
+	slices.Sort(scripts)
+	return slices.Compact(qa), slices.Compact(scripts)
 }
 
 func selectContracts(paths []string) ([]string, []string) {

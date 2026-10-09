@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,10 +14,11 @@ import (
 )
 
 type testPlanOptions struct {
-	jobs, repeat int
-	fresh, dry   bool
-	quarantine   []quarantineEntry
-	recorder     *evidenceRecorder
+	jobs, repeat   int
+	fresh, dry     bool
+	quarantine     []quarantineEntry
+	recorder       *evidenceRecorder
+	automationOnly bool
 }
 
 func validateChangedScope(task, module, packages string) error {
@@ -26,7 +28,7 @@ func validateChangedScope(task, module, packages string) error {
 	return nil
 }
 
-func runTestPlan(root string, plan testscope.Plan, opts testPlanOptions, output, diagnostics io.Writer) error {
+func runTestPlan(ctx context.Context, root string, plan testscope.Plan, opts testPlanOptions, output, diagnostics io.Writer) error {
 	if err := reportTestPlan(plan, opts.dry, diagnostics); err != nil {
 		return err
 	}
@@ -34,7 +36,7 @@ func runTestPlan(root string, plan testscope.Plan, opts testPlanOptions, output,
 		return nil
 	}
 	return repeatTestModules(plan.Modules, opts.repeat, diagnostics, func(module testscope.Module, iteration int) error {
-		return runTestModule(root, module, opts, iteration, output, diagnostics)
+		return runTestModule(ctx, root, module, opts, iteration, output, diagnostics)
 	})
 }
 
@@ -76,7 +78,10 @@ func reportTestPlan(plan testscope.Plan, dry bool, diagnostics io.Writer) error 
 	return err
 }
 
-func runTestModule(root string, module testscope.Module, opts testPlanOptions, iteration int, output, diagnostics io.Writer) error {
+func runTestModule(ctx context.Context, root string, module testscope.Module, opts testPlanOptions, iteration int, output, diagnostics io.Writer) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	dir, err := moduleDirectory(root, module.Directory)
 	if err != nil {
 		return err
@@ -95,7 +100,7 @@ func runTestModule(root string, module testscope.Module, opts testPlanOptions, i
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stderr = diagnostics
 	step := opts.recorder.start(module.Directory, command, dir, output)
-	stats, err := execute(cmd, true, step.output)
+	stats, err := execute(ctx, cmd, true, step.output)
 	opts.recorder.finishRun(step, stepStats(true, stats), err)
 	_, reportErr := fmt.Fprintf(diagnostics, "elapsed=%.3fs passed=%d cached=%d failed=%d skipped=%d\n", time.Since(start).Seconds(), stats.Passed, stats.Cached, stats.Failed, stats.Skipped)
 	if err = errors.Join(err, reportErr); err != nil {

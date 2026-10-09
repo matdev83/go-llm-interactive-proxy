@@ -11,11 +11,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/evidence"
@@ -30,7 +32,10 @@ type testStats struct {
 }
 
 func main() {
-	if err := run(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	err := run(ctx)
+	stop()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -39,7 +44,7 @@ func main() {
 // run returns the check verdict. Its named result is read by the deferred
 // manifest writer, so every return after the recorder exists lands in the
 // verification manifest, including the failure paths.
-func run() (err error) {
+func run(ctx context.Context) (err error) {
 	task := flag.String("task", "doctor", "test, build, lint, contracts, delivery, doctor, or quarantine")
 	module := flag.String("module", ".", "repository-relative Go module directory")
 	packages := flag.String("packages", "", "explicit space-separated package patterns, e.g. ./pkg/lipapi")
@@ -55,10 +60,17 @@ func run() (err error) {
 	planOnly := flag.Bool("plan", false, "print changed-scope plan without running tests")
 	full := flag.Bool("full", false, "run all maintained modules' default tests instead of selecting")
 	evidencePath := flag.String("evidence", "", "write a verification manifest (revision, scope, results, logs) to this path")
+	timeout := flag.Duration("timeout", commandTimeout, "total development-check time budget")
+	automationOnly := flag.Bool("automation-only", false, "contracts: run only known automation self-tests and consumer contracts")
 	flag.Parse()
-	if flag.NArg() != 0 || *jobs < 1 || *repeat < 1 {
-		return errors.New("jobs/repeat must be positive; use named flags for scope")
+	if *automationOnly && *task != "contracts" {
+		return errors.New("automation-only requires task=contracts")
 	}
+	if flag.NArg() != 0 || *jobs < 1 || *repeat < 1 || *timeout <= 0 {
+		return errors.New("jobs/repeat/timeout must be positive; use named flags for scope")
+	}
+	ctx, cancel := context.WithTimeout(ctx, *timeout)
+	defer cancel()
 	if err := validateExplicitTestSkip(
 		skipTest.set, skipTest.name, *task, *scope, *full, *base, *planOnly,
 	); err != nil {
@@ -97,7 +109,8 @@ func run() (err error) {
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GOWORK=off")
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		return cmd.Run()
+		_, err := execute(ctx, cmd, false, os.Stdout)
+		return err
 	}
 	if *head != "" || *consumer != "" {
 		return errors.New("head/consumer require task=delivery")
@@ -106,7 +119,7 @@ func run() (err error) {
 		if *module != "." || *packages != "" || *scope != "changed" || *full {
 			return errors.New("contracts requires scope=changed with no explicit MODULE/PKGS/full override")
 		}
-		return runContractCheck(root, *base, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, recorder: recorder}, os.Stdout, os.Stderr)
+		return runContractCheck(ctx, root, *base, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, recorder: recorder, automationOnly: *automationOnly}, os.Stdout, os.Stderr)
 	}
 	quarantine, err := loadQuarantine(root)
 	if err != nil {
@@ -124,15 +137,15 @@ func run() (err error) {
 			return err
 		}
 		start := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		plan, planErr := testscope.Build(ctx, root, testscope.Options{Base: *base, Full: *full})
-		cancel()
+		planning, stop := context.WithTimeout(ctx, 2*time.Minute)
+		plan, planErr := testscope.Build(planning, root, testscope.Options{Base: *base, Full: *full})
+		stop()
 		if planErr != nil {
 			recorder.block(fmt.Sprintf("select changed scope: %v", planErr))
 			return planErr
 		}
 		fmt.Fprintf(os.Stderr, "planning_elapsed=%.3fs\n", time.Since(start).Seconds())
-		return runTestPlan(root, plan, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, quarantine: quarantine, recorder: recorder}, os.Stdout, os.Stderr)
+		return runTestPlan(ctx, root, plan, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, quarantine: quarantine, recorder: recorder}, os.Stdout, os.Stderr)
 	}
 	if *scope != "explicit" || *base != "" || *planOnly || *full {
 		return errors.New("base/plan/full require -scope=changed; scope must be explicit or changed")
@@ -143,7 +156,7 @@ func run() (err error) {
 		return err
 	}
 	if *task == "doctor" {
-		return doctor(dir)
+		return doctor(ctx, dir)
 	}
 	commands, err := commandGroupsFor(
 		*task,
@@ -157,7 +170,7 @@ func run() (err error) {
 		return err
 	}
 	if skipTest.set {
-		goFlags, err := effectiveGOFlags(dir, append(os.Environ(), "GOWORK=off"))
+		goFlags, err := effectiveGOFlags(ctx, dir, append(os.Environ(), "GOWORK=off"))
 		if err != nil {
 			return err
 		}
@@ -187,6 +200,10 @@ func run() (err error) {
 	fmt.Fprintln(os.Stderr, "Development feedback only; delivery still requires the applicable comprehensive gates.")
 	for n := 1; n <= *repeat; n++ {
 		for index, command := range commands {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			command = withAnalyzerBudget(root, command)
 			fmt.Fprintf(os.Stderr, "[%d/%d] module=%s command=%s\n", n, *repeat, *module, strings.Join(command, " "))
 			start := time.Now()
 			cmd := exec.Command(command[0], command[1:]...)
@@ -194,7 +211,7 @@ func run() (err error) {
 			cmd.Env = append(os.Environ(), "GOWORK=off")
 			cmd.Stderr = os.Stderr
 			step := recorder.start(fmt.Sprintf("repeat-%d-command-%d-of-%d", n, index+1, len(commands)), command, dir, os.Stdout)
-			stats, executeErr := execute(cmd, *task == "test", step.output)
+			stats, executeErr := execute(ctx, cmd, *task == "test", step.output)
 			recorded := stepStats(*task == "test", stats)
 			recorder.finishRun(step, recorded, executeErr)
 			fmt.Fprintf(os.Stderr, "elapsed=%.3fs passed=%d cached=%d failed=%d skipped=%d\n", time.Since(start).Seconds(), stats.Passed, stats.Cached, stats.Failed, stats.Skipped)
@@ -213,26 +230,6 @@ func stepStats(test bool, stats testStats) *evidence.Stats {
 		return nil
 	}
 	return &evidence.Stats{Passed: stats.Passed, Cached: stats.Cached, Failed: stats.Failed, Skipped: stats.Skipped}
-}
-
-func execute(cmd *exec.Cmd, test bool, output io.Writer) (testStats, error) {
-	if !test {
-		cmd.Stdout = output
-		return testStats{}, cmd.Run()
-	}
-	stream, err := cmd.StdoutPipe()
-	if err != nil {
-		return testStats{}, err
-	}
-	if err := cmd.Start(); err != nil {
-		return testStats{}, err
-	}
-	stats, parseErr := consumeTests(stream, output)
-	// Always drain and reap even if the output format is invalid.
-	if parseErr != nil {
-		_, _ = io.Copy(io.Discard, stream)
-	}
-	return stats, errors.Join(parseErr, cmd.Wait())
 }
 
 func commandFor(task, scope string, jobs int, fresh bool) ([]string, error) {
@@ -399,11 +396,11 @@ func consumeTests(input io.Reader, output io.Writer) (testStats, error) {
 	}
 }
 
-func doctor(dir string) error {
+func doctor(ctx context.Context, dir string) error {
 	fmt.Printf("module=%s logical_cpus=%d effective_gomaxprocs=%d\n", dir, runtime.NumCPU(), runtime.GOMAXPROCS(0))
 	cmd := exec.Command("go", "env", "-json", "GOVERSION", "GOTOOLCHAIN", "GOOS", "GOARCH", "GOCACHE", "GOMODCACHE", "GOFLAGS", "GOWORK", "CGO_ENABLED", "GOPROXY")
 	cmd.Dir = dir
-	data, err := cmd.Output()
+	data, err := commandOutput(ctx, cmd)
 	if err != nil {
 		return err
 	}
@@ -435,9 +432,14 @@ func doctor(dir string) error {
 		for _, args := range [][]string{{"version"}, {"cache", "status"}} {
 			lint := exec.Command(linter, args...)
 			lint.Dir = dir
-			output, err := lint.CombinedOutput()
-			fmt.Print(string(output))
+			var output strings.Builder
+			lint.Stderr = &output
+			_, err := execute(ctx, lint, false, &output)
+			fmt.Print(output.String())
 			if err != nil {
+				if ctx.Err() != nil {
+					return err
+				}
 				fmt.Printf("lint diagnostic unavailable: %v\n", err)
 			}
 		}

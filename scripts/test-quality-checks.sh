@@ -7,6 +7,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUALITY_CHECKS_SOURCE="${QUALITY_CHECKS_SOURCE:-$SCRIPT_DIR/quality-checks.sh}"
 QUALITY_GATE_SOURCE="${QUALITY_GATE_SOURCE:-$SCRIPT_DIR/quality-gate.sh}"
 REAL_GIT="$(command -v git)"
+# A commit hook may export an absolute staged index. Fixture git operations
+# must use their own repositories, never that inherited index/object store.
+mapfile -t fixture_git_vars < <("$REAL_GIT" rev-parse --local-env-vars)
+for fixture_git_var in "${fixture_git_vars[@]}"; do unset "$fixture_git_var"; done
 REAL_GO="$(command -v go)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/quality-checks-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
@@ -71,7 +75,9 @@ if [[ "${1:-}" == list ]]; then
 	if [[ "${1:-}" == -f ]]; then shift 2; fi
 	module=$(awk '$1 == "module" { print $2; exit }' go.mod)
 	for package in "$@"; do
-		if [[ "$package" == "${FAKE_GO_LIST_EMPTY:-}" && -n "${FAKE_GO_LIST_EMPTY:-}" ]]; then
+    if [[ "$package" == "./..." && "${FAKE_GO_WILDCARD_SINGLE:-}" != "1" ]]; then
+      printf '%s\n' "$module/first" "$module/second"
+    elif [[ "$package" == "${FAKE_GO_LIST_EMPTY:-}" && -n "${FAKE_GO_LIST_EMPTY:-}" ]]; then
 			printf '\n'
 		elif [[ "$package" == "." ]]; then
 			printf '%s\n' "$module"
@@ -547,6 +553,16 @@ assert_contains "$TMP/go.log" 'GO mod tidy -diff'
 assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
 assert_contains "$TMP/buf.log" 'BUF lint'
 
+# A wildcard over a single main package must use scratch output, not dirty its module.
+new_repo single-main-metadata
+printf '\n// changed metadata\n' >>"$REPO/connectors/nested/go.mod"
+git -C "$REPO" add connectors/nested/go.mod
+export FAKE_GO_WILDCARD_SINGLE=1
+expect_pass "$REPO" --staged
+unset FAKE_GO_WILDCARD_SINGLE
+assert_contains "$TMP/go.log" "PWD=$REPO/connectors/nested GOWORK=off GO build -buildvcs=false -o "
+grep -Eq "GO build -buildvcs=false -o [^[:space:]]+/build\\.[0-9]+\\.all ./\\.\\.\\." "$TMP/go.log" || fail 'wildcard binary output escaped scratch'
+
 # Feature-plane and protobuf checks run for changed inputs, including deletions.
 new_repo feature-add
 printf 'added feature input\n' >"$REPO/pkg/lipsdk/feature/added.txt"
@@ -717,6 +733,17 @@ printf 'package second\nconst Value = 2\n' >"$PROBE/second/second.go"
 	test -f "$PROBE/single-package.a"
 	GOTOOLCHAIN=local GOWORK=off GOPROXY=off GOSUMDB=off \
 		"$REAL_GO" build -buildvcs=false ./first ./second
+)
+
+mkdir -p "$PROBE/single-main"
+printf 'module example.test/single-main\n\ngo 1.24\n' >"$PROBE/single-main/go.mod"
+printf 'package main\nfunc main() {}\n' >"$PROBE/single-main/main.go"
+(
+	cd "$PROBE/single-main"
+	GOTOOLCHAIN=local GOWORK=off GOPROXY=off GOSUMDB=off \
+		"$REAL_GO" build -buildvcs=false -o "$TMP/single-main-output" ./...
+	test -f "$TMP/single-main-output"
+	test ! -e single-main
 )
 
 echo 'OK: staged quality-check behavior and standalone compatibility'

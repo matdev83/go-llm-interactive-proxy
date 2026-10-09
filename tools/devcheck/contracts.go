@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"regexp"
 	"slices"
 	"strings"
@@ -16,9 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/testscope"
 )
 
-func runContractCheck(root, base string, opts testPlanOptions, output, diagnostics io.Writer) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
+func runContractCheck(ctx context.Context, root, base string, opts testPlanOptions, output, diagnostics io.Writer) error {
 	planning, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	plan, err := testscope.BuildContracts(planning, root, base)
 	cancel()
@@ -32,6 +29,36 @@ func runContractCheck(root, base string, opts testPlanOptions, output, diagnosti
 		_, err := fmt.Fprintln(diagnostics, "plan-only: no contracts or lint executed")
 		return err
 	}
+	for _, script := range plan.Scripts {
+		command := append([]string{"bash"}, strings.Fields(script)...)
+		if err := runContractCommandRecorded(ctx, root, command, false, output, diagnostics, opts.recorder); err != nil {
+			return err
+		}
+	}
+	if len(plan.QA) != 0 {
+		cmd := exec.CommandContext(ctx, "go", "test", "-list", contractPattern(plan.QA), "./internal/qa")
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Stderr = diagnostics
+		listed, err := commandOutput(ctx, cmd)
+		if err != nil {
+			return err
+		}
+		if err := validateListedContracts(plan.QA, string(listed)); err != nil {
+			return err
+		}
+		command, err := commandFor("test", "./internal/qa", opts.jobs, opts.fresh)
+		if err != nil {
+			return err
+		}
+		command = slices.Insert(command, len(command)-1, "-run", contractPattern(plan.QA))
+		if err := runContractCommandRecorded(ctx, root, command, true, output, diagnostics, opts.recorder); err != nil {
+			return err
+		}
+	}
+	if opts.automationOnly {
+		return nil
+	}
 	if len(plan.Tests) != 0 {
 		// A removed/renamed test must not turn an exact -run filter into a
 		// successful no-op. Ask the test binary, not a source-text scanner.
@@ -39,7 +66,7 @@ func runContractCheck(root, base string, opts testPlanOptions, output, diagnosti
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GOWORK=off")
 		cmd.Stderr = diagnostics
-		listed, err := cmd.Output()
+		listed, err := commandOutput(ctx, cmd)
 		if err != nil {
 			return fmt.Errorf("list selected contracts: %w", err)
 		}
@@ -67,6 +94,7 @@ func runContractCheck(root, base string, opts testPlanOptions, output, diagnosti
 			if err != nil {
 				return err
 			}
+			command = withAnalyzerBudget(root, command)
 			if err := runContractCommandRecorded(ctx, dir, command, false, output, diagnostics, opts.recorder); err != nil {
 				return err
 			}
@@ -89,7 +117,7 @@ func runContractCommandRecorded(ctx context.Context, dir string, command []strin
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stderr = diagnostics
 	step := recorder.start("contract-check", command, dir, output)
-	stats, err := execute(cmd, test, step.output)
+	stats, err := execute(ctx, cmd, test, step.output)
 	recorder.finishRun(step, stepStats(test, stats), err)
 	return err
 }

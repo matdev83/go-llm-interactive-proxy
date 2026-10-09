@@ -74,3 +74,8 @@ reverify affected work instead of replaying every earlier task. Use
 `-current=false` only to inspect historical evidence; it cannot advance the index.
 Never interpret an index entry alone as approval, spec completion or permission to
 commit/publish. Reviewers independently inspect the actual diff and evidence.
+
+For whole-scope completion, required-run ownership and resource reconciliation,
+use `docs/agent-closeout.md`. Link its explicit session inventory through
+`record -inventory=<path>`; ordinary index writes preserve that link. Task-level
+readiness does not complete earlier objectives or asynchronous verification.

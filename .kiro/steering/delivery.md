@@ -34,6 +34,20 @@ When a budget is exceeded, split the work into slices and report the split. A bu
 
 Test policy lives in `testing.md` (Test Proportionality). In short: tests prove the shipped behaviour; testing is never a requirement or a standalone task; new architecture checks extend existing generic rules.
 
+## Completion And Evidence Ownership
+
+Completion accounts for every objective in the approved scope, including older
+workstreams, required verification, issue/spec closure and owned-resource cleanup.
+Publication, merge, verification and full closeout are distinct states. Dispatching
+a required run does not discharge it: an owner tracks its exact revision and
+required executed steps until resolved. Use `docs/agent-closeout.md` and the
+existing handoff inventory/checker; a valid artifact or green PR alone is not
+completion, semantic approval or authorization for further operations.
+
+Checks are read-only and apply to stable identified inputs. Source/index mutation
+during a gate invalidates readiness; restage and reverify. Build outputs belong in
+scratch, and metadata rewriting uses explicit update commands, not check mode.
+
 ## Red Main And Unrelated Failures
 
 - Required checks (branch protection) gate merge. Other checks inform: a red non-required check is fixed in the branch only when the branch caused it.

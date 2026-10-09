@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -24,7 +25,12 @@ type SourceState struct {
 // snapshot identifies HEAD plus both diffs and untracked bytes. It is read-only
 // and honors Git's ignored-file boundary; keep handoff artifacts outside the repo.
 func snapshot(ctx context.Context, repo string) (SourceState, error) {
-	head, err := sourceGit(ctx, repo, "rev-parse", "--verify", "HEAD")
+	return snapshotWithIndex(ctx, repo, "")
+}
+
+func snapshotWithIndex(ctx context.Context, repo, index string) (SourceState, error) {
+	git := func(args ...string) ([]byte, error) { return sourceGitWithIndex(ctx, repo, index, args...) }
+	head, err := git("rev-parse", "--verify", "HEAD")
 	if err != nil {
 		return SourceState{}, err
 	}
@@ -35,13 +41,13 @@ func snapshot(ctx context.Context, repo string) (SourceState, error) {
 		{"diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "--"},
 		{"diff", "--binary", "--no-ext-diff", "--no-textconv", "--"},
 	} {
-		data, err := sourceGit(ctx, repo, args...)
+		data, err := git(args...)
 		if err != nil {
 			return SourceState{}, err
 		}
 		hashPart(digest, data)
 	}
-	data, err := sourceGit(ctx, repo, "ls-files", "--others", "--exclude-standard", "-z")
+	data, err := git("ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return SourceState{}, err
 	}
@@ -79,11 +85,22 @@ func hashPart(digest hash.Hash, data []byte) {
 }
 
 func sourceGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
+	return sourceGitWithIndex(ctx, repo, "", args...)
+}
+
+func sourceGitWithIndex(ctx context.Context, repo, index string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repo
 	cmd.Env = gitscope.Environ()
+	if index != "" {
+		cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+index)
+	}
 	data, err := cmd.Output()
 	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return nil, fmt.Errorf("git %v: %w: %s", args, err, strings.TrimSpace(string(exit.Stderr)))
+		}
 		return nil, fmt.Errorf("git %v: %w", args, err)
 	}
 	return data, nil

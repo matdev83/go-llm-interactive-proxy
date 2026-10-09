@@ -14,13 +14,18 @@ type indexEntry struct {
 }
 
 type executionIndex struct {
-	Version int                   `json:"version"`
-	Entries map[string]indexEntry `json:"entries"`
+	Version   int                   `json:"version"`
+	Entries   map[string]indexEntry `json:"entries"`
+	Inventory string                `json:"inventory,omitempty"`
 }
 
 // The controller alone writes the execution index. Atomic replacement protects
 // restart recovery, not concurrent writers; agents write their own result files.
 func recordResult(name, artifact string, result Result) (returnErr error) {
+	return recordResultWithInventory(name, artifact, result, "")
+}
+
+func recordResultWithInventory(name, artifact string, result Result, inventory string) (returnErr error) {
 	index := executionIndex{Version: 1, Entries: make(map[string]indexEntry)}
 	file, err := os.Open(name)
 	if err == nil {
@@ -42,6 +47,25 @@ func recordResult(name, artifact string, result Result) (returnErr error) {
 		return err
 	}
 	index.Entries[result.Task+"/"+result.Role] = indexEntry{Artifact: abs, Status: result.Status, Source: result.Source}
+	if inventory != "" {
+		file, err := os.Open(inventory)
+		if err != nil {
+			return err
+		}
+		var session Session
+		decodeErr := decodeStrict(file, &session)
+		closeErr := file.Close()
+		if err := errors.Join(decodeErr, closeErr); err != nil {
+			return err
+		}
+		if err := session.validate(); err != nil {
+			return err
+		}
+		index.Inventory, err = filepath.Abs(inventory)
+		if err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
 		return err
 	}

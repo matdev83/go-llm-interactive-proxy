@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "tools/taskrunner/**"
+      - "tools/devcheck/**"
       - ".github/workflows/taskrunner-process-tree.yml"
       - ".github/actions/go-cache/**"
       - "scripts/ci-go-cache.py"
@@ -59,7 +60,7 @@ jobs:
                 relevant=true
                 break
                 ;;
-              tools/taskrunner/**|.github/workflows/taskrunner-process-tree.yml|go.mod|go.sum)
+              tools/taskrunner/**|tools/devcheck/**|.github/workflows/taskrunner-process-tree.yml|go.mod|go.sum)
                 relevant=true
                 break
                 ;;
@@ -117,6 +118,21 @@ jobs:
           # Enabled only by this remote native-runner job.
           LIP_RUN_WINDOWS_PROCESS_TREE_TESTS: "1"
         run: go test -count=1 -timeout=10m -run 'TestProcessTree_' ./tools/taskrunner
+
+      - name: Devcheck cancellation and evidence (Unix)
+        if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os != 'Windows'
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          race=()
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then race=(-race); fi
+          go test "${race[@]}" -count=1 -timeout=10m ./tools/devcheck
+
+      - name: Devcheck compatibility (Windows)
+        if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: go test -count=1 -timeout=10m ./tools/devcheck
 
       - name: Report unrelated PR bypass
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite != 'true'

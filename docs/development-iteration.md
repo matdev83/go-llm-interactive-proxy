@@ -28,6 +28,19 @@ caches and avoid forced rebuilds. Race execution remains remote-only under root
 
 ### Contract feedback and delivery slicing
 
+Known automation inputs also select existing self-tests and QA consumers: race
+scripts/workflow run the shell coverage probe and Go partition/host contracts;
+quality scripts/hooks run their existing isolation suite; workflow inputs run the
+scope matcher and main-push scope contract. The staged hook uses
+`-automation-only` so this adds no duplicate broad lint/test run. Unknown inputs
+still require reviewer-selected applicable checks, not inferred coverage.
+
+The canonical pre-commit hook binds both the staged index (including an explicit
+partial-commit index) and working contents around its gate using handoff `guard`.
+Mutation aborts acceptance without resetting/stashing user work. Source stamps
+cannot replace semantic review or protect ignored/external inputs automatically.
+Wildcard verification builds resolving to one package use scratch output too.
+
 Before accepting a task that changes shared runtime/state, composition, persistence
 or public Go contracts, run `make dev-contract-check`. It selects **existing**
 architecture checks for those surfaces and lints only direct changed packages in
@@ -473,6 +486,18 @@ The heavier runtimebundle end-to-end host, HTTP, billing, and reload tests live 
 
 ### Explicit local scope
 
+`devcheck` handles interrupt/termination signals and delegates check commands to
+the existing process-tree runner. Cancellation stops descendants and prevents
+later repeats/modules from starting; requested manifests still record failure
+and retain completed test counters and step logs. `DEV_TIMEOUT` (default `30m`,
+or `devcheck -timeout`) bounds the complete run; increase it explicitly for long
+checks. Existing Go test-binary timeout flags are unchanged. POSIX `dev-lint` and
+contract lint use the repository resource guard automatically; cancellation also
+terminates slot-waiting commands. Scope-discovery and evidence-metadata probes
+are not migrated to the process-tree runner in this slice.
+Native CLI/tooling regressions run in the taskrunner process-tree workflow;
+manual dispatch additionally enables focused Unix race checks for `devcheck`.
+
 `PKGS` is required for test/build/lint. There is no silent fallback to the full
 repository. Patterns are relative to `MODULE`, which defaults to the root module.
 `DEV_JOBS` defaults to 1 on local Linux `agent-dev`, and 4 elsewhere; tune it for the actual machine and keep it stable during
@@ -519,11 +544,11 @@ or a bounded wait to avoid waiting indefinitely behind their own parent.
 For a hard, immediate admission check:
 `LIP_GO_SLOT_MODE=hard LIP_GO_SLOT_WAIT=0 go test ./path/to/package`.
 `scripts/lint-all-modules.sh` shares these slots through the standalone guard's
-`--lip-resource-run <command> [args...]` mode. Direct analyzer invocations,
-including `dev-lint`, must use that wrapper explicitly to participate in this
-slice's coordination. CI and non-agent-dev analyzer runs retain native behavior.
-For scoped lint feedback: `bash scripts/go-dev-guard.sh --lip-resource-run make
-dev-lint PKGS='./path/to/package'`.
+`--lip-resource-run <command> [args...]` mode. Direct analyzer invocations must
+use that wrapper explicitly; POSIX `devcheck` lint commands wrap the analyzer
+automatically. CI and non-agent-dev analyzer runs retain native behavior.
+For scoped lint feedback: `make dev-lint PKGS='./path/to/package'` automatically
+wraps the analyzer on POSIX. Direct analyzer invocations still need the wrapper.
 
 Participating compiler/analyzer commands also hold a shared cache lock, including
 advisory slot-overflow runs. `make dev-cache-maintenance` is dry by default;
