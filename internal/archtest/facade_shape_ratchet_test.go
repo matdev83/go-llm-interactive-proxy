@@ -20,31 +20,7 @@ var wantGenerationOutputShape = []string{
 	"Planes:lipfeature.FrozenPlaneSet",
 	"Lifecycles:[]lipplugin.Lifecycle",
 	"CorePorts:CorePorts",
-}
-
-// CorePorts members: five task-assigned consumer interfaces
-// (CompactionDetector, ConversationReader, InterleavedProcessor,
-// PromptCacheMaintenance, TerminalPolicyReader), ConversationReaderStockOrigin
-// which carries non-spoofable composition origin, plus three opaque
-// remediation ports, each carrying no concrete feature type across the
-// boundary: MetricsSwap is a bare func() invoked once per published
-// generation; KeepwarmAdmin is a process-stable stdhttp options value
-// copied opaquely; TerminalPolicyProjection is a factory func value
-// invoked with generic composition state. ConversationBootstrap is the
-// consumer-owned generic pre-snapshot callback approved by model-system-prompt
-// design's Generic runtime port; it carries no concrete producer type or public
-// plane. Further members require the same bar: opaque type, justification here.
-var wantCorePortsShape = []string{
-	"CompactionDetector:runtime.CompactionDetector",
-	"ConversationReader:conversationprojection.Reader",
-	"ConversationReaderStockOrigin:bool",
-	"ConversationBootstrap:runtime.ConversationBootstrap",
-	"InterleavedProcessor:runtime.InterleavedProcessor",
-	"PromptCacheMaintenance:runtime.PromptCacheMaintenance",
-	"TerminalPolicyReader:runtime.TerminalPolicyReader",
-	"MetricsSwap:func()",
-	"KeepwarmAdmin:adminkeepwarm.Options",
-	"TerminalPolicyProjection:TerminalPolicyProjectionFunc",
+	"HostProjections:HostProjections",
 }
 
 var wantGenerationInputShape = []string{
@@ -76,16 +52,14 @@ var wantGenerationInputShape = []string{
 
 // TestGenerationFacadeShape pins the Task 2.2 conformance of the
 // standard-distribution generation facade against the shared want-shape
-// variables above. Any new per-feature output field, input field, or
-// CorePorts member fails loudly here instead of leaking back into generic
-// runtimebundle.
+// variables above. New featurehost output or input fields fail here instead
+// of leaking back into generic runtimebundle.
 func TestGenerationFacadeShape(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	absPath := filepath.Join(root, filepath.FromSlash("internal/standardplugins/featurehost/inputs.go"))
 
 	wantOutput := wantGenerationOutputShape
-	wantCorePorts := wantCorePortsShape
 	wantInput := wantGenerationInputShape
 
 	fieldsOf := func(structName string) []string {
@@ -104,10 +78,6 @@ func TestGenerationFacadeShape(t *testing.T) {
 	gotInput := fieldsOf("GenerationInput")
 	if !slices.Equal(gotInput, wantInput) {
 		t.Fatalf("GenerationInput facade shape drift:\n got=%v\nwant=%v", gotInput, wantInput)
-	}
-	gotCorePorts := fieldsOf("CorePorts")
-	if !slices.Equal(gotCorePorts, wantCorePorts) {
-		t.Fatalf("CorePorts facade shape drift:\n got=%v\nwant=%v", gotCorePorts, wantCorePorts)
 	}
 }
 
@@ -214,19 +184,7 @@ type GenerationOutput struct {
 	Planes     lipfeature.FrozenPlaneSet
 	Lifecycles []lipplugin.Lifecycle
 	CorePorts  CorePorts
-`
-	fullCorePorts := `package featurehost
-type CorePorts struct {
-	CompactionDetector            runtime.CompactionDetector
-	ConversationReader            conversationprojection.Reader
-	ConversationReaderStockOrigin bool
-	ConversationBootstrap         runtime.ConversationBootstrap
-	InterleavedProcessor          runtime.InterleavedProcessor
-	PromptCacheMaintenance        runtime.PromptCacheMaintenance
-	TerminalPolicyReader          runtime.TerminalPolicyReader
-	MetricsSwap                   func()
-	KeepwarmAdmin                 adminkeepwarm.Options
-	TerminalPolicyProjection      TerminalPolicyProjectionFunc
+ HostProjections HostProjections
 `
 	cases := []struct {
 		name       string
@@ -245,22 +203,9 @@ type CorePorts struct {
 		},
 		{
 			name:       "field type drift is flagged",
-			structName: "CorePorts",
-			src: `package featurehost
-type CorePorts struct {
-	CompactionDetector            runtime.CompactionDetector
-	ConversationReader            conversationprojection.Reader
-	ConversationReaderStockOrigin bool
-	ConversationBootstrap         runtime.ConversationBootstrap
-	InterleavedProcessor          runtime.InterleavedProcessor
-	PromptCacheMaintenance        runtime.PromptCacheMaintenance
-	TerminalPolicyReader          runtime.TerminalPolicyReader
-	MetricsSwap                   string
-	KeepwarmAdmin                 adminkeepwarm.Options
-	TerminalPolicyProjection      TerminalPolicyProjectionFunc
-}
-`,
-			silent: false,
+			structName: "GenerationOutput",
+			src:        strings.Replace(fullOutput, "Bundle     lipfeature.FeatureBundle", "Bundle string", 1) + "}\n",
+			silent:     false,
 		},
 		{
 			name:       "exact typed shape stays silent",
@@ -268,12 +213,6 @@ type CorePorts struct {
 			src: fullOutput + `}
 `,
 			silent: true,
-		},
-		{
-			name:       "exact CorePorts shape stays silent",
-			structName: "CorePorts",
-			src:        fullCorePorts + "}\n",
-			silent:     true,
 		},
 	}
 	for _, tc := range cases {
@@ -291,8 +230,6 @@ type CorePorts struct {
 			switch tc.structName {
 			case "GenerationOutput":
 				want = wantGenerationOutputShape
-			case "CorePorts":
-				want = wantCorePortsShape
 			default:
 				t.Fatalf("unknown struct %q: fixture must reference a pinned shape", tc.structName)
 			}

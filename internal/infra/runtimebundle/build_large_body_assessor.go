@@ -93,22 +93,11 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 		census.Hooks = largebody.HookEligibilityInput{SubmitOccupied: s > 0, RequestPartOccupied: r > 0, ResponsePartOccupied: resp > 0, ToolOccupied: tl > 0}
 	}
 
-	// Stock host reachability contracts: on a stock host, conversationStore and
-	// compactionDetector are unconditionally instantiated by featurehost/process.go.
-	// For wire execution:
-	// - ConversationViewReader: on a clean stock baseline (no local_turn_handlers contributing
-	//   NeverBackend tags), snapshotAndProject is an identity no-op matching wire semantics.
-	// - ConversationViewTagger: tagger is only invoked by local_turn_handlers, otherwise idle.
-	// - SteeringWriterFactory: interleaved/terminal producers and conversation bootstrap
-	//   require canonical execution, including before the first overlay is stored.
 	hasLocalTurn := contribs != nil && contribs.Has("local_turn_handlers")
-	hasSteeringPlanes := in.In.InterleavedProcessor != nil || (contribs != nil && contribs.Has("terminal_decision_provider"))
+	hasTerminalDecision := contribs != nil && contribs.Has("terminal_decision_provider")
 
 	census.Ports.BackendsEmpty = len(in.In.Model.Backends) == 0
-	census.Ports.ConversationViewReaderOccupied = in.In.ConversationReader != nil
-	census.Ports.ConversationReaderFreshALegSupported = in.In.ConversationReader != nil && in.In.ConversationReaderStockOrigin
-	census.Ports.ConversationViewTaggerOccupied = in.In.ConversationStore != nil && hasLocalTurn
-	census.Ports.SteeringWriterFactoryOccupied = in.In.ConversationBootstrap != nil || (in.In.ConversationStore != nil && hasSteeringPlanes)
+	in.In.CorePorts.AddToCensus(&census, in.In.ConversationStore != nil, hasLocalTurn, hasTerminalDecision)
 	census.Ports.ExposureAdmissionOccupied = in.Prod.BillingExposureAdmission != nil
 	census.Ports.BillingIdentityCustomCallbacks = in.Prod.BillingIdentity.HasCustomCallCallbacks()
 	census.Ports.CapsResolverOccupied = in.RoutingRT.CapsResolver != nil
@@ -119,9 +108,6 @@ func buildLargeBodyAssessor(in largeBodyAssessorInput) (*runtime.ProductionLarge
 	census.Ports.PreflightEnabled = in.AccountingRT.Preflight != nil
 	census.Ports.StreamUsageOccupied = in.AccountingRT.StreamUsage != nil
 	census.Ports.AdminCountServiceOccupied = in.AccountingRT.AdminCountService != nil
-	census.Ports.InterleavedProcessorOccupied = in.In.InterleavedProcessor != nil
-	census.Ports.CompactionDetectorOccupied = in.In.CompactionDetector != nil
-	_, census.Ports.CompactionDetectorWireSupported = in.In.CompactionDetector.(runtime.CompactionWireDetector)
 	census.Ports.TrafficCapturing = len(in.Prod.TrafficObservers) > 0 || hasTrafficPlanes
 
 	// Item 5: Register security.session_recorder port occupancy. Wire execution exercises

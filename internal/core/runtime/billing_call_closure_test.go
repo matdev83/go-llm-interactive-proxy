@@ -566,7 +566,7 @@ func testInterleavedExecutor(t *testing.T, backends map[string]execbackend.Backe
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Enabled:               true,
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",

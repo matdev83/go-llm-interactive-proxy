@@ -106,7 +106,7 @@ func setupWireCompactionExecutor(t *testing.T, detector CompactionDetector) (*Ex
 	ex.LargeBodyGenerationID = "gen-1"
 	ex.LargeBodyCandidateDomainGeneration = "dom-gen-1"
 	ex.DefaultBackend = "default"
-	ex.Detector = detector
+	ex.CompactionDetector = detector
 	ex.Backends = map[string]execbackend.Backend{
 		"default": {
 			OpenWire: func(ctx context.Context, req largebody.WireOpenRequest) (lipapi.ManagedEventStream, error) {

@@ -9,7 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/billing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/conversationprojection"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
@@ -53,22 +52,14 @@ type ProcessInput struct {
 	buildSteps []constructionStep
 }
 
-// CorePorts carries minimal fixed consumer-owned core interfaces needed by Tasks 3-7.
-// It is a fixed internal adapter, NOT a service map (design §7, Requirement 8.3).
-// Opaque admin/operator projections (MetricsSwap, KeepwarmAdmin,
-// TerminalPolicyProjection) are built by featurehost so generic runtimebundle
-// copies values without referencing concrete feature symbols.
-type CorePorts struct {
-	CompactionDetector            runtime.CompactionDetector
-	ConversationReader            conversationprojection.Reader
-	ConversationReaderStockOrigin bool
-	ConversationBootstrap         runtime.ConversationBootstrap
-	InterleavedProcessor          runtime.InterleavedProcessor
-	PromptCacheMaintenance        runtime.PromptCacheMaintenance
-	TerminalPolicyReader          runtime.TerminalPolicyReader
-	MetricsSwap                   func()
-	KeepwarmAdmin                 adminkeepwarm.Options
-	TerminalPolicyProjection      TerminalPolicyProjectionFunc
+// CorePorts carries the fixed consumer-owned core interfaces.
+type CorePorts = runtime.CorePorts
+
+// HostProjections carries opaque admin and operator projections for host composition.
+type HostProjections struct {
+	MetricsSwap              func()
+	KeepwarmAdmin            adminkeepwarm.Options
+	TerminalPolicyProjection TerminalPolicyProjectionFunc
 }
 
 // GenerationInput carries inputs for featurehost generation composition.
@@ -108,8 +99,9 @@ type GenerationInput struct {
 // handles (secret-guard plane, keep-warm manager/quiesce) travel inside the frozen
 // planes, lifecycles, and opaque ports instead of dedicated fields.
 type GenerationOutput struct {
-	Bundle     lipfeature.FeatureBundle
-	Planes     lipfeature.FrozenPlaneSet
-	Lifecycles []lipplugin.Lifecycle
-	CorePorts  CorePorts
+	Bundle          lipfeature.FeatureBundle
+	Planes          lipfeature.FrozenPlaneSet
+	Lifecycles      []lipplugin.Lifecycle
+	CorePorts       CorePorts
+	HostProjections HostProjections
 }

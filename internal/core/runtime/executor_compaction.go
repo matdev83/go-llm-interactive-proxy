@@ -75,7 +75,7 @@ func (e *Executor) preparedCompactionMeta(prep *preparedRequest, blegID string, 
 }
 
 func (e *Executor) applyCompactionEvents(prep *preparedRequest, out openedAttempt, emit func(compaction.PreservationMeta) []compaction.Event) (compaction.PreservationMeta, []compaction.Event, bool) {
-	if e == nil || e.Detector == nil || prep == nil || out.ready == nil {
+	if e == nil || e.CompactionDetector == nil || prep == nil || out.ready == nil {
 		return compaction.PreservationMeta{}, nil, false
 	}
 	bleg := out.ready.BLeg()
@@ -95,7 +95,7 @@ func (e *Executor) applyCompactionEvents(prep *preparedRequest, out openedAttemp
 
 func (e *Executor) observeCompactionOpened(ctx context.Context, prep *preparedRequest, out openedAttempt) compaction.PreservationMeta {
 	meta, events, ok := e.applyCompactionEvents(prep, out, func(m compaction.PreservationMeta) []compaction.Event {
-		return safeCompactionRequestOpened(ctx, e.Log, e.ExtensionMetrics, e.Detector, m, *prep.identity.call)
+		return safeCompactionRequestOpened(ctx, e.Log, e.ExtensionMetrics, e.CompactionDetector, m, *prep.identity.call)
 	})
 	if !ok {
 		return compaction.PreservationMeta{}
@@ -125,7 +125,7 @@ func (e *Executor) observeCompactionOpenedWire(
 	facts compactionfacts.RequestFacts,
 ) compaction.PreservationMeta {
 	meta, events, ok := e.applyCompactionEvents(prep, out, func(m compaction.PreservationMeta) []compaction.Event {
-		return safeCompactionRequestOpenedFacts(ctx, e.Log, e.ExtensionMetrics, e.Detector, m, facts)
+		return safeCompactionRequestOpenedFacts(ctx, e.Log, e.ExtensionMetrics, e.CompactionDetector, m, facts)
 	})
 	if ok {
 		compaction.Dispatch(ctx, e.compactionObservers(), events)
@@ -134,7 +134,7 @@ func (e *Executor) observeCompactionOpenedWire(
 }
 
 func (e *Executor) observeCompactionBeforeRequest(ctx context.Context, traceID, aLegID string, call *lipapi.Call) {
-	if e == nil || e.Detector == nil || call == nil {
+	if e == nil || e.CompactionDetector == nil || call == nil {
 		return
 	}
 	if ctx != nil && execctx.AuxiliaryDepth(ctx) > 0 {
@@ -167,7 +167,7 @@ func (e *Executor) observeCompactionBeforeRequest(ctx context.Context, traceID, 
 		}
 		return
 	}
-	preview := safeCompactionPreviewRequest(ctx, e.Log, e.ExtensionMetrics, e.Detector, meta, *call)
+	preview := safeCompactionPreviewRequest(ctx, e.Log, e.ExtensionMetrics, e.CompactionDetector, meta, *call)
 	meta.TransactionID = preview.TransactionID
 	meta.RuleID = preview.RuleID
 	meta.Evidence = preview.Evidence

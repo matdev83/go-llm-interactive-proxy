@@ -30,6 +30,7 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 			out.FeatureLifecycles = slices.Clone(overlay.FeatureLifecycles)
 			out.Extensions = cloneExtensionsOptions(overlay.Extensions)
 			out.FeaturePlanes, out.CorePorts = overlay.FeaturePlanes, overlay.CorePorts
+			out.HostProjections = overlay.HostProjections
 		} else {
 			if overlay.FeatureLifecycles != nil {
 				out.FeatureLifecycles = slices.Clone(overlay.FeatureLifecycles)
@@ -40,18 +41,7 @@ func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *B
 			if !overlay.FeaturePlanes.IsZero() {
 				out.FeaturePlanes = overlay.FeaturePlanes
 			}
-			if p := overlay.CorePorts.InterleavedProcessor; p != nil {
-				out.CorePorts.InterleavedProcessor = p
-			}
-			if p := overlay.CorePorts.ConversationBootstrap; p != nil {
-				out.CorePorts.ConversationBootstrap = p
-			}
-			if r := overlay.CorePorts.ConversationReader; r != nil {
-				out.CorePorts.ConversationReader, out.CorePorts.ConversationReaderStockOrigin = r, overlay.CorePorts.ConversationReaderStockOrigin
-			}
-			if d := overlay.CorePorts.CompactionDetector; d != nil {
-				out.CorePorts.CompactionDetector = d
-			}
+			out.CorePorts = out.CorePorts.Overlay(overlay.CorePorts)
 		}
 		if overlay.WireModel != nil {
 			out.WireModel = overlay.WireModel
@@ -87,7 +77,7 @@ func prependGeneratedLifecycles(gen, overlay []lipplugin.Lifecycle) []lipplugin.
 // stock origin only when the resolved reader is genuinely identical to the standard
 // features stock reader. Forged stock origin assertions on non-stock readers are declined.
 func resolveCandidateConvReader(ports featurehost.CorePorts, sf *featurehost.Runtime) (conversationprojection.Reader, bool) {
-	convReader, stockConvReader := ports.ConversationReader, false
+	convReader, stockConvReader := ports.ConversationViewReader, false
 	if sf != nil {
 		if stockReader := sf.ConversationReader(); convReader == nil {
 			convReader, stockConvReader = stockReader, stockReader != nil

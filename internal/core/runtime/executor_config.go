@@ -84,6 +84,7 @@ func (b BillingIdentity) HasCustomCallCallbacks() bool {
 
 // CoreRuntime carries continuity store, backends, lifecycle coordination, and clocks.
 type CoreRuntime struct {
+	CorePorts
 	Store                b2bua.Store
 	Backends             map[string]execbackend.Backend
 	ALegLifecycle        *leglifecycle.Coordinator
@@ -91,13 +92,6 @@ type CoreRuntime struct {
 	Now                  func() time.Time
 	MaxPendingWireEvents int
 	StreamRecovery       streamrecovery.Config
-	// PromptCacheMaintenance is the optional generation-owned provider-neutral maintenance port.
-	PromptCacheMaintenance PromptCacheMaintenance
-	// ConversationViewReader is an optional narrow snapshot port. When set,
-	// runtime preserves the single-snapshot per-turn invariant (task 3.2).
-	ConversationViewReader conversationprojection.Reader
-	// ConversationBootstrap is the optional generation-bound pre-snapshot producer.
-	ConversationBootstrap ConversationBootstrap
 	// ConversationViewTagger is the optional narrow tagger port for local-turn
 	// tag-before-release.
 	ConversationViewTagger ConversationViewTagger
@@ -297,10 +291,6 @@ type ExtensionRuntime struct {
 	Bus             *hooks.Bus
 	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
 
-	// TerminalPolicyReader resolves session-scoped terminal decision policy overrides
-	// at request admission (Task 7.2).
-	TerminalPolicyReader TerminalPolicyReader
-
 	// ToolCallFinalizationMaxArgsBytes is the assembler buffer cap from merged
 	// feature bundles (0 means default at assembler construction).
 	ToolCallFinalizationMaxArgsBytes int
@@ -308,18 +298,8 @@ type ExtensionRuntime struct {
 	toolCallFinalizers []toolcall.Finalizer
 }
 
-// InterleavedRuntime carries the interleaved-thinking consumer processor port.
-type InterleavedRuntime struct {
-	Processor InterleavedProcessor
-}
-
-// CompactionRuntime carries the process-owned compaction detector reference.
-// The detector is shared across generations and never owned by the executor;
-// nil is safe and disables compaction observation entirely.
-// Detection is observational only: it never alters routing, prompts,
-// responses, retries, accounting, or client framing.
+// CompactionRuntime carries the generation-bound background scheduler client.
 type CompactionRuntime struct {
-	Detector CompactionDetector
 	// BackgroundAux is the generation-bound process scheduler client. The
 	// scheduler itself remains process-owned; this interface lets callbacks
 	// submit work against the executor's frozen generation binding.
@@ -336,7 +316,6 @@ type ExecutorConfig struct {
 	Accounting    AccountingRuntime
 	Observability ObservabilityRuntime
 	Extension     ExtensionRuntime
-	Interleaved   InterleavedRuntime
 	Compaction    CompactionRuntime
 }
 
@@ -363,7 +342,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		AccountingRuntime:    cfg.Accounting,
 		ObservabilityRuntime: cfg.Observability,
 		ExtensionRuntime:     cfg.Extension,
-		InterleavedRuntime:   cfg.Interleaved,
 		CompactionRuntime:    cfg.Compaction,
 	}
 }

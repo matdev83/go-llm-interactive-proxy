@@ -259,15 +259,17 @@ func (r *Runtime) CompileGeneration(ctx context.Context, in GenerationInput) (Ge
 		Lifecycles: outLifecycles,
 		CorePorts: CorePorts{
 			CompactionDetector:            r.compactionDetector,
-			ConversationReader:            r.ConversationReader(),
+			ConversationViewReader:        r.ConversationReader(),
 			ConversationReaderStockOrigin: r.conversationStoreStock && r.conversationStore != nil,
 			ConversationBootstrap:         bootstrap,
 			InterleavedProcessor:          interleavedProc,
 			PromptCacheMaintenance:        kwMaint,
 			TerminalPolicyReader:          r.TerminalPolicyReader(),
-			MetricsSwap:                   kwSwap,
-			KeepwarmAdmin:                 kwAdmin,
-			TerminalPolicyProjection:      r.TerminalPolicyProjection(),
+		},
+		HostProjections: HostProjections{
+			MetricsSwap:              kwSwap,
+			KeepwarmAdmin:            kwAdmin,
+			TerminalPolicyProjection: r.TerminalPolicyProjection(),
 		},
 	}, nil
 }

@@ -30,7 +30,7 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 	aScope := coord.StartALeg(aLegID)
 	ex.ALegLifecycle = coord
 	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:   "think",
 		StreamToClient: streamToClient,
 		MaxMemoBytes:   4096,

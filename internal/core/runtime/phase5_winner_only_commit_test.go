@@ -65,7 +65,7 @@ func TestPhase5_WinnerOnlyCommit_AcceptedWinnerPersistsState(t *testing.T) {
 
 	ex := TestExecutor()
 	ex.Store = store
-	ex.Processor = fakeInterleavedProcessor{}
+	ex.InterleavedProcessor = fakeInterleavedProcessor{}
 
 	initialInterleaved := interleavedstate.State{
 		Cycle: interleavedstate.CycleState{
@@ -418,7 +418,7 @@ func TestPhase5_WinnerOnlyCommit_CommitFailureCleansUpAndReleases(t *testing.T) 
 	failStore := &failingInterleavedStateStore{Store: store, failSet: true}
 	ex := TestExecutor()
 	ex.Store = failStore
-	ex.Processor = fakeInterleavedProcessor{}
+	ex.InterleavedProcessor = fakeInterleavedProcessor{}
 
 	initialInterleaved := interleavedstate.State{
 		Cycle: interleavedstate.CycleState{SelectorKey: "sel-1", NextIndex: 0},

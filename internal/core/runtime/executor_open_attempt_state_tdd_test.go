@@ -355,7 +355,7 @@ func TestTDD_ParallelLoserSchedule(t *testing.T) {
 		t.Fatal("store does not implement InterleavedStateStore")
 	}
 
-	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,
 	}, memoStore)

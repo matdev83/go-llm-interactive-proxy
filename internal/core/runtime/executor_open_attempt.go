@@ -400,7 +400,7 @@ func (e *Executor) getOrBeginInterleavedTurn(ctx context.Context, rf requestFact
 	if !e.interleavedEnabled() {
 		return nil, nil
 	}
-	return e.Processor.BeginTurn(ctx, InterleavedTurnInput{
+	return e.InterleavedProcessor.BeginTurn(ctx, InterleavedTurnInput{
 		ALegID:              rf.aLegID,
 		Selector:            rf.baseline.Route.Selector,
 		Backend:             c.Primary.Backend,

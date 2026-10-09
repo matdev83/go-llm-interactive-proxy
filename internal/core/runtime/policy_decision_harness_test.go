@@ -73,7 +73,7 @@ func (h pdHungPreReq) Handle(ctx context.Context, _ *lipapi.Call, _ prerequest.M
 func policySecureExecutor(t *testing.T, backends map[string]execbackend.Backend, snapOpts extensions.SnapshotOptions) (*runtime.Executor, *b2bua.MemoryStore) {
 	t.Helper()
 	ex, st := interleavedSecureExecutor(t, backends)
-	ex.Processor = nil
+	ex.InterleavedProcessor = nil
 	if snapOpts.Workspace == nil {
 		snapOpts.Workspace = voidWorkspaceResolver{}
 	}

@@ -85,7 +85,7 @@ func TestStockHost_BehavioralDifferential_ConversationViewReader(t *testing.T) {
 	}
 	ex := &Executor{
 		CoreRuntime: CoreRuntime{
-			ConversationViewReader: cleanReader,
+			CorePorts: CorePorts{ConversationViewReader: cleanReader},
 		},
 	}
 
@@ -139,7 +139,7 @@ func TestStockHost_BehavioralDifferential_ConversationViewReader(t *testing.T) {
 	}
 	exMutating := &Executor{
 		CoreRuntime: CoreRuntime{
-			ConversationViewReader: mutatingReader,
+			CorePorts: CorePorts{ConversationViewReader: mutatingReader},
 		},
 	}
 	callWithNB := lipapi.Call{
@@ -242,8 +242,8 @@ func TestStockHost_BehavioralDifferential_CompactionDetector(t *testing.T) {
 	detectorSpy := &spyStockCompactionDetector{}
 
 	ex := &Executor{
-		CompactionRuntime: CompactionRuntime{
-			Detector: detectorSpy,
+		CoreRuntime: CoreRuntime{
+			CorePorts: CorePorts{CompactionDetector: detectorSpy},
 		},
 	}
 

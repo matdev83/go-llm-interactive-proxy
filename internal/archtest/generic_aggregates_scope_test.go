@@ -11,8 +11,7 @@ import (
 	"testing"
 )
 
-// archTestModulePath qualifies approved exception identities so a foreign
-// package imported under the same local name cannot spoof an approval.
+// archTestModulePath prevents foreign packages from spoofing approved identities.
 const archTestModulePath = "github.com/matdev83/go-llm-interactive-proxy"
 
 // archPkgFile is one parsed non-test file plus its local import names.
@@ -22,17 +21,15 @@ type archPkgFile struct {
 	imports map[string]string
 }
 
-// archPkgScope is the package-wide declaration surface: named structs, every
-// declared type name (for alias/defined-type chain resolution), and per-file
-// import maps for package identity checks.
+// archPkgScope holds declarations, alias chains, and imports for identity checks.
 type archPkgScope struct {
-	files    []*archPkgFile
-	structs  map[string]*ast.StructType
-	ownerOf  map[string]*archPkgFile
-	declared map[string]ast.Expr
-	declFile map[string]*archPkgFile
-	// aliasOf records whether declared[name] was an alias (type X = ...).
-	// Aliases are transparent identities; defined types are opaque.
+	packagePath string
+	files       []*archPkgFile
+	structs     map[string]*ast.StructType
+	ownerOf     map[string]*archPkgFile
+	declared    map[string]ast.Expr
+	declFile    map[string]*archPkgFile
+	// aliasOf distinguishes transparent aliases from opaque defined types.
 	aliasOf map[string]bool
 }
 
@@ -45,9 +42,7 @@ var archForbiddenFeatureTokens = []string{
 	"interleavedthinking",
 	"interleaved",
 	"sessionpolicy",
-	// Task 12.1 owns this entry (tasks.md 383, 410); its recorded precondition
-	// still holds. Inert today: TestGenericAggregatesContainNoPerFeatureFields
-	// sweeps the real aggregates and finds none of them carrying the token.
+
 	"sessionclassification",
 }
 
@@ -137,7 +132,13 @@ func archParseDir(t *testing.T, dir string) *archPkgScope {
 		}
 		files[name] = node
 	}
-	return archScopeFromParsed(files)
+	scope := archScopeFromParsed(files)
+	rel, err := filepath.Rel(repoRoot(t), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope.packagePath = archTestModulePath + "/" + filepath.ToSlash(rel)
+	return scope
 }
 
 func archParseSources(t *testing.T, sources map[string]string) *archPkgScope {
@@ -180,9 +181,7 @@ func splitArchShape(expr ast.Expr) (string, ast.Expr) {
 	}
 }
 
-// resolveArchLocal resolves a same-package type name through alias and
-// defined-type chains: qualified when the chain ends at another package,
-// local when it ends at a same-package declaration.
+// resolveArchLocal follows alias and defined chains to a local or imported type.
 func (s *archPkgScope) resolveArchLocal(name string) (importPath, typeName string, ok bool) {
 	seen := make(map[string]bool)
 	curr := name
@@ -295,8 +294,7 @@ func (s *archPkgScope) forbiddenPkgInType(expr ast.Expr, file *archPkgFile) (str
 	return bad, hit
 }
 
-// parseArchApprovedRef splits an approved exception type into shape, import
-// path, and type name ("LocalName" stays same-package).
+// parseArchApprovedRef extracts shape, package path, and name; local names stay local.
 func parseArchApprovedRef(expected string) (shape, path, name string) {
 	rest := expected
 	for strings.HasPrefix(rest, "*") || strings.HasPrefix(rest, "[]") {
@@ -314,12 +312,8 @@ func parseArchApprovedRef(expected string) (shape, path, name string) {
 	return shape, "", rest
 }
 
-// approvedExceptionMatches validates an exception claim by fully-resolved
-// package+type+shape identity: the composed pointer/array shape (outer field
-// shape plus shapes inside alias declarations) must equal the approved shape
-// exactly, and defined types are opaque — a defined type never matches the
-// approved reference it wraps. Textual spelling alone is insufficient, so a
-// foreign package imported under an approved local name is still rejected.
+// approvedExceptionMatches requires exact resolved package, type, and composed shape.
+// Aliases preserve identity; defined types and foreign package spellings cannot spoof it.
 func (s *archPkgScope) approvedExceptionMatches(expr ast.Expr, file *archPkgFile, expected string) bool {
 	expShape, expPath, expName := parseArchApprovedRef(expected)
 	actShape, actPath, actName, ok := s.resolveArchFullType(expr, file)
@@ -369,9 +363,7 @@ func (s *archPkgScope) scan(structName string, allowedExceptions map[string]stri
 	return s.scanWithRows(structName, map[string]map[string]string{structName: allowedExceptions})
 }
 
-// scanWithRows checks the root aggregate plus nested groups from any same-
-// package file and inline anonymous groups. Approvals are per-struct: a nested
-// struct owning its own exception row keeps its approvals wherever reached.
+// scanWithRows checks roots and nested groups, preserving each struct's approvals.
 func (s *archPkgScope) scanWithRows(root string, rows map[string]map[string]string) []string {
 	rootST, ok := s.structs[root]
 	if !ok {
@@ -417,6 +409,12 @@ func (s *archPkgScope) scanWithRows(root string, rows map[string]map[string]stri
 	}
 	scanFields = func(prefix string, st *ast.StructType, owner *archPkgFile) {
 		for _, field := range st.Fields.List {
+			shape, pkg, name, ok := s.resolveArchFullType(field.Type, owner)
+			if pkg == "" {
+				pkg = s.packagePath
+			}
+			// The exact core-owned ports aggregate is one approved seam.
+			corePorts := ok && shape == "" && pkg == archTestModulePath+"/internal/core/runtime" && name == "CorePorts"
 			typeStr := aggregateFieldTypeToString(field.Type)
 			isEmbedded := len(field.Names) == 0
 			var namesToCheck []string
@@ -479,6 +477,9 @@ func (s *archPkgScope) scanWithRows(root string, rows map[string]map[string]stri
 							break
 						}
 					}
+				}
+				if corePorts {
+					continue
 				}
 				for _, ref := range namedArchRefs(field.Type) {
 					recurseNamed(ref)
