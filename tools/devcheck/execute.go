@@ -24,7 +24,7 @@ func withAnalyzerBudget(root string, command []string) []string {
 
 // execute delegates process-tree ownership to taskrunner. The parser is joined
 // before returning, including malformed telemetry and interruption paths.
-func execute(ctx context.Context, cmd *exec.Cmd, test bool, output io.Writer) (testStats, error) {
+func execute(ctx context.Context, cmd *exec.Cmd, test bool, output, rawLog io.Writer) (testStats, error) {
 	if err := ctx.Err(); err != nil {
 		return testStats{}, err
 	}
@@ -48,6 +48,9 @@ func execute(ctx context.Context, cmd *exec.Cmd, test bool, output io.Writer) (t
 		reader, writer = io.Pipe()
 		parsed = make(chan struct{})
 		request.StreamOut = writer
+		if rawLog != nil {
+			request.StreamOut = io.MultiWriter(rawLog, writer)
+		}
 		go func() {
 			defer close(parsed)
 			defer func() { _ = reader.Close() }()
@@ -67,6 +70,6 @@ func execute(ctx context.Context, cmd *exec.Cmd, test bool, output io.Writer) (t
 
 func commandOutput(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 	var output bytes.Buffer
-	_, err := execute(ctx, cmd, false, &output)
+	_, err := execute(ctx, cmd, false, &output, nil)
 	return output.Bytes(), err
 }

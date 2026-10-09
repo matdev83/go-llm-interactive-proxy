@@ -33,6 +33,9 @@ func runTestPlan(ctx context.Context, root string, plan testscope.Plan, opts tes
 		return err
 	}
 	if opts.dry || len(plan.Modules) == 0 {
+		if len(plan.Modules) == 0 {
+			opts.recorder.skip("default tests", "no packages selected")
+		}
 		return nil
 	}
 	return repeatTestModules(plan.Modules, opts.repeat, diagnostics, func(module testscope.Module, iteration int) error {
@@ -100,7 +103,8 @@ func runTestModule(ctx context.Context, root string, module testscope.Module, op
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stderr = diagnostics
 	step := opts.recorder.start(module.Directory, command, dir, output)
-	stats, err := execute(ctx, cmd, true, step.output)
+	cmd.Stderr = step.stderr(diagnostics)
+	stats, err := execute(ctx, cmd, true, step.stdout(true), step.rawLog())
 	opts.recorder.finishRun(step, stepStats(true, stats), err)
 	_, reportErr := fmt.Fprintf(diagnostics, "elapsed=%.3fs passed=%d cached=%d failed=%d skipped=%d\n", time.Since(start).Seconds(), stats.Passed, stats.Cached, stats.Failed, stats.Skipped)
 	if err = errors.Join(err, reportErr); err != nil {

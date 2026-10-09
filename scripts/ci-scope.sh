@@ -247,6 +247,12 @@ init_fixture_repo() {
 
 self_test() {
   local relevant unrelated output tmp base head script_path
+  # Hooks pin their index/repository location. Fixture Git must never inherit
+  # those pins, or it reads the caller's index against unrelated fixture objects.
+  local git_var
+  while IFS= read -r git_var; do
+    unset "$git_var"
+  done < <(git rev-parse --local-env-vars)
 
   for relevant in \
     internal/core/runtime.go \

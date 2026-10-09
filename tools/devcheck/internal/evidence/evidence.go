@@ -9,6 +9,7 @@
 package evidence
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
 
 // SchemaVersion is the manifest format version. Readers must reject an unknown
@@ -41,6 +43,7 @@ const (
 	OutcomePassed  = "passed"
 	OutcomeFailed  = "failed"
 	OutcomeBlocked = "blocked"
+	OutcomeSkipped = "skipped"
 )
 
 // Manifest is the complete record of one development check.
@@ -57,6 +60,19 @@ type Manifest struct {
 	Environment   Environment `json:"environment"`
 	Steps         []Step      `json:"steps"`
 	Totals        Totals      `json:"totals"`
+	Skips         []Skip      `json:"skips,omitempty"`
+}
+
+// Skip describes an intentionally omitted check or requested test exclusion.
+type Skip struct {
+	Target string `json:"target"`
+	Reason string `json:"reason"`
+}
+
+// Selection is the actual module/package scope of one recorded command.
+type Selection struct {
+	Module   string   `json:"module"`
+	Packages []string `json:"packages,omitempty"`
 }
 
 // Revision identifies the tree the check ran against. A clean revision is the
@@ -94,6 +110,7 @@ type Scope struct {
 // comparable across hosts.
 type Environment struct {
 	GoVersion         string `json:"go_version"`
+	GoFlags           string `json:"go_flags,omitempty"`
 	LintVersion       string `json:"lint_version,omitempty"`
 	GOOS              string `json:"goos"`
 	GOARCH            string `json:"goarch"`
@@ -114,6 +131,7 @@ type Step struct {
 	ExitCode   int       `json:"exit_code"`
 	Tests      *Stats    `json:"tests,omitempty"`
 	LogPath    string    `json:"log_path,omitempty"`
+	Scope      Selection `json:"scope"`
 }
 
 // Stats counts test events observed on the command's JSON stream.
@@ -151,7 +169,7 @@ type Input struct {
 // New stamps a manifest with the observed revision and environment. Git and
 // toolchain probes are best-effort: an unreadable repository yields an
 // explicitly unknown revision rather than a fabricated one.
-func New(in Input) *Manifest {
+func New(ctx context.Context, in Input) *Manifest {
 	started := time.Now()
 	return &Manifest{
 		SchemaVersion: SchemaVersion,
@@ -159,9 +177,9 @@ func New(in Input) *Manifest {
 		Task:          in.Task,
 		Outcome:       OutcomePassed,
 		StartedAt:     started,
-		Revision:      revision(in.Workdir),
+		Revision:      revision(ctx, in.Workdir),
 		Scope:         in.Scope,
-		Environment:   environment(in.Workdir, in.Env),
+		Environment:   environment(ctx, in.Workdir, in.Env),
 		Steps:         []Step{},
 	}
 }
@@ -177,6 +195,11 @@ func (m *Manifest) Finish(err error, blocked string) {
 	case err != nil:
 		m.Outcome = OutcomeFailed
 		m.FailureReason = err.Error()
+	case m.Totals.CommandsFailed > 0:
+		m.Outcome = OutcomeFailed
+		m.FailureReason = "one or more recorded steps failed"
+	case m.Scope.PlanOnly || (len(m.Steps) == 0 && len(m.Skips) > 0):
+		m.Outcome = OutcomeSkipped
 	default:
 		m.Outcome = OutcomePassed
 	}
@@ -238,34 +261,35 @@ func (m *Manifest) Write(path string) error {
 	return nil
 }
 
-func environment(workdir string, env []string) Environment {
+func environment(ctx context.Context, workdir string, env []string) Environment {
 	out := Environment{
 		GOOS:        runtime.GOOS,
 		GOARCH:      runtime.GOARCH,
 		GOMAXPROCS:  runtime.GOMAXPROCS(0),
 		LogicalCPUs: runtime.NumCPU(),
 	}
-	out.GoVersion = strings.TrimSpace(gitFreeOutput(workdir, env, "go", "version"))
+	out.GoVersion = strings.TrimSpace(gitFreeOutput(ctx, workdir, env, "go", "version"))
+	out.GoFlags = strings.TrimSpace(gitFreeOutput(ctx, workdir, env, "go", "env", "GOFLAGS"))
 	if lint, lookErr := exec.LookPath("golangci-lint"); lookErr == nil {
-		out.LintVersion = strings.TrimSpace(gitFreeOutput(workdir, env, lint, "version"))
+		out.LintVersion = strings.TrimSpace(gitFreeOutput(ctx, workdir, env, lint, "version"))
 	}
 	out.CGOEnabled = value(env, "CGO_ENABLED")
 	out.ConcurrencyPolicy = value(env, "LIP_GO_SLOTS")
 	return out
 }
 
-func revision(workdir string) Revision {
+func revision(ctx context.Context, workdir string) Revision {
 	out := Revision{Worktree: workdir}
-	head, err := gitOutput(workdir, "rev-parse", "HEAD")
+	head, err := gitOutput(ctx, workdir, "rev-parse", "HEAD")
 	if err != nil {
 		return out
 	}
 	out.Head = head
-	if branch, err := gitOutput(workdir, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
+	if branch, err := gitOutput(ctx, workdir, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
 		out.Branch = branch
 		out.Detached = branch == "HEAD"
 	}
-	porcelain, err := gitRaw(workdir, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	porcelain, err := gitRaw(ctx, workdir, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
 		return out
 	}
@@ -276,7 +300,7 @@ func revision(workdir string) Revision {
 	digest, truncated := dirtyDigest(workdir, porcelain, paths)
 	out.DirtyDigest = digest
 	out.DirtyTruncated = truncated
-	_, err = gitOutput(workdir, "rev-parse", "-q", "--verify", "MERGE_HEAD")
+	_, err = gitOutput(ctx, workdir, "rev-parse", "-q", "--verify", "MERGE_HEAD")
 	out.MergeInProgress = err == nil
 	return out
 }
@@ -358,28 +382,25 @@ func value(env []string, key string) string {
 	return ""
 }
 
-func gitOutput(workdir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = workdir
-	cmd.Env = gitscope.Environ()
-	data, err := cmd.Output()
+func gitOutput(ctx context.Context, workdir string, args ...string) (string, error) {
+	data, err := gitRaw(ctx, workdir, args...)
 	return strings.TrimSpace(string(data)), err
 }
 
-func gitRaw(workdir string, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = workdir
-	cmd.Env = gitscope.Environ()
-	return cmd.Output()
+func gitRaw(ctx context.Context, workdir string, args ...string) ([]byte, error) {
+	return taskrunner.Output(ctx, taskrunner.Request{
+		Argv: append([]string{"git"}, args...), Dir: workdir,
+		Env: gitscope.Environ(), ClearEnv: true, Timeout: 2 * time.Minute,
+	})
 }
 
 // gitFreeOutput runs a non-git probe with the same environment hygiene, so a
 // stray GIT_DIR inherited from a hook cannot redirect it.
-func gitFreeOutput(workdir string, env []string, name string, args ...string) string {
-	cmd := exec.Command(name, args...)
-	cmd.Dir = workdir
-	cmd.Env = gitscope.WithoutRepoEnv(env)
-	data, err := cmd.Output()
+func gitFreeOutput(ctx context.Context, workdir string, env []string, name string, args ...string) string {
+	data, err := taskrunner.Output(ctx, taskrunner.Request{
+		Argv: append([]string{name}, args...), Dir: workdir,
+		Env: gitscope.WithoutRepoEnv(env), ClearEnv: env != nil, Timeout: 2 * time.Minute,
+	})
 	if err != nil {
 		return ""
 	}

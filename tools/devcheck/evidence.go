@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,9 +27,11 @@ type evidenceRecorder struct {
 	dir         string
 	sequence    int
 	blockReason string
+	quiet       bool
+	report      io.Writer
 }
 
-func newEvidenceRecorder(path, task string, scope evidence.Scope, workdir string) *evidenceRecorder {
+func newEvidenceRecorder(ctx context.Context, path, task string, scope evidence.Scope, workdir string) *evidenceRecorder {
 	if path == "" {
 		return nil
 	}
@@ -36,17 +39,25 @@ func newEvidenceRecorder(path, task string, scope evidence.Scope, workdir string
 	if !filepath.IsAbs(absolute) {
 		absolute = filepath.Join(workdir, absolute)
 	}
-	manifest := evidence.New(evidence.Input{
+	manifest := evidence.New(ctx, evidence.Input{
 		Task:    task,
 		Scope:   scope,
 		Env:     os.Environ(),
 		Workdir: workdir,
 	})
-	return &evidenceRecorder{
+	recorder := &evidenceRecorder{
 		manifest: manifest,
 		path:     absolute,
 		dir:      filepath.Dir(absolute),
 	}
+	if task == "test" || task == "contracts" {
+		if fields, err := splitGoFlags(manifest.Environment.GoFlags); err == nil {
+			if pattern, found, err := lastGoFlagsSkip(fields); err == nil && found && pattern != "" {
+				recorder.skip(pattern, "inherited GOFLAGS test exclusion")
+			}
+		}
+	}
+	return recorder
 }
 
 // block records the first infrastructure condition that prevented the check
@@ -64,7 +75,21 @@ func (r *evidenceRecorder) finish(runErr error) error {
 		return nil
 	}
 	r.manifest.Finish(runErr, r.blockReason)
-	return r.manifest.Write(r.path)
+	writeErr := r.manifest.Write(r.path)
+	if r.quiet && r.report != nil {
+		_, writeSummaryErr := fmt.Fprintf(r.report, "verification=%s evidence=%s\n", r.manifest.Outcome, r.path)
+		writeErr = errors.Join(writeErr, writeSummaryErr)
+	}
+	if runErr == nil && (r.manifest.Outcome == evidence.OutcomeBlocked || r.manifest.Outcome == evidence.OutcomeFailed) {
+		writeErr = errors.Join(writeErr, errors.New(r.manifest.FailureReason))
+	}
+	return writeErr
+}
+
+func (r *evidenceRecorder) skip(target, reason string) {
+	if r != nil {
+		r.manifest.Skips = append(r.manifest.Skips, evidence.Skip{Target: target, Reason: reason})
+	}
 }
 
 // commandRun is one in-flight command: its log file, the writer that streams
@@ -77,6 +102,9 @@ type commandRun struct {
 	logPath   string
 	log       *os.File
 	output    io.Writer
+	live      io.Writer
+	quiet     bool
+	scope     evidence.Selection
 }
 
 // start opens this step's log and returns the writer command output must go to.
@@ -93,6 +121,20 @@ func (r *evidenceRecorder) start(label string, command []string, dir string, std
 	if r == nil {
 		return run
 	}
+	module, err := filepath.Rel(r.manifest.Revision.Worktree, dir)
+	if err != nil {
+		module = dir
+	}
+	run.scope.Module = filepath.ToSlash(module)
+	for _, arg := range command {
+		if arg == "." || strings.HasPrefix(arg, "./") {
+			run.scope.Packages = append(run.scope.Packages, arg)
+		}
+	}
+	if err := os.MkdirAll(r.dir, 0o755); err != nil {
+		r.block(fmt.Sprintf("create step log directory: %v", err))
+		return run
+	}
 	r.sequence++
 	name := fmt.Sprintf("step-%02d-%s.log", r.sequence, sanitizeLogLabel(label))
 	path := filepath.Join(r.dir, name)
@@ -103,8 +145,37 @@ func (r *evidenceRecorder) start(label string, command []string, dir string, std
 	}
 	run.log = log
 	run.logPath = path
-	run.output = io.MultiWriter(stdout, log)
+	run.quiet = r.quiet
+	if run.quiet {
+		stdout = io.Discard
+	}
+	run.live = stdout
+	run.output = io.MultiWriter(log, stdout)
 	return run
+}
+
+func (run *commandRun) stdout(test bool) io.Writer {
+	if test && run.log != nil {
+		return run.live
+	}
+	return run.output
+}
+
+func (run *commandRun) rawLog() io.Writer {
+	if run.log == nil {
+		return nil
+	}
+	return run.log
+}
+
+func (run *commandRun) stderr(live io.Writer) io.Writer {
+	if run.log == nil {
+		return live
+	}
+	if run.quiet {
+		live = io.Discard
+	}
+	return io.MultiWriter(run.log, live)
 }
 
 // finish records the step result and closes its log. stats is nil for commands
@@ -129,11 +200,17 @@ func (r *evidenceRecorder) finishRun(run *commandRun, stats *evidence.Stats, run
 		ExitCode:   exitCode(runErr),
 		LogPath:    run.logPath,
 		Tests:      stats,
+		Scope:      run.scope,
 	}
 	if runErr != nil {
 		step.Result = evidence.OutcomeFailed
 	}
 	r.manifest.Steps = append(r.manifest.Steps, step)
+	if r.quiet && r.report != nil {
+		if _, err := fmt.Fprintf(r.report, "%s: %s elapsed=%.3fs scope=%s:%v log=%s\n", step.Label, step.Result, float64(step.DurationMS)/1000, step.Scope.Module, step.Scope.Packages, step.LogPath); err != nil {
+			r.block(fmt.Sprintf("write summary: %v", err))
+		}
+	}
 }
 
 func exitCode(err error) int {

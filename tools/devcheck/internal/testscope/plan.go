@@ -33,6 +33,9 @@ type Plan struct {
 
 // Build computes a deterministic plan without changing the checkout or index.
 func Build(ctx context.Context, root string, opts Options) (Plan, error) {
+	if err := ctx.Err(); err != nil {
+		return Plan{}, err
+	}
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return Plan{}, err
@@ -51,13 +54,20 @@ func Build(ctx context.Context, root string, opts Options) (Plan, error) {
 	}
 	paths, comparison, err := changedPaths(ctx, root, base)
 	if err != nil {
+		if ctx.Err() != nil {
+			return Plan{}, ctx.Err()
+		}
 		if opts.Base != "" {
 			return Plan{}, err
 		}
 		return fullPlan(plan, modules, err.Error()), nil
 	}
 	plan.Base, plan.Changed = comparison, paths
-	return selectChanges(ctx, root, plan, modules, listPackages), nil
+	selected := selectChanges(ctx, root, plan, modules, listPackages)
+	if err := ctx.Err(); err != nil {
+		return Plan{}, err
+	}
+	return selected, nil
 }
 
 func selectChanges(ctx context.Context, root string, plan Plan, modules []string, list func(context.Context, string, string) ([]listedPackage, error)) Plan {

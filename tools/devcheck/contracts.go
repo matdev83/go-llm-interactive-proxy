@@ -26,8 +26,12 @@ func runContractCheck(ctx context.Context, root, base string, opts testPlanOptio
 		return err
 	}
 	if opts.dry {
+		opts.recorder.skip("contract and lint execution", "plan-only request")
 		_, err := fmt.Fprintln(diagnostics, "plan-only: no contracts or lint executed")
 		return err
+	}
+	if len(plan.Tests) == 0 && len(plan.Lint) == 0 && len(plan.Scripts) == 0 && len(plan.QA) == 0 {
+		opts.recorder.skip("contract and lint execution", "no checks selected")
 	}
 	for _, script := range plan.Scripts {
 		command := append([]string{"bash"}, strings.Fields(script)...)
@@ -57,6 +61,9 @@ func runContractCheck(ctx context.Context, root, base string, opts testPlanOptio
 		}
 	}
 	if opts.automationOnly {
+		if len(plan.Scripts) == 0 && len(plan.QA) == 0 {
+			opts.recorder.skip("automation checks", "no checks selected")
+		}
 		return nil
 	}
 	if len(plan.Tests) != 0 {
@@ -117,7 +124,8 @@ func runContractCommandRecorded(ctx context.Context, dir string, command []strin
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stderr = diagnostics
 	step := recorder.start("contract-check", command, dir, output)
-	stats, err := execute(ctx, cmd, test, step.output)
+	cmd.Stderr = step.stderr(diagnostics)
+	stats, err := execute(ctx, cmd, test, step.stdout(test), step.rawLog())
 	recorder.finishRun(step, stepStats(test, stats), err)
 	return err
 }

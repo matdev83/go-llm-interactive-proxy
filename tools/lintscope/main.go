@@ -11,14 +11,16 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
 
 type moduleScope struct {
@@ -46,7 +48,9 @@ func main() {
 	root := flag.String("root", ".", "repository root")
 	format := flag.String("format", "json", "json or lines for shell adapters")
 	flag.Parse()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	plan, err := buildLintPlan(ctx, *root, *mode, *base, *direct)
 	if err == nil {
@@ -72,16 +76,10 @@ func main() {
 }
 
 func commandOutput(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-	cmd.Env = append(gitscope.Environ(), "GOWORK=off")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("%s %v: %w: %s", name, args, err, stderr.String())
-	}
-	return out, nil
+	return taskrunner.Output(ctx, taskrunner.Request{
+		Argv: append([]string{name}, args...), Dir: dir,
+		Env: append(gitscope.Environ(), "GOWORK=off"), ClearEnv: true, Timeout: 2 * time.Minute,
+	})
 }
 
 func changedPaths(ctx context.Context, root, mode, base string) ([]string, error) {
@@ -139,6 +137,11 @@ func isSkillPath(name string) bool {
 
 func buildLintPlan(ctx context.Context, root, mode, base string, direct bool) (lintPlan, error) {
 	root, err := filepath.Abs(root)
+	if err != nil {
+		return lintPlan{}, err
+	}
+	// Go reports physical module directories, including macOS /var -> /private/var.
+	root, err = filepath.EvalSymlinks(root)
 	if err != nil {
 		return lintPlan{}, err
 	}

@@ -49,7 +49,7 @@ func TestContracts_CancellationStopsDescendantsAndKeepsEvidence(t *testing.T) {
 				}
 			})
 			path := filepath.Join(dir, "manifest.json")
-			recorder := newEvidenceRecorder(path, "contracts", evidence.Scope{Kind: "changed"}, dir)
+			recorder := newEvidenceRecorder(ctx, path, "contracts", evidence.Scope{Kind: "changed"}, dir)
 			if scenario.deadline {
 				var stop context.CancelFunc
 				ctx, stop = context.WithTimeout(ctx, time.Second)
@@ -165,7 +165,17 @@ func TestDevcheckSignalHelper(t *testing.T) {
 		return
 	}
 	flag.CommandLine = flag.NewFlagSet("devcheck", flag.ExitOnError)
-	os.Args = []string{"devcheck", "-task=build", "-packages=./...", "-repeat=2", "-evidence=" + path}
+	task := os.Getenv("DEVCHECK_CLI_TASK")
+	if task == "" {
+		task = "build"
+	}
+	os.Args = []string{"devcheck", "-task=" + task, "-packages=./...", "-repeat=2", "-evidence=" + path}
+	if timeout := os.Getenv("DEVCHECK_CLI_TIMEOUT"); timeout != "" {
+		os.Args = append(os.Args, "-timeout="+timeout)
+	}
+	if output := os.Getenv("DEVCHECK_CLI_OUTPUT"); output != "" {
+		os.Args = append(os.Args, "-output="+output)
+	}
 	main()
 }
 
