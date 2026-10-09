@@ -43,6 +43,10 @@ func (e *Executor) runSecretGuardStage(ctx context.Context, call *lipapi.Call, i
 	if len(guards) == 0 {
 		return nil
 	}
+	if call != nil && call.Decision != nil {
+		return lipapi.NewPolicyDeniedError("secret_guard", "secret_guard_chain", "decision_unsupported", "policy_denied",
+			"decision requests are unavailable while a secret guard is active", nil)
+	}
 	attr, _ := secretguard.IngressAttributionFromContext(ctx)
 	meta := secretguard.Meta{
 		TraceID:             in.TraceID,
