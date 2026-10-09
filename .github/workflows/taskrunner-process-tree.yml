@@ -131,7 +131,7 @@ jobs:
         run: |
           race=()
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then race=(-race); fi
-          go test "${race[@]}" -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope ./tools/worktreeclean
+          LIP_REQUIRE_CLEANUP_INTEGRATION=1 go test "${race[@]}" -v -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope ./tools/worktreeclean
 
       - name: Devcheck compatibility (Windows)
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os == 'Windows'

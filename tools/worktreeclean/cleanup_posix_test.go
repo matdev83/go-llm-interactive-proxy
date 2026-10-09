@@ -17,6 +17,9 @@ func TestCleanup_DryRunPreservesThenApplyRemovesOnlySelectedFixture(t *testing.T
 	repo := filepath.Join(container, "branches", "main")
 	path := filepath.Join(container, "worktrees", "task")
 	if _, err := activeUsers(t.Context(), path); err != nil {
+		if os.Getenv("LIP_REQUIRE_CLEANUP_INTEGRATION") == "1" {
+			t.Fatalf("required cleanup integration cannot run: %v", err)
+		}
 		t.Skipf("host cannot certify active-user ownership: %v", err)
 	}
 	if err := os.MkdirAll(repo, 0o755); err != nil {
