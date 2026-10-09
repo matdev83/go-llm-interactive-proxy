@@ -116,3 +116,9 @@
 - Task 4.3: shared frontendpipe uses an optional DecodeErrorWriter to retain field-specific rejection details without changing existing frontends. Nil decision carriers are omitted from canonical JSON to preserve ordinary chat/event serialization and wire-proof identities.
 - Task 4.1: question IDs and option names are byte-bounded labels, not trimmed identifiers; exact client names survive decoding and canonical validation (requirement 1.2).
 - Task 3.3: the maintainer explicitly approved the host-owned multi-user policy addition for operator-owned credentials. Unknown and personal-auth factories remain denied; the existing shared-deployment gate remains enabled.
+
+## Completion Status
+- [x] All 12 implementation tasks reviewed and verified.
+- [x] Core #870 and endpoint #878 merged after CI repair #877; main baseline `953dcfc564311b3ea15faec7bea4384e68b9937c` verified.
+- [x] Fresh merged-main decision integration, CLI build, example validation and spawned-distribution HTTP smoke passed.
+- [x] Issue #804 is closed. Deferred scope remains unchanged; live vendor/SDK and remote race certification are not claimed.
