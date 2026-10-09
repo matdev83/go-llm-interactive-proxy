@@ -85,20 +85,11 @@ if [[ "${LIP_PRECOMMIT_FULL:-}" != "1" ]]; then
 	# through reverse dependencies, so a reverse-dependency scope costs about
 	# as much as the full suite; CI's Go suite owns those consumers.
 	declare -A test_packages=()
-	while IFS= read -r file; do
-		[[ "$file" == *.go && -f "$file" ]] || continue
-		dir=$(dirname "$file")
-		module=$dir
-		while [[ "$module" != "." && ! -f "$module/go.mod" ]]; do
-			module=$(dirname "$module")
-		done
-		if [[ "$module" == "." ]]; then
-			package="./$dir"
-		else
-			package=".${dir#"$module"}"
-		fi
-		test_packages["$module"]+=" ${package%/.}"
-	done <<< "$staged_files"
+	shared_test_scope="$(go run -buildvcs=false ./tools/localscope -mode staged -metadata=false -format lines)"
+	while IFS=$'\t' read -r module packages; do
+		[[ -n "$module" && -n "$packages" ]] || continue
+		test_packages["$module"]="$packages"
+	done <<< "$shared_test_scope"
 	if [[ ${#test_packages[@]} -eq 0 ]]; then
 		echo "No staged Go packages to test."
 	fi

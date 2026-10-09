@@ -484,6 +484,18 @@ remote certification includes these fixtures without changing workflow scope.
 
 ### Explicit local scope
 
+Change collection and direct package ownership share `tools/internal/scopeplan`:
+staged checks use only the index; working checks union staged, unstaged and
+untracked paths; base checks use the committed branch comparison. `devcheck`
+automatic selection includes both branch and working changes. Hooks and Bash/
+PowerShell quality adapters consume `tools/localscope` rather than independently
+walking module boundaries. Deleted module metadata checks surviving parent
+sources; removed packages are omitted from direct checks without hiding consumer
+coverage in the existing expanded planners/CI. Scope output remains phase-specific.
+Inspect the shared direct plan with `go run ./tools/localscope -mode staged`,
+`-mode changed`, `-mode base -base <ref>`, or explicit `-mode explicit -module
+connectors/name -packages './...'`. Native CI keeps comprehensive coverage.
+
 `devcheck` handles interrupt/termination signals and delegates check commands to
 the existing process-tree runner. Cancellation stops descendants and prevents
 later repeats/modules from starting; requested manifests still record failure
