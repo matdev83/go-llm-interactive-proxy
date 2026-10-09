@@ -7,7 +7,7 @@ replace github.com/matdev83/go-llm-interactive-proxy => ../..
 replace github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat => ../../connector-support/openaicompat
 
 require (
-	github.com/Microsoft/go-winio v0.6.2
+	github.com/Microsoft/go-winio v0.6.3
 	github.com/matdev83/go-llm-interactive-proxy v0.0.0
 	github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.83.2
