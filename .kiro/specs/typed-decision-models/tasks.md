@@ -83,7 +83,7 @@
   - _Depends: 1.2_
   - _Validation: go test ./internal/plugins/frontends/systemone/ -run 'Decode'_
 
-- [ ] 4.2 (P) Encode answers and System One error envelopes
+- [x] 4.2 (P) Encode answers and System One error envelopes
   - Collect the canonical stream to completion and write `{model, answers, usage}` with type-specific answer shapes, zero-based string keys, a legend from the request's level order, and confidence only when present.
   - Write 422 `detail[]` for decision rejects and `{"detail": message}` for other outcomes, reusing executor error classification for statuses.
   - Observable completion: encoding tests reproduce the documented TypeSafe response for all three types, omit confidence for noul, and emit the expected envelope per error class.
