@@ -32,7 +32,7 @@
   - _Boundary: CoreTouchpoints_
   - _Validation: go test ./internal/core/modelcatalog/_
 
-- [ ] 2.2 (P) Fail closed for decisions while a secret guard is active
+- [x] 2.2 (P) Fail closed for decisions while a secret guard is active
   - When the secret-guard plane has guards and the call carries a decision, return a policy-denied error before any guard runs or any upstream work starts; with no guards configured, decisions proceed.
   - Observable completion: executor tests show a policy-denied outcome with guards present and normal progress without guards.
   - _Requirements: 5.1_
