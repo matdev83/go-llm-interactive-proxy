@@ -17,7 +17,7 @@ package lipapi
 // first-class content (exact historical reasoning) and must block retry/failover.
 func OutputCommitted(ev Event) bool {
 	switch ev.Kind {
-	case EventTextDelta, EventReasoningDelta, EventReasoningOpaqueDelta, EventReasoningPart,
+	case EventDecisionResult, EventTextDelta, EventReasoningDelta, EventReasoningOpaqueDelta, EventReasoningPart,
 		EventToolCallStarted, EventToolCallArgsDelta,
 		EventAssistantImageRef, EventAssistantFileRef:
 		return true

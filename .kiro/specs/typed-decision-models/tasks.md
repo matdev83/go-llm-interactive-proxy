@@ -5,8 +5,8 @@
 - `_Boundary_` names the design component; `_Depends_` declares non-obvious cross-group dependencies; `_Validation_` names the focused proof command.
 - Each task writes its failing tests first (TDD) and carries only the tests that prove it.
 
-- [ ] 1. Canonical decision contract
-- [ ] 1.1 Define typed decision requests and results with their invariants
+- [x] 1. Canonical decision contract
+- [x] 1.1 Define typed decision requests and results with their invariants
   - Add the decision request, question, option, level, result and answer types, the decision reject error and its predicate, as specified in design "DecisionContract".
   - Request validation rejects unknown kinds, empty or duplicate question IDs, duplicate option names, choices outside 1–255 options, scores outside 2–10 levels, and invalid JSON values, reporting the offending field.
   - Result validation accepts only one answer per question in request order, finite values in range, distributions summing to 1 within tolerance, a maximal-probability selected option, a zero-based expected score within range, and confidence only when present and in [0, 1].
@@ -15,7 +15,7 @@
   - _Boundary: DecisionContract_
   - _Validation: go test ./pkg/lipapi/ -run 'Decision'_
 
-- [ ] 1.2 Carry decisions on canonical calls and streams
+- [x] 1.2 Carry decisions on canonical calls and streams
   - Add the decision field to calls with exclusive authority (no messages, instructions, items, previous response ID, tools or tool choice alongside it) and deep cloning; validation does not read invocation metadata.
   - Add the protocol-neutral `decision.evaluate` operation, the `decisions` capability derived whenever a call carries a decision, and the decision result event kind with its payload.
   - Sequence validation accepts the decision result after `response_started`, without `message_started`, at most once; the decision result commits output.
@@ -24,22 +24,22 @@
   - _Boundary: DecisionContract_
   - _Validation: go test ./pkg/lipapi/_
 
-- [ ] 2. Core touchpoints
-- [ ] 2.1 (P) Size billing quotes for decision calls
+- [x] 2. Core touchpoints
+- [x] 2.1 (P) Size billing quotes for decision calls
   - Extend the default request-size estimator to count decision evidence, instruction and criteria bytes for calls carrying a decision; leave chat estimates unchanged.
   - Observable completion: a decision call yields an available, non-zero estimate proportional to its payload, and existing estimator tests still pass.
   - _Requirements: 4.3, 4.4_
   - _Boundary: CoreTouchpoints_
   - _Validation: go test ./internal/core/modelcatalog/_
 
-- [ ] 2.2 (P) Fail closed for decisions while a secret guard is active
+- [x] 2.2 (P) Fail closed for decisions while a secret guard is active
   - When the secret-guard plane has guards and the call carries a decision, return a policy-denied error before any guard runs or any upstream work starts; with no guards configured, decisions proceed.
   - Observable completion: executor tests show a policy-denied outcome with guards present and normal progress without guards.
   - _Requirements: 5.1_
   - _Boundary: CoreTouchpoints_
   - _Validation: go test ./internal/core/runtime/ -run 'SecretGuard'_
 
-- [ ] 2.3 (P) Refuse decision calls at the executable-connector bridge
+- [x] 2.3 (P) Refuse decision calls at the executable-connector bridge
   - The host-side connector invocation builder rejects a call carrying a decision with a capability reject instead of silently dropping it.
   - Observable completion: an adapter test shows a decision call is refused and a chat call converts unchanged.
   - _Requirements: 3.1, 3.5_

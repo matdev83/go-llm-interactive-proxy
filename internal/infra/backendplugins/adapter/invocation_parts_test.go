@@ -36,6 +36,25 @@ func TestInvocationFromCall_JSONPartMapped(t *testing.T) {
 	}
 }
 
+func TestInvocationFromCall_DecisionRejectedWithoutDroppingSemantics(t *testing.T) {
+	t.Parallel()
+	call := testCall()
+	call.Messages = nil
+	call.Decision = &lipapi.DecisionRequest{Evidence: json.RawMessage(`"data"`), Questions: []lipapi.DecisionQuestion{{ID: "q", Kind: lipapi.DecisionKindNoul}}}
+	_, err := adapter.InvocationFromCall(call, testCand(), backendplugin.Negotiation{})
+	if !lipapi.IsReject(err) {
+		t.Fatalf("decision must fail with capability reject, got %v", err)
+	}
+	call = testCall()
+	inv, err := adapter.InvocationFromCall(call, testCand(), backendplugin.Negotiation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inv.Messages) != 1 || len(inv.Messages[0].Parts) != 1 || inv.Messages[0].Parts[0].Text == nil || *inv.Messages[0].Parts[0].Text != call.Messages[0].Parts[0].Text {
+		t.Fatal("chat mapping changed")
+	}
+}
+
 // Golden round trip: canonical -> ABI DTO -> proto wire -> ABI DTO -> canonical
 // must preserve the json part and its payload exactly.
 func TestInvocationFromCall_JSONPartGoldenRoundTrip(t *testing.T) {

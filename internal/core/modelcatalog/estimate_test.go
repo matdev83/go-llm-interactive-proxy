@@ -36,6 +36,40 @@ func TestDefaultSizeEstimator_textOnly_available(t *testing.T) {
 	}
 }
 
+func TestDefaultSizeEstimator_decisionPayloadCounts(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{Decision: &lipapi.DecisionRequest{
+		Evidence: json.RawMessage(`"data"`),
+		Questions: []lipapi.DecisionQuestion{
+			{ID: "yes", Kind: lipapi.DecisionKindNoul, Instructions: json.RawMessage(`"ask"`), TrueCriteria: json.RawMessage(`"ok"`), FalseCriteria: json.RawMessage(`"no"`)},
+			{ID: "pick", Kind: lipapi.DecisionKindChoice, Options: []lipapi.DecisionOption{{Name: "a", Description: json.RawMessage(`"one"`)}}},
+			{ID: "grade", Kind: lipapi.DecisionKindScore, Levels: []json.RawMessage{json.RawMessage(`"lo"`), json.RawMessage(`"hi"`)}},
+		},
+	}}
+	est := modelcatalog.DefaultSizeEstimator{}
+	got := est.EstimateRequestTokens(t.Context(), call)
+	// Original JSON bytes: 6 evidence + 5 instruction + 8 noul criteria +
+	// 5 option description + 8 score levels + 13 question/option label bytes.
+	if !got.Available || got.Units != "bytes" || got.Input != 45 {
+		t.Fatalf("decision estimate = %+v, want 45 available bytes", got)
+	}
+	call.Decision.Evidence = json.RawMessage(`"data-more"`)
+	if got := est.Estimate(t.Context(), call); got.Input != 50 {
+		t.Fatalf("larger decision estimate = %+v, want 50 bytes", got)
+	}
+}
+
+func TestDefaultSizeEstimator_decisionCriteriaNamesCountWithoutDescriptions(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{Decision: &lipapi.DecisionRequest{Evidence: json.RawMessage(`"x"`), Questions: []lipapi.DecisionQuestion{
+		{ID: "q", Kind: lipapi.DecisionKindChoice, Options: []lipapi.DecisionOption{{Name: "very-long-option"}}},
+	}}}
+	got := (modelcatalog.DefaultSizeEstimator{}).Estimate(t.Context(), call)
+	if !got.Available || got.Input != 20 { // 3 evidence + 1 question ID + 16 option name
+		t.Fatalf("decision labels omitted from quote sizing: %+v", got)
+	}
+}
+
 func TestDefaultSizeEstimator_instructions_counted(t *testing.T) {
 	t.Parallel()
 	est := modelcatalog.DefaultSizeEstimator{}
