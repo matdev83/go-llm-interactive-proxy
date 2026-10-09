@@ -4,7 +4,7 @@ on:
   # Trusted default-branch code only: no pull-request code or artifacts run
   # with the cache deletion token.
   workflow_run:
-    workflows: [CI, QA, Backend plugin cross-platform, ACP process-tree, Cursor SDK Platform Smoke, Development cost watchdog, Go module synchronization, Connector pool race, OpenResponses Official Compliance, OpenResponses coverage evidence, Taskrunner process-tree, Node independence]
+    workflows: [CI, QA, Backend plugin cross-platform, ACP process-tree, Development cost watchdog, Go module synchronization, Connector pool race, OpenResponses Official Compliance, OpenResponses coverage evidence, Taskrunner process-tree, Node independence]
     branches: [main]
     types: [completed]
   schedule:

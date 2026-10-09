@@ -68,8 +68,9 @@ func TestCursorSDKNpmImportsStayInsideBridgeBoundary(t *testing.T) {
 	}
 }
 
-// TestCoreAndProviderBoundaryDoNotImportCursorSDKBackend keeps core free of the
-// concrete cursorsdk connector (provider semantics stay in adapters/connectors).
+// TestCoreAndProviderBoundaryDoNotImportCursorSDKBackend keeps core free of
+// concrete connector backends (provider semantics stay in adapters/connectors).
+// This generic boundary stays in force while the in-tree fallback remains.
 func TestCoreAndProviderBoundaryDoNotImportCursorSDKBackend(t *testing.T) {
 	t.Parallel()
 	patterns := []string{

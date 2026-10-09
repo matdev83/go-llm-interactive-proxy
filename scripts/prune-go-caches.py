@@ -7,11 +7,11 @@ import re
 from collections import defaultdict
 
 SNAPSHOT = re.compile(
-    r"^go-cache-(ci|qa|backend-plugin|acp|cursorsdk|cost)-(Linux|Windows|macOS)"
+    r"^go-cache-(ci|qa|backend-plugin|acp|cost)-(Linux|Windows|macOS)"
     r"-v2-([^-]+)-go[^-]+-(.+)-[0-9a-f]{64}-[0-9a-f]{40}$"
 )
 LEGACY = re.compile(
-    r"^go-cache-(ci|qa|backend-plugin|acp|cursorsdk)-(Linux|Windows|macOS)-[0-9a-f]{64}$"
+    r"^go-cache-(ci|qa|backend-plugin|acp)-(Linux|Windows|macOS)-[0-9a-f]{64}$"
 )
 PR_REF = re.compile(r"^refs/pull/(\d+)/merge$")
 BUILD_V3 = re.compile(r"^go-build-v3-([a-z0-9-]+)-(Linux|Windows|macOS)-([^-]+)-go[^-]+-[0-9a-f]{64}-[0-9a-f]{40}$")

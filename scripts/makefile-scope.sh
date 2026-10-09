@@ -15,7 +15,6 @@
 # Scopes (case-insensitive match over added/removed Makefile lines):
 #   acp            acp | cursorcliacp
 #   backend-plugin backend-plugin
-#   cursorsdk      cursor-sdk | cursorsdk
 #
 # The matrix workflows still trigger on any Makefile change; this probe only
 # decides whether the expensive 3-OS matrix must actually run. Non-PR events,
@@ -28,7 +27,6 @@ scope_pattern() {
   case "$1" in
     acp)            printf '%s' 'acp|cursorcliacp' ;;
     backend-plugin) printf '%s' 'backend-plugin' ;;
-    cursorsdk)      printf '%s' 'cursor-sdk|cursorsdk' ;;
     *)              return 2 ;;
   esac
 }
@@ -91,25 +89,23 @@ self_test() {
   git -C "$tmp" commit -qm base
   base=$(git -C "$tmp" rev-parse HEAD)
 
-  printf '\ntest-cursor-sdk-platform:\n\t@echo sdk\n' >> "$tmp/Makefile"
+  printf '\nparity-acp-extra:\n\t@echo acp\n' >> "$tmp/Makefile"
   git -C "$tmp" add Makefile
-  git -C "$tmp" commit -qm cursorsdk
-  sdk=$(git -C "$tmp" rev-parse HEAD)
+  git -C "$tmp" commit -qm acpextra
+  acpextra=$(git -C "$tmp" rev-parse HEAD)
 
-  (cd "$tmp" && bash "$script_path" --relevant "$base" "$sdk" cursorsdk) \
-    || { echo "cursorsdk scope missed added test-cursor-sdk-platform target" >&2; return 1; }
-  (cd "$tmp" && bash "$script_path" --relevant "$base" "$sdk" acp) \
-    && { echo "acp scope wrongly matched an unchanged parity-acp-plugin line" >&2; return 1; }
-  (cd "$tmp" && bash "$script_path" --relevant "$base" "$sdk" backend-plugin) \
-    && { echo "backend-plugin scope wrongly matched unrelated lines" >&2; return 1; }
+  (cd "$tmp" && bash "$script_path" --relevant "$base" "$acpextra" acp) \
+    || { echo "acp scope missed added parity-acp-extra target" >&2; return 1; }
+  (cd "$tmp" && bash "$script_path" --relevant "$base" "$acpextra" backend-plugin) \
+    && { echo "backend-plugin scope wrongly matched an acp-only change" >&2; return 1; }
 
   printf '\nbackend-plugin-cross-platform-qa:\n\t@echo plugin\n' >> "$tmp/Makefile"
   git -C "$tmp" add Makefile
   git -C "$tmp" commit -qm plugin
   plugin=$(git -C "$tmp" rev-parse HEAD)
-  (cd "$tmp" && bash "$script_path" --relevant "$sdk" "$plugin" backend-plugin) \
+  (cd "$tmp" && bash "$script_path" --relevant "$acpextra" "$plugin" backend-plugin) \
     || { echo "backend-plugin scope missed added cross-platform target" >&2; return 1; }
-  (cd "$tmp" && bash "$script_path" --relevant "$sdk" "$plugin" acp) \
+  (cd "$tmp" && bash "$script_path" --relevant "$acpextra" "$plugin" acp) \
     && { echo "acp scope wrongly matched a plugin-only Makefile change" >&2; return 1; }
 
   printf '\nhelp:\n\t@echo updated usage\n' >> "$tmp/Makefile"
@@ -119,22 +115,18 @@ self_test() {
 
   # A .PHONY mega-line change alone lists every target and must not match any
   # scope; only real target/recipe lines carry the signal.
-  sed -i '1s/.*/.PHONY: help parity-acp-plugin test-cursor-sdk-platform backend-plugin-cross-platform-qa/' "$tmp/Makefile"
+  sed -i '1s/.*/.PHONY: help parity-acp-plugin parity-acp-extra backend-plugin-cross-platform-qa/' "$tmp/Makefile"
   git -C "$tmp" add Makefile
   git -C "$tmp" commit -qm phonyonly
   phony=$(git -C "$tmp" rev-parse HEAD)
   (cd "$tmp" && bash "$script_path" --relevant "$help" "$phony" acp) \
     && { echo "acp scope matched a .PHONY-only change" >&2; return 1; }
-  (cd "$tmp" && bash "$script_path" --relevant "$help" "$phony" cursorsdk) \
-    && { echo "cursorsdk scope matched a .PHONY-only change" >&2; return 1; }
   (cd "$tmp" && bash "$script_path" --relevant "$help" "$phony" backend-plugin) \
     && { echo "backend-plugin scope matched a .PHONY-only change" >&2; return 1; }
   (cd "$tmp" && bash "$script_path" --relevant "$plugin" "$help" acp) \
     && { echo "acp scope matched a help-only Makefile change" >&2; return 1; }
   (cd "$tmp" && bash "$script_path" --relevant "$plugin" "$help" backend-plugin) \
     && { echo "backend-plugin scope matched a help-only Makefile change" >&2; return 1; }
-  (cd "$tmp" && bash "$script_path" --relevant "$plugin" "$help" cursorsdk) \
-    && { echo "cursorsdk scope matched a help-only Makefile change" >&2; return 1; }
 
   if (cd "$tmp" && bash "$script_path" --relevant "$plugin" "$help" nope) 2>/dev/null; then
     echo "unknown scope did not fail closed" >&2

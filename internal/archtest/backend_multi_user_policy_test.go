@@ -119,7 +119,6 @@ func TestFirstPartyCensus_AgentRuntimeExportsAreCovered(t *testing.T) {
 		"agycliacp",
 		"cursorcliacp",
 		"geminicliacp",
-		"cursorsdk",
 		"openai-codex",
 		"openai-codex-app-server",
 	} {
