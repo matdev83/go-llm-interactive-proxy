@@ -33,6 +33,7 @@ func TestDevcheckHelperProcess(t *testing.T) {
 		return
 	}
 	if mode == "fail" {
+		fmt.Println(`{"Action":"output","Package":"broken","Output":"check failed\n"}`)
 		fmt.Println(`{"Action":"fail","Package":"broken"}`)
 		os.Exit(7)
 	}

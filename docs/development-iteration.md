@@ -6,6 +6,68 @@ tests, builds, linting, cache lifecycle, and the automated cost watchdog.
 
 ## Use during development
 
+### Delivery command lookup
+
+| Scope | Existing command |
+| --- | --- |
+| Focused regression | `go test -run TestName ./path/to/pkg` |
+| One default root-module pass | `make test-quick` (one `go test ./...`); default unit target `make test-unit` |
+| Quality gate | `make quality-checks` |
+| Full default delivery | `make test` |
+| SQLite/PostgreSQL parity | `make test-db-parity`; dialect lanes `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct` |
+| Cross-protocol/backend matrix | `make parity-checks` |
+| Wide/release-grade change | `make qa` |
+| Explicit Windows cost ratchet | `make test-cost` (opt-in, not part of `make test`) |
+| Parser/decoder fuzz | `make test-fuzz` or targeted `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path` |
+
+Run focused checks during edits and applicable comprehensive gates after a
+coherent change. Include affected consumers when contracts change. A fresh final
+regression invocation may use `-count=1`; ordinary iterations preserve native
+caches and avoid forced rebuilds. Race execution remains remote-only under root
+`AGENTS.md`; this table grants no alternate local race path.
+
+### Contract feedback and delivery slicing
+
+Before accepting a task that changes shared runtime/state, composition, persistence
+or public Go contracts, run `make dev-contract-check`. It selects **existing**
+architecture checks for those surfaces and lints only direct changed packages in
+their owning modules. Ordinary feature bodies and test-only edits get direct lint,
+not reverse-dependency or full-suite expansion. The selector lives in
+`tools/devcheck/internal/testscope/contracts.go`; update it when an existing
+contract is renamed or its surface moves. A selected test that no longer exists
+fails the command instead of silently passing an empty `-run` filter.
+
+Use `DEV_PLAN=1` to inspect without executing, `DEV_BASE=<ref>` for a stacked base,
+and `DEV_FRESH=1` only for deliberate fresh evidence. An invalid comparison base is
+an error. Selection covers branch, staged, unstaged and untracked Go changes;
+removed packages retain applicable contracts but cannot be linted. This is local
+feedback, not SQLite/PostgreSQL parity, tagged/platform certification, or a
+replacement for comprehensive delivery and CI. Hooks and CI keep their existing
+scope. Module metadata and non-Go inputs still require their applicable gates.
+
+Before coding, identify intended slice bases and immediate consumers. Run
+`make dev-delivery-plan DEV_BASE=<base> DEV_CONSUMER='<consumer>'` and refresh it
+after each accepted task and before preparing a PR. The JSON report includes
+merge-base/head identity, path counts, added/deleted production and test Go lines,
+and existing change-surface categories for dependency review. An empty initial
+diff is not a forecast: estimate the proposed slice separately while planning.
+
+The default report includes final tracked working-tree contents plus untracked
+files. Use `DEV_HEAD=<commit>` to report a committed slice without local successor
+edits; repeat with each slice's actual intended base, not always `origin/main`.
+Rename targets count once and previous paths remain in dependency review.
+Non-test/test line classification uses the `_test.go` suffix; binary paths have
+no line count. JSON goes to stdout, diagnostics to stderr. The same report is
+available through `go run ./tools/changesize --report --base <base>`.
+
+The existing 100-Go-file hard limit is reported independently of approximate
+delivery signals (~40 files, ~1500 added non-test Go lines, ~2x test additions).
+Report generation does not enforce those advisory numbers, authorize overrides,
+prove dependencies, or certify an independent build. Review the signals under
+`.kiro/steering/delivery.md`, verify each slice independently, and require an
+immediate real consumer for a substrate. Missing consumer declarations remain
+explicit review work, not guessed dependencies.
+
 ### Config-source tests require an ext4 TMPDIR
 
 The config-source integrity tests assert atomic rename and inode-reuse behaviour.
@@ -405,7 +467,8 @@ Record exact commands, OS, toolchain, scope, and cold/warm state with measuremen
 
 ### Verification manifests
 
-Set `DEV_EVIDENCE=<path>` on any `dev-*` target to record what the check actually
+Set `DEV_EVIDENCE=<path>` on a verification `dev-*` target (including
+`dev-contract-check`) to record what the check actually
 proved, as JSON beside a per-step log per command:
 
 ```
@@ -426,6 +489,12 @@ its `failure_reason` names the blocker. A `passed` manifest over a dirty tree
 still describes a tree nobody else has, so quote the revision and digest with
 the result. This is developer feedback, not a delivery gate; CI remains
 authoritative.
+
+`dev-delivery-plan` is a planning report, not verification; it rejects
+`DEV_EVIDENCE` rather than emitting a passing manifest with no checks. Task
+handoff artifacts use the separate acceptance/recovery protocol in
+`docs/agent-handoffs.md`; native verification manifests remain command evidence,
+not reviewer approval or interchangeable source fingerprints.
 
 ## Why earlier improvements stopped being sufficient
 

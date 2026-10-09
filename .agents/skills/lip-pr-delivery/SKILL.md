@@ -34,6 +34,7 @@ Triage is complete when the verdict is supported by current-source evidence and 
 ### Sequence and history
 
 - Establish predecessor order before submitting or merging dependent PRs.
+- Measure each slice against its intended base using the delivery-report workflow in `docs/development-iteration.md`; review budget signals, dependencies, immediate consumers and independent build evidence before submission.
 - Update a branch from main only when needed to merge, as specified by delivery steering; avoid routine rebases that invalidate otherwise current evidence.
 - After a predecessor is squash-merged, fetch main and transplant only the successor's unique commits. Confirm the old predecessor tip before using:
 

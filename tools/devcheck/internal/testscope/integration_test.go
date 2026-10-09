@@ -116,3 +116,20 @@ func TestGitBoundaries(t *testing.T) {
 		t.Fatal("accepted invalid explicit base")
 	}
 }
+
+func TestContractPlan_DirectLintInOwningModules(t *testing.T) {
+	root := fixtureRepository(t)
+	writeFixture(t, root, "base/base.go", "package base\nconst Value = 2\n")
+	gitFixture(t, root, "add", "base/base.go")
+	writeFixture(t, root, "connectors/one/one_test.go", "package one\n")
+	plan, err := BuildContracts(context.Background(), root, "origin/main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Tests) != 0 || len(plan.Lint) != 2 || !reflect.DeepEqual(plan.Lint[0].Packages, []string{"./base"}) || plan.Lint[1].Directory != "connectors/one" || !reflect.DeepEqual(plan.Lint[1].Packages, []string{"./."}) {
+		t.Fatalf("lint must not select consumer or full module: %+v", plan)
+	}
+	if _, err := BuildContracts(context.Background(), root, "invalid-base"); err == nil {
+		t.Fatal("invalid base must not silently skip contracts")
+	}
+}
