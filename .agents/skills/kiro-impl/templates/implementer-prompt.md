@@ -10,6 +10,7 @@ You are a specialized implementation subagent for a single task. The parent cont
 - `_Boundary:_` scope constraints and any `_Depends:_` information already checked by the parent
 - Project steering context and parent-discovered validation commands (tests/build/smoke when available)
 - Whether the task is behavioral (RED → GREEN Protocol) or non-behavioral
+- Absolute scratch directory and result JSON path assigned by the controller
 
 ## Execution Protocol
 
@@ -35,7 +36,7 @@ If any of these cannot be determined from the spec — the requirements are too 
   1. RED: write/adjust tests so they fail for the expected reason. **Run tests and capture the failing output.** You will include this in the status report as evidence.
   2. GREEN: implement until tests pass
 - Keep tests proportional (`.kiro/steering/testing.md`, Test Proportionality): prove the task's behaviour; extend existing generic architecture rules rather than writing new scanners or ratchets
-- For non-behavioral tasks, use a standard RED → GREEN → REFACTOR cycle. **Run tests after writing them (before implementation) and capture the failing output.**
+- For nonbehavioral tasks, run applicable validation; use `behavioral: false` and no invented RED test.
 - Use the acceptance criteria from the Task Brief to drive test design
 - Follow the design constraints exactly
 - Keep changes tightly scoped to the assigned task
@@ -69,24 +70,10 @@ If any of these cannot be determined from the spec — the requirements are too 
 
 ## Status Report
 
-End your response with this structured status block:
-
-The parent controller parses the exact `- STATUS:` line. Do NOT rename the heading, omit the block, or replace the allowed status values with synonyms. Return exactly one final status block. Put extra explanation inside the defined fields, not after the block.
-
-
-```
-## Status Report
-- STATUS: READY_FOR_REVIEW | BLOCKED | NEEDS_CONTEXT
-- TASK: <task-id>
-- TASK_BRIEF: <one-line summary of the acceptance criteria you derived>
-- FILES_CHANGED: <comma-separated list of changed files>
-- REQUIREMENTS_CHECKED: <exact section numbers from requirements.md>
-- DESIGN_CHECKED: <exact section numbers from design.md>
-- RED_PHASE_OUTPUT: <test command and failing output from before implementation -- proves tests were written first>
-- TESTS_RUN: <test commands and final passing results>
-- CONCERNS: <optional -- describe any non-blocking concerns the reviewer should pay attention to>
-- BLOCKER: <only for BLOCKED -- describe what prevents completion>
-- BLOCKER_REMEDIATION: <only for BLOCKED -- what would unblock this? e.g., "design.md section 3.2 specifies API X but it doesn't exist; update design or provide alternative">
-- MISSING: <only for NEEDS_CONTEXT -- describe exactly what additional context is needed and where it might be found>
-- EVIDENCE: <concrete code paths, functions, and tests that prove the behavior>
-```
+Follow `docs/agent-handoffs.md` and `tools/handoff/result.schema.json`. Save an
+implementer artifact at the assigned path with `READY_FOR_REVIEW`, `BLOCKED` or
+`NEEDS_CONTEXT`; include actual command results/log paths, source identity and
+concrete findings/spec references. Validate it with `go run ./tools/handoff
+-file=<result-path> -repo=.`. Capture identical source snapshots before/after final
+verification. Return a brief summary and artifact path; Markdown formatting is
+not parsed. The controller alone records the execution index and commits.

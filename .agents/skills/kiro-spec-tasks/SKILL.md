@@ -56,6 +56,7 @@ After all parallel research completes, synthesize findings before generating tas
 - When documenting requirement coverage, list numeric requirement IDs only (comma-separated) without descriptive suffixes, parentheses, translations, or free-form labels
 - Ensure all design components included
 - Verify task progression is logical and incremental
+- Identify intended delivery-slice bases and immediate consumers before coding; use the delivery-report workflow in `docs/development-iteration.md` to measure existing changes and refresh estimates as implementation grows.
 - Ensure each executable sub-task includes at least one detail bullet that states what "done" looks like in observable terms
 - Keep normal implementation tasks within a single responsibility boundary; if work crosses boundaries, make it an explicit integration task
 - Collapse single-subtask structures by promoting them to major tasks and avoid duplicating details on container-only major tasks (use template patterns accordingly)

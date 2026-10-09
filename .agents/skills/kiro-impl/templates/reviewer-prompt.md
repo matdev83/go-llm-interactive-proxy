@@ -11,9 +11,10 @@ You are an independent, adversarial reviewer. Your job is to verify that a task 
 ## You Will Receive
 - The task description and relevant spec section numbers
 - Paths to spec files (requirements.md, design.md) — read the relevant sections yourself
-- The implementer's status report (for reference only — do NOT trust it as source of truth)
+- The implementation artifact (for reference only — inspect its actual evidence)
 - The task's `_Boundary:_` scope constraints
 - Validation commands discovered by the controller
+- Implementation artifact path and assigned reviewer result/scratch paths
 
 ## First Action
 
@@ -40,19 +41,18 @@ Evaluate each item. If ANY item fails, the verdict is REJECTED.
 
 **2. Completeness — No TBD/TODO/FIXME**
 - Run: `grep -rn "TBD\|TODO\|FIXME\|HACK\|XXX" <changed-files>`
-- If matches found in changed files → REJECTED (unless the marker existed before this task).
+- Reject newly introduced placeholders without explicit task justification; existing markers and legitimate fixture text are not blanket failures.
 
 **3. No Hardcoded Secrets**
-- Run: `grep -rn "password\s*=\|api_key\s*=\|secret\s*=\|token\s*=" <changed-files>` (case-insensitive)
-- If matches found that aren't environment variable references → REJECTED.
+- Use the repository's existing secret scanner where applicable; inspect introduced credential material independently. Reject concrete hardcoded secrets, not ordinary identifier names or test sentinels.
 
 **4. Boundary Respect**
 - Run: `git diff --name-only` and compare against the task's `_Boundary:_` scope.
-- If files outside boundary are changed → REJECTED.
+- Reject outside-boundary work without explicit approved justification; otherwise record that authority and verify the integration scope.
 
 **5. RED Phase Evidence**
-- Check the implementer's status report for `RED_PHASE_OUTPUT`.
-- If the task is behavioral and RED_PHASE_OUTPUT is missing or empty → REJECTED (tests may not have been written before implementation).
+- Inspect the implementation artifact's `purpose: red` command and actual output.
+- If the task is behavioral and RED evidence is missing or unrelated → REJECTED.
 - The output should show test failures related to the task's acceptance criteria.
 
 ### Judgment Checks (read code, compare to spec)
@@ -64,7 +64,7 @@ Evaluate each item. If ANY item fails, the verdict is REJECTED.
 
 **7. Acceptance Criteria**
 - Read the task description from tasks.md. All aspects are addressed, not just the primary case.
-- The Task Brief's acceptance criteria (from implementer's status report) are met.
+- Verify acceptance criteria directly from the task/spec and actual diff, not an implementer summary.
 
 **8. Spec Alignment (Requirements)**
 - Read the referenced sections of requirements.md yourself.
@@ -76,6 +76,7 @@ Evaluate each item. If ANY item fails, the verdict is REJECTED.
 - If design says "use X", the code uses X — not a substitute.
 - Component structure, interfaces, and data flow match the design.
 - Dependency direction follows design.md's architecture (no upward imports).
+- For moved authority/context/lifecycle stages, apply the seam-movement audit in `kiro-review`: compare old/new visibility and provenance, then require conflict-seeded behavioral evidence. Reuse `internal/testkit/execviewfixture` for request-view boundaries; do not demand unrelated matrices.
 
 **10. Test Quality**
 - Tests prove the required behavior, not just scaffolding or happy-path shells.
@@ -89,26 +90,10 @@ Evaluate each item. If ANY item fails, the verdict is REJECTED.
 
 ## Review Verdict
 
-End your response with this structured verdict:
-
-The parent controller parses the exact `- VERDICT:` line. Do NOT rename the heading, omit the block, or replace `APPROVED | REJECTED` with synonyms. Return exactly one final verdict block. Put extra explanation inside the defined sections, not after the block.
-
-
-```
-## Review Verdict
-- VERDICT: APPROVED | REJECTED
-- TASK: <task-id>
-- MECHANICAL_RESULTS:
-  - Tests: PASS | FAIL (command and exit code)
-  - TBD/TODO grep: CLEAN | <count> matches
-  - Secrets grep: CLEAN | <count> matches
-  - Boundary: WITHIN | <files outside boundary>
-  - RED phase: VERIFIED | MISSING | N/A (non-behavioral task)
-- FINDINGS:
-  - <numbered list of specific findings, if any>
-  - <reference exact file paths, line ranges, and spec section numbers>
-- REMEDIATION: <if REJECTED: specific, actionable steps to fix each finding>
-- SUMMARY: <one-sentence summary of the review outcome>
-```
-
-If REJECTED, REMEDIATION is mandatory — identify the exact file, the exact problem, and what the implementer should do to fix it. Vague feedback like "improve tests" is not acceptable.
+Follow `docs/agent-handoffs.md` and `tools/handoff/result.schema.json`. Save a
+reviewer artifact with `APPROVED` or `REJECTED` at the assigned path, containing
+independently executed commands, source identity and concrete findings/spec
+references. Rejection requires actionable remediation. Validate it with
+`go run ./tools/handoff -file=<result-path> -repo=.` and return a brief summary plus
+artifact path. Artifact validity does not confer approval; inspect the actual
+diff and evidence. The controller alone writes the execution index.

@@ -11,10 +11,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routeoverride"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/conversationview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/execviewfixture"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/localturn"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -240,14 +240,8 @@ func TestConversationBootstrap_DetachedMatchAndHandleUsePrivateChildViews(t *tes
 	ex.ConversationViewTagger = tagger
 	parent, err := st.CreateALeg(t.Context(), "parent")
 	require.NoError(t, err)
-	trustedScope := scope.PrincipalScopeView{Origin: scope.OriginClient, SubjectKind: scope.SubjectLocal, PrincipalID: scope.Known("trusted-principal"), SafeClaims: map[string]string{"trusted": "retained"}}
-	parentViews := execctx.Views{
-		Principal: trustedScope.Principal(), Scope: trustedScope,
-		Session:     session.SessionView{AuthoritativeSessionID: "parent-session", ClientSessionHint: "parent-hint", ALegID: parent.ALegID, IsNew: true, WorkspaceID: "parent-workspace", ResumeEligible: true, Labels: map[string]string{"parent_claim": "poison"}, TurnID: "parent-turn", Classification: session.Classification{Kind: session.KindCodingAgent, Source: session.SourceLocalIdentity, Confidence: session.ConfidenceHigh, Evidence: "parent", Revision: 1}},
-		Workspace:   lipworkspace.WorkspaceView{ID: "parent-workspace", ProjectRoot: "/parent-only", DirtyTree: true, Markers: []string{"parent-marker"}, Labels: map[string]string{"parent": "workspace-poison"}},
-		Attempt:     execview.AttemptView{TraceID: "parent-trace", BLegID: "parent-b-leg", AttemptSeq: 9, BackendID: "parent-backend", RouteRole: "parent-role"},
-		Annotations: map[string]string{"parent": "annotation-poison"},
-	}
+	parentViews := execviewfixture.PoisonedParent(parent.ALegID)
+	trustedScope := parentViews.Scope
 	parentCtx := execctx.WithViews(t.Context(), parentViews)
 	parentCtx = session.WithSecureTurnPolicy(parentCtx, session.SecureTurnPolicyView{TranscriptEnabled: true})
 	lineage := execctx.DetachedSession{ParentSessionID: "parent-session", ParentALegID: parent.ALegID, ParentTraceID: "parent-trace", AuxiliaryRole: "compaction_continuity_extractor"}

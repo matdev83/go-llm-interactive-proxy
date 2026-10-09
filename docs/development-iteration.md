@@ -6,6 +6,68 @@ tests, builds, linting, cache lifecycle, and the automated cost watchdog.
 
 ## Use during development
 
+### Delivery command lookup
+
+| Scope | Existing command |
+| --- | --- |
+| Focused regression | `go test -run TestName ./path/to/pkg` |
+| One default root-module pass | `make test-quick` (one `go test ./...`); default unit target `make test-unit` |
+| Quality gate | `make quality-checks` |
+| Full default delivery | `make test` |
+| SQLite/PostgreSQL parity | `make test-db-parity`; dialect lanes `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct` |
+| Cross-protocol/backend matrix | `make parity-checks` |
+| Wide/release-grade change | `make qa` |
+| Explicit Windows cost ratchet | `make test-cost` (opt-in, not part of `make test`) |
+| Parser/decoder fuzz | `make test-fuzz` or targeted `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path` |
+
+Run focused checks during edits and applicable comprehensive gates after a
+coherent change. Include affected consumers when contracts change. A fresh final
+regression invocation may use `-count=1`; ordinary iterations preserve native
+caches and avoid forced rebuilds. Race execution remains remote-only under root
+`AGENTS.md`; this table grants no alternate local race path.
+
+### Contract feedback and delivery slicing
+
+Before accepting a task that changes shared runtime/state, composition, persistence
+or public Go contracts, run `make dev-contract-check`. It selects **existing**
+architecture checks for those surfaces and lints only direct changed packages in
+their owning modules. Ordinary feature bodies and test-only edits get direct lint,
+not reverse-dependency or full-suite expansion. The selector lives in
+`tools/devcheck/internal/testscope/contracts.go`; update it when an existing
+contract is renamed or its surface moves. A selected test that no longer exists
+fails the command instead of silently passing an empty `-run` filter.
+
+Use `DEV_PLAN=1` to inspect without executing, `DEV_BASE=<ref>` for a stacked base,
+and `DEV_FRESH=1` only for deliberate fresh evidence. An invalid comparison base is
+an error. Selection covers branch, staged, unstaged and untracked Go changes;
+removed packages retain applicable contracts but cannot be linted. This is local
+feedback, not SQLite/PostgreSQL parity, tagged/platform certification, or a
+replacement for comprehensive delivery and CI. Hooks and CI keep their existing
+scope. Module metadata and non-Go inputs still require their applicable gates.
+
+Before coding, identify intended slice bases and immediate consumers. Run
+`make dev-delivery-plan DEV_BASE=<base> DEV_CONSUMER='<consumer>'` and refresh it
+after each accepted task and before preparing a PR. The JSON report includes
+merge-base/head identity, path counts, added/deleted production and test Go lines,
+and existing change-surface categories for dependency review. An empty initial
+diff is not a forecast: estimate the proposed slice separately while planning.
+
+The default report includes final tracked working-tree contents plus untracked
+files. Use `DEV_HEAD=<commit>` to report a committed slice without local successor
+edits; repeat with each slice's actual intended base, not always `origin/main`.
+Rename targets count once and previous paths remain in dependency review.
+Non-test/test line classification uses the `_test.go` suffix; binary paths have
+no line count. JSON goes to stdout, diagnostics to stderr. The same report is
+available through `go run ./tools/changesize --report --base <base>`.
+
+The existing 100-Go-file hard limit is reported independently of approximate
+delivery signals (~40 files, ~1500 added non-test Go lines, ~2x test additions).
+Report generation does not enforce those advisory numbers, authorize overrides,
+prove dependencies, or certify an independent build. Review the signals under
+`.kiro/steering/delivery.md`, verify each slice independently, and require an
+immediate real consumer for a substrate. Missing consumer declarations remain
+explicit review work, not guessed dependencies.
+
 ### Config-source tests require an ext4 TMPDIR
 
 The config-source integrity tests assert atomic rename and inode-reuse behaviour.
@@ -376,11 +438,21 @@ higher is retained. To update an existing guard, inspect and back up the install
 `install -m 755 scripts/go-dev-guard.sh "$HOME/.local/bin/go"`. CI markers and Windows retain their existing resource defaults; race
 blocking on development hosts remains active even with CI markers. Elsewhere,
 leave package concurrency unset for Go's native default. Across sessions, the
-guard admits at most `LIP_GO_SLOTS` (default 2) heavy commands (`build`, `test`,
+guard budgets `LIP_GO_SLOTS` (default 2) heavy commands (`build`, `test`,
 `vet`, `install`) host-wide; others print a waiting notice and queue for a free
 slot (`flock` on `$HOME/.cache/lip-go-slots`). Commands started by a slotted
-command inherit its slot, and after `LIP_GO_SLOT_WAIT` seconds (default 900) a
-waiting command runs anyway. Make and Bash
+command inherit its slot. `LIP_GO_SLOT_MODE=advisory` (default) waits up to
+`LIP_GO_SLOT_WAIT` seconds (default 900), then explicitly reports that it is
+running without a slot. `LIP_GO_SLOT_MODE=hard` instead returns **75**
+(`EX_TEMPFAIL`, resource-blocked), without starting the toolchain. A zero wait
+attempts every slot once before applying that policy. Invalid modes return 2.
+Nested commands retaining `LIP_GO_SLOT_HELD` reuse their parent's slot under
+either policy; children that scrub that variable must retain advisory policy
+or a bounded wait to avoid waiting indefinitely behind their own parent.
+For a hard, immediate admission check:
+`LIP_GO_SLOT_MODE=hard LIP_GO_SLOT_WAIT=0 go test ./path/to/package`.
+This policy does not yet coordinate external analyzers or cache maintenance.
+Make and Bash
 gates pass explicit package flags, which take precedence over `GOFLAGS`; use
 `LIP_TEST_PACKAGES`, `LIP_TEST_PARALLEL`, and `DEV_JOBS` for their budget overrides,
 or replace Make's complete `GO_TEST_FLAGS` string.
@@ -402,6 +474,37 @@ disabled so even the diagnostic cannot compile, start with `go env GOCACHE`.
 Use `GODEBUG=gocachetest=1 go test ./path/to/package` for result-cache miss reasons
 and `go build -x ./path/to/package` to distinguish compilation from linking.
 Record exact commands, OS, toolchain, scope, and cold/warm state with measurements.
+
+### Verification manifests
+
+Set `DEV_EVIDENCE=<path>` on a verification `dev-*` target (including
+`dev-contract-check`) to record what the check actually
+proved, as JSON beside a per-step log per command:
+
+```
+make dev-test-changed DEV_EVIDENCE=~/scratch-ci/verification.json
+```
+
+The manifest names the tested revision (`head`, `branch`, `merge_in_progress`)
+and its dirty identity (`dirty`, `dirty_path_count`, `dirty_go_files`, and a
+`dirty_digest` over the porcelain payload *and* the bytes of the dirty files),
+the requested scope (kind, module, packages, base, jobs, repeat), the toolchain
+(`go_version`, `lint_version`, `goos`, `goarch`, `gomaxprocs`), and one step per
+command with its exit code, duration, test counters, and log path.
+
+Read `outcome` before anything else. `passed` and `failed` are code verdicts.
+`blocked` is not: it means an infrastructure condition (missing tool, unusable
+module path, unopenable log) prevented the check from producing a verdict, and
+its `failure_reason` names the blocker. A `passed` manifest over a dirty tree
+still describes a tree nobody else has, so quote the revision and digest with
+the result. This is developer feedback, not a delivery gate; CI remains
+authoritative.
+
+`dev-delivery-plan` is a planning report, not verification; it rejects
+`DEV_EVIDENCE` rather than emitting a passing manifest with no checks. Task
+handoff artifacts use the separate acceptance/recovery protocol in
+`docs/agent-handoffs.md`; native verification manifests remain command evidence,
+not reviewer approval or interchangeable source fingerprints.
 
 ## Why earlier improvements stopped being sufficient
 

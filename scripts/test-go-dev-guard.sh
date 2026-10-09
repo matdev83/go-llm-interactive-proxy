@@ -37,7 +37,7 @@ export GUARD_TEST_EXT4="$fixture/ext4"
 export LIP_DEV_TMPDIR="$GUARD_TEST_EXT4/lip-tmp"
 export GUARD_TEST_HOST=agent-dev HOSTNAME=agent-dev
 export XDG_CONFIG_HOME="$fixture/config"
-unset GOFLAGS GOENV GOMAXPROCS COMPUTERNAME CI GITHUB_ACTIONS LIP_ALLOW_RACE_ON_DEV LIP_GO_SLOTS LIP_GO_SLOT_WAIT LIP_GO_SLOT_HELD
+unset GOFLAGS GOENV GOMAXPROCS COMPUTERNAME CI GITHUB_ACTIONS LIP_ALLOW_RACE_ON_DEV LIP_GO_SLOTS LIP_GO_SLOT_WAIT LIP_GO_SLOT_HELD LIP_GO_SLOT_MODE
 
 blocked() {
 	rm -f "$GUARD_TEST_CALLS"
@@ -162,6 +162,27 @@ if [[ $(uname -s) == Linux ]]; then
 	grep -q 'waiting for a slot' "$fixture/err" && grep -q 'running without one' "$fixture/err"
 	grep -q 'slot0 held for .* by pid' "$fixture/err"
 	[[ $(cat "$GUARD_TEST_SLOT") == none ]]
+	LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=0 LIP_GO_SLOT_MODE=advisory bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err"
+	grep -q 'LIP_GO_SLOT_MODE=advisory' "$fixture/err"
+	[[ $(cat "$GUARD_TEST_SLOT") == none ]]
+	# Hard limits never start the toolchain when every slot remains busy.
+	rm -f "$GUARD_TEST_CALLS"
+	status=0
+	LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=0 LIP_GO_SLOT_MODE=hard bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err" || status=$?
+	[[ $status == 75 && ! -e "$GUARD_TEST_CALLS" ]]
+	grep -q 'resource-blocked' "$fixture/err"
+	# Nested commands retain the parent's slot even under hard policy.
+	LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=0 LIP_GO_SLOT_MODE=hard LIP_GO_SLOT_HELD=7 allowed test ./...
+	[[ $(cat "$GUARD_TEST_SLOT") == 7 ]]
+	# A zero wait still attempts a free slot once.
+	LIP_GO_SLOTS=2 LIP_GO_SLOT_WAIT=0 LIP_GO_SLOT_MODE=hard allowed vet ./...
+	[[ $(cat "$GUARD_TEST_SLOT") == 1 ]]
+	# Misspelled policy must not silently weaken a requested hard limit.
+	rm -f "$GUARD_TEST_CALLS"
+	status=0
+	LIP_GO_SLOT_MODE=hrad bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err" || status=$?
+	[[ $status == 2 && ! -e "$GUARD_TEST_CALLS" ]]
+	grep -q 'invalid LIP_GO_SLOT_MODE' "$fixture/err"
 	kill "$holder"; wait "$holder" 2>/dev/null || true
 	# A freed slot is taken without the timeout fallback.
 	flock -n -o "$LIP_GO_SLOT_DIR/slot0" sleep 1 &
