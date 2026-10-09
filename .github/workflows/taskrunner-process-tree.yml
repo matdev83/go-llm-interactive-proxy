@@ -136,7 +136,7 @@ jobs:
             # A separate UID has no unrelated, non-dumpable user services. Keep
             # the real ownership guard enabled rather than skipping integration.
             user="lipclean${GITHUB_RUN_ID}"
-            fixture=$(mktemp -d "$RUNNER_TEMP/lip-cleanup.XXXXXX")
+            fixture=$(mktemp -d /var/tmp/lip-cleanup.XXXXXX)
             trap 'sudo userdel "$user"; sudo rm -rf -- "$fixture"' EXIT
             go test "${race[@]}" -c -o "$fixture/cleanup.test" ./tools/worktreeclean
             sudo useradd --no-create-home --shell /bin/bash "$user"
