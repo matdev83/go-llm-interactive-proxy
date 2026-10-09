@@ -26,15 +26,73 @@ func main() {
 func runHandoff(ctx context.Context, args []string, output, diagnostics io.Writer) error {
 	flags := flag.NewFlagSet("handoff", flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
-	task := flags.String("task", "validate", "snapshot, run, validate, or record")
+	task := flags.String("task", "validate", "snapshot, run, guard, validate, record, or closeout")
 	repo := flags.String("repo", ".", "source repository")
 	name := flags.String("file", "", "result JSON artifact")
 	index := flags.String("index", "", "controller-owned scratch execution index")
 	current := flags.Bool("current", true, "require matching current source; false is historical validation only")
 	log := flags.String("log", "", "scratch output log for task=run")
 	purpose := flags.String("purpose", "verification", "run evidence purpose: red, verification, baseline")
+	phase := flags.String("phase", "complete", "closeout phase: submitted or complete")
+	indexFile := flags.String("index-file", "", "guard: explicit alternate staged index used by a partial commit")
+	inventory := flags.String("inventory", "", "record: link an explicit session inventory to the existing execution index")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *task == "guard" {
+		if flags.NArg() == 0 || *name != "" || *index != "" || *log != "" {
+			return errors.New("guard requires explicit command after --, no artifact options")
+		}
+		return guardCommand(ctx, *repo, *indexFile, flags.Args(), diagnostics)
+	}
+	if *indexFile != "" {
+		return errors.New("index-file requires task=guard")
+	}
+	if *task == "closeout" {
+		if flags.NArg() != 0 || (*name == "") == (*index == "") || *log != "" || !*current || *inventory != "" {
+			return errors.New("closeout requires a session file and current live evidence")
+		}
+		if *index != "" {
+			file, err := os.Open(*index)
+			if err != nil {
+				return err
+			}
+			var state executionIndex
+			decodeErr := decodeStrict(file, &state)
+			closeErr := file.Close()
+			if err := errors.Join(decodeErr, closeErr); err != nil {
+				return err
+			}
+			if state.Version != 1 || state.Entries == nil || !filepath.IsAbs(state.Inventory) {
+				return errors.New("execution index lacks a valid explicit inventory")
+			}
+			*name = state.Inventory
+		}
+		file, err := os.Open(*name)
+		if err != nil {
+			return err
+		}
+		var session Session
+		decodeErr := decodeStrict(file, &session)
+		closeErr := file.Close()
+		if err := errors.Join(decodeErr, closeErr); err != nil {
+			return err
+		}
+		query := func(ctx context.Context, args ...string) ([]byte, error) { return queryGH(ctx, *repo, args...) }
+		report, err := checkSession(ctx, *repo, session, *phase, query)
+		if err != nil {
+			return err
+		}
+		if err := json.NewEncoder(output).Encode(report); err != nil {
+			return err
+		}
+		if len(report.Pending) != 0 {
+			return errors.New("declared closeout obligations remain unresolved")
+		}
+		return nil
+	}
+	if *inventory != "" && *task != "record" {
+		return errors.New("inventory requires task=record")
 	}
 	if *task == "run" {
 		if flags.NArg() == 0 || *log == "" || *name != "" || *index != "" {
@@ -83,7 +141,7 @@ func runHandoff(ctx context.Context, args []string, output, diagnostics io.Write
 		if !*current {
 			return errors.New("record requires current-source validation; historical evidence cannot advance the index")
 		}
-		if err := recordResult(*index, *name, result); err != nil {
+		if err := recordResultWithInventory(*index, *name, result, *inventory); err != nil {
 			return err
 		}
 	}

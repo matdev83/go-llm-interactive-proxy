@@ -151,6 +151,10 @@ Do not bypass required checks, force-push over user work, or delete an implement
 
 ## 8. Cleanup and Report
 
+Reconcile the entire approved scope using `docs/agent-closeout.md`, not only this
+archive PR. Verify registered required runs and explicit issue closure; task
+completion or merge alone does not remove remaining resource/evidence obligations.
+
 After merged-main verification:
 
 ```text

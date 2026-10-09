@@ -14,10 +14,11 @@ import (
 )
 
 type testPlanOptions struct {
-	jobs, repeat int
-	fresh, dry   bool
-	quarantine   []quarantineEntry
-	recorder     *evidenceRecorder
+	jobs, repeat   int
+	fresh, dry     bool
+	quarantine     []quarantineEntry
+	recorder       *evidenceRecorder
+	automationOnly bool
 }
 
 func validateChangedScope(task, module, packages string) error {

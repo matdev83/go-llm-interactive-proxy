@@ -84,4 +84,9 @@ If an OS lock prevents removal, report the remaining path and registration rathe
 
 ## Report
 
+For approved-scope completion (including earlier workstreams and manually
+dispatched required verification), apply `docs/agent-closeout.md`; PR status alone
+does not reconcile issues/specs or owned resources. Report submission, merged,
+verified and fully closed-out states separately within the user's authorization.
+
 State the outcome for the requested operation, the relevant SHAs, verification evidence and gaps, and any remaining resources or blockers. Separate recommendations from actions taken.

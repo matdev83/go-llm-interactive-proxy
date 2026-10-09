@@ -61,7 +61,11 @@ func run(ctx context.Context) (err error) {
 	full := flag.Bool("full", false, "run all maintained modules' default tests instead of selecting")
 	evidencePath := flag.String("evidence", "", "write a verification manifest (revision, scope, results, logs) to this path")
 	timeout := flag.Duration("timeout", commandTimeout, "total development-check time budget")
+	automationOnly := flag.Bool("automation-only", false, "contracts: run only known automation self-tests and consumer contracts")
 	flag.Parse()
+	if *automationOnly && *task != "contracts" {
+		return errors.New("automation-only requires task=contracts")
+	}
 	if flag.NArg() != 0 || *jobs < 1 || *repeat < 1 || *timeout <= 0 {
 		return errors.New("jobs/repeat/timeout must be positive; use named flags for scope")
 	}
@@ -115,7 +119,7 @@ func run(ctx context.Context) (err error) {
 		if *module != "." || *packages != "" || *scope != "changed" || *full {
 			return errors.New("contracts requires scope=changed with no explicit MODULE/PKGS/full override")
 		}
-		return runContractCheck(ctx, root, *base, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, recorder: recorder}, os.Stdout, os.Stderr)
+		return runContractCheck(ctx, root, *base, testPlanOptions{jobs: *jobs, repeat: *repeat, fresh: *fresh, dry: *planOnly, recorder: recorder, automationOnly: *automationOnly}, os.Stdout, os.Stderr)
 	}
 	quarantine, err := loadQuarantine(root)
 	if err != nil {

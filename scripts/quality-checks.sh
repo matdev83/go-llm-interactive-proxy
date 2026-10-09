@@ -448,7 +448,19 @@ check_staged_module_packages() {
 	fi
 
 	if [[ ${#packages[@]} -eq 1 && "${packages[0]}" == "./..." ]]; then
-		if ! (cd "$module" && GOWORK=off go build -buildvcs=false "${trim_flags[@]}" ./...); then
+		local listed_file="$QUALITY_TMPDIR/wildcard-packages.$module_index.$group_name"
+		if ! (cd "$module" && GOWORK=off go list -f '{{.ImportPath}}' ./...) >"$listed_file"; then
+			echo "ERROR: unable to list staged module $module" >&2
+			exit 1
+		fi
+		local -a listed_packages=() wildcard_output=()
+		mapfile -t listed_packages <"$listed_file"
+		if [[ ${#listed_packages[@]} -eq 1 ]]; then
+			# A wildcard resolving to one main package otherwise writes a binary
+			# into the checked worktree. Library archives accept this file too.
+			wildcard_output=(-o "$QUALITY_TMPDIR/build.$module_index.$group_name")
+		fi
+		if ! (cd "$module" && GOWORK=off go build -buildvcs=false "${trim_flags[@]}" "${wildcard_output[@]}" ./...); then
 			echo "ERROR: build failed in staged module $module" >&2
 			exit 1
 		fi

@@ -28,6 +28,19 @@ caches and avoid forced rebuilds. Race execution remains remote-only under root
 
 ### Contract feedback and delivery slicing
 
+Known automation inputs also select existing self-tests and QA consumers: race
+scripts/workflow run the shell coverage probe and Go partition/host contracts;
+quality scripts/hooks run their existing isolation suite; workflow inputs run the
+scope matcher and main-push scope contract. The staged hook uses
+`-automation-only` so this adds no duplicate broad lint/test run. Unknown inputs
+still require reviewer-selected applicable checks, not inferred coverage.
+
+The canonical pre-commit hook binds both the staged index (including an explicit
+partial-commit index) and working contents around its gate using handoff `guard`.
+Mutation aborts acceptance without resetting/stashing user work. Source stamps
+cannot replace semantic review or protect ignored/external inputs automatically.
+Wildcard verification builds resolving to one package use scratch output too.
+
 Before accepting a task that changes shared runtime/state, composition, persistence
 or public Go contracts, run `make dev-contract-check`. It selects **existing**
 architecture checks for those surfaces and lints only direct changed packages in
