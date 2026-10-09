@@ -22,6 +22,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/evidence"
 	"github.com/matdev83/go-llm-interactive-proxy/tools/devcheck/internal/testscope"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/internal/scopeplan"
 )
 
 type testStats struct {
@@ -257,13 +258,8 @@ func commandFor(task, scope string, jobs int, fresh bool) ([]string, error) {
 	if len(packages) == 0 {
 		return nil, errors.New("explicit scope required: set PKGS='./path/to/package/...' (use ./... deliberately for the full module)")
 	}
-	for _, p := range packages {
-		if p != "." && !strings.HasPrefix(p, "./") {
-			return nil, fmt.Errorf("package %q must be relative to MODULE", p)
-		}
-		if slices.Contains(strings.Split(strings.ReplaceAll(p, "\\", "/"), "/"), "..") {
-			return nil, fmt.Errorf("package %q escapes the selected module", p)
-		}
+	if err := scopeplan.ValidatePackages(packages); err != nil {
+		return nil, err
 	}
 	var command []string
 	switch task {
@@ -359,25 +355,7 @@ func isArchTestPattern(packagePattern string) bool {
 }
 
 func moduleDirectory(root, module string) (string, error) {
-	if filepath.IsAbs(module) {
-		return "", errors.New("MODULE must be relative to the repository root")
-	}
-	dir, err := filepath.EvalSymlinks(filepath.Join(root, module))
-	if err != nil {
-		return "", err
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(root, dir)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", errors.New("MODULE must stay within the repository")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
-		return "", fmt.Errorf("MODULE must contain go.mod: %w", err)
-	}
-	return dir, nil
+	return scopeplan.Directory(root, module)
 }
 
 func consumeTests(input io.Reader, output io.Writer) (testStats, error) {

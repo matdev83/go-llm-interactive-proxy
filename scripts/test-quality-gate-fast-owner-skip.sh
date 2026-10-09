@@ -10,11 +10,15 @@ mapfile -t git_local_env < <(git -C "$SCRIPT_DIR/.." rev-parse --local-env-vars)
 for name in "${git_local_env[@]}"; do
 	unset "$name"
 done
+SHARED_SCOPE_BINARY="$tmp/localscope"
+export SHARED_SCOPE_BINARY
+(cd "$SCRIPT_DIR/.." && go build -o "$SHARED_SCOPE_BINARY" ./tools/localscope)
 
 run_case() {
 	local case_name="$1" path="$2" module_dir="$3" want_skip="$4" precommit_full="${5:-}"
 	local repo="$tmp/$case_name" fakebin="$tmp/$case_name-bin" capture="$tmp/$case_name-go.log" log="$tmp/$case_name-gate.log"
 	mkdir -p "$repo/scripts" "$fakebin" "$repo/$(dirname "$path")"
+	printf 'module example.test/root\n\ngo 1.26.9\n' >"$repo/go.mod"
 	if [[ "$module_dir" != "." ]]; then
 		mkdir -p "$repo/$module_dir"
 		printf 'module example.test/%s\n\ngo 1.25.0\n' "$case_name" >"$repo/$module_dir/go.mod"
@@ -43,6 +47,10 @@ EOF
 #!/usr/bin/env bash
 printf '%s\t' "$@" >>"$GO_CAPTURE"
 printf '\n' >>"$GO_CAPTURE"
+if [[ " $* " == *" ./tools/localscope "* ]]; then
+  shift 3
+  exec "$SHARED_SCOPE_BINARY" "$@"
+fi
 if [[ "${1:-}" == "env" && "${2:-}" == "GOOS" ]]; then
 	printf 'linux\n'
 fi

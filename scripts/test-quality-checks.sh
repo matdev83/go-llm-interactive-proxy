@@ -16,6 +16,9 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/quality-checks-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 BIN="$TMP/bin"
 mkdir -p "$BIN"
+SHARED_SCOPE_BINARY="$TMP/localscope"
+export SHARED_SCOPE_BINARY
+(cd "$SCRIPT_DIR/.." && "$REAL_GO" build -o "$SHARED_SCOPE_BINARY" ./tools/localscope)
 
 fail() {
 	echo "FAIL: $*" >&2
@@ -70,6 +73,10 @@ case "${GO_FAIL:-}:$*" in
 	vet:vet\ *) exit 42 ;;
 	tidy:mod\ tidy\ *) exit 43 ;;
 esac
+if [[ " $* " == *" ./tools/localscope "* ]]; then
+	shift 3
+	exec "$SHARED_SCOPE_BINARY" "$@"
+fi
 if [[ "${1:-}" == list ]]; then
 	shift
 	if [[ "${1:-}" == -f ]]; then shift 2; fi

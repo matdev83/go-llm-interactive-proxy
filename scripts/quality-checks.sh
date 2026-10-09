@@ -37,29 +37,6 @@ if [ -n "${LIP_TEST_PACKAGES:-}" ]; then
 	test_package_flags=("-p=$LIP_TEST_PACKAGES")
 fi
 
-under_nested_go_module() {
-	local file="$1"
-	local dir parent
-
-	dir=$(dirname "$file")
-	if [ -z "$dir" ] || [ "$dir" = "." ]; then
-		return 1
-	fi
-
-	while [ -n "$dir" ] && [ "$dir" != "." ]; do
-		if [ -f "${dir}/go.mod" ]; then
-			return 0
-		fi
-		parent=$(dirname "$dir")
-		if [ "$parent" = "$dir" ]; then
-			break
-		fi
-		dir=$parent
-	done
-
-	return 1
-}
-
 is_agent_skill_path() {
 	case "$1" in
 		.agents/skills/*|.codex/skills/*|.cursor/skills/*|.kiro/skills/*|.opencode/skills/*|.pi/skills/*)
@@ -70,45 +47,17 @@ is_agent_skill_path() {
 }
 
 collect_quality_packages() {
-	local -a staged_go_files=()
-	local file dir
-	local force_full=false
-	declare -A package_set=()
-
-	mapfile -t staged_go_files < <(git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null | sed 's#\\#/#g' | grep -E '\.go$' || true)
-	if [ ${#staged_go_files[@]} -eq 0 ]; then
-		mapfile -t staged_go_files < <(git diff --name-only --diff-filter=ACMRD 2>/dev/null | sed 's#\\#/#g' | grep -E '\.go$' || true)
-	fi
-	if [ ${#staged_go_files[@]} -eq 0 ]; then
-		mapfile -t staged_go_files < <(git ls-files --others --exclude-standard 2>/dev/null | sed 's#\\#/#g' | grep -E '\.go$' || true)
-	fi
-
-	if [ ${#staged_go_files[@]} -eq 0 ]; then
-		printf './...\n'
-		return 0
-	fi
-
-	for file in "${staged_go_files[@]}"; do
-		if is_agent_skill_path "$file"; then
-			continue
-		fi
-		dir=$(dirname "$file")
-		if [ -z "$dir" ] || [ "$dir" = "." ]; then
-			force_full=true
-			break
-		fi
-		if under_nested_go_module "$file"; then
-			continue
-		fi
-		package_set["./${dir}/..."]=1
-	done
-
-	if [ "$force_full" = true ] || [ ${#package_set[@]} -eq 0 ]; then
-		printf './...\n'
-		return 0
-	fi
-
-	printf '%s\n' "${!package_set[@]}" | sort
+	local plan module packages package found=false
+	plan="$(go run -buildvcs=false ./tools/localscope -mode changed -metadata=false -format lines)" || return 1
+	while IFS=$'\t' read -r module packages; do
+		[[ "$module" == . ]] || continue
+		for package in $packages; do
+			found=true
+			if [[ "$package" == . ]]; then printf './...\n'; return 0; fi
+			printf '%s/...\n' "$package"
+		done
+	done <<< "$plan"
+	if [[ "$found" == false ]]; then printf './...\n'; fi
 }
 
 declare -a STAGED_PATHS=() STAGED_GO_FILES_EXISTING=() STAGED_MODULES=() STAGED_TIDY_MODULES=()
@@ -116,34 +65,6 @@ declare -A STAGED_MODULE_INDEX=() STAGED_TIDY_SEEN=() STAGED_MODULE_ALL=() STAGE
 STAGED_FEATURE_PLANES=false
 STAGED_PROTOBUF=false
 STAGED_WORKFLOWS=false
-
-module_for_path() {
-	local path="$1" dir
-	for dir in "${!STAGED_DELETED_MODULES[@]}"; do
-		if [[ "$path" == "$dir/"* ]]; then
-			return 1
-		fi
-	done
-	dir="${path%/*}"
-	if [[ "$dir" == "$path" ]]; then
-		dir="."
-	fi
-	while :; do
-		if [[ -f "$dir/go.mod" ]]; then
-			FOUND_MODULE="$dir"
-			return 0
-		fi
-		if [[ "$dir" == "." ]]; then
-			break
-		fi
-		if [[ "$dir" == */* ]]; then
-			dir="${dir%/*}"
-		else
-			dir="."
-		fi
-	done
-	return 1
-}
 
 add_staged_tidy_module() {
 	local module="$1"
@@ -174,57 +95,21 @@ add_staged_package() {
 	printf '%s\0' "$package" >>"$package_file"
 }
 
-add_staged_module_all_packages() {
-	local module="$1" module_index package_file
-	[[ -f "$module/go.mod" ]] || return 0
-	if [[ -z "${STAGED_MODULE_INDEX[$module]+x}" ]]; then
-		module_index=${#STAGED_MODULES[@]}
-		STAGED_MODULE_INDEX["$module"]="$module_index"
-		STAGED_MODULES+=("$module")
-	else
-		module_index="${STAGED_MODULE_INDEX[$module]}"
-	fi
-	package_file="$QUALITY_TMPDIR/packages.$module_index"
-	printf '%s\0' "./..." >"$package_file"
-	STAGED_MODULE_ALL["$module"]=1
-}
-
 collect_staged_scope() {
-	local file module dir package relative_dir
-	if ! git diff --cached --name-only -z --no-renames --diff-filter=ACMRD >"$QUALITY_TMPDIR/staged-paths"; then
-		echo "ERROR: unable to read staged paths from Git" >&2
+	local file kind first second
+	if ! go run -buildvcs=false ./tools/localscope -mode staged -format nul >"$QUALITY_TMPDIR/shared-scope"; then
+		echo "ERROR: unable to read staged paths from Git or plan quality scope" >&2
 		return 1
 	fi
-	mapfile -d '' -t STAGED_PATHS <"$QUALITY_TMPDIR/staged-paths"
-
-	# A removed module with surviving sources is absorbed by its parent module.
-	# Check that whole parent; skip modules whose sources were removed too.
-	for file in "${STAGED_PATHS[@]}"; do
-		case "$file" in
-			go.mod) module="." ;;
-			*/go.mod) module="${file%/*}" ;;
-			*) continue ;;
+	while IFS= read -r -d '' kind && IFS= read -r -d '' first && IFS= read -r -d '' second; do
+		case "$kind" in
+			path) STAGED_PATHS+=("$first") ;;
+			file) STAGED_GO_FILES_EXISTING+=("$first") ;;
+			tidy) add_staged_tidy_module "$first" ;;
+			package) add_staged_package "$first" "$second"; if [[ "$second" == ./... ]]; then STAGED_MODULE_ALL["$first"]=1; fi ;;
+			*) echo "ERROR: invalid shared scope record $kind" >&2; return 1 ;;
 		esac
-		[[ -f "$file" ]] && continue
-		if [[ -d "$module" ]]; then
-			local surviving_source
-			if ! surviving_source=$(find "$module" -type f -name '*.go' -print -quit); then
-				echo "ERROR: unable to inspect removed module $module" >&2
-				return 1
-			fi
-			if [[ -n "$surviving_source" ]]; then
-				if ! module_for_path "$file"; then
-					echo "ERROR: $module/go.mod is staged for deletion but Go source has no surviving parent module." >&2
-					return 1
-				fi
-				add_staged_tidy_module "$FOUND_MODULE"
-				add_staged_module_all_packages "$FOUND_MODULE"
-				continue
-			fi
-		fi
-		STAGED_DELETED_MODULES["$module"]=1
-	done
-
+	done <"$QUALITY_TMPDIR/shared-scope"
 	for file in "${STAGED_PATHS[@]}"; do
 		case "$file" in
 			pkg/lipsdk/feature/*|internal/archtest/*|internal/featureplanegen/*|scripts/generate-feature-planes.go|go.mod|go.sum|scripts/quality-checks.sh)
@@ -242,48 +127,6 @@ collect_staged_scope() {
 				;;
 		esac
 
-		case "$file" in
-			go.mod|go.sum) module="." ;;
-			*/go.mod|*/go.sum) module="${file%/*}" ;;
-			*) module="" ;;
-		esac
-		if [[ -n "$module" ]]; then
-			add_staged_tidy_module "$module"
-			add_staged_module_all_packages "$module"
-		fi
-
-		[[ "$file" == *.go ]] || continue
-		is_agent_skill_path "$file" && continue
-		if [[ -f "$file" ]]; then
-			STAGED_GO_FILES_EXISTING+=("$file")
-		fi
-		if ! module_for_path "$file"; then
-			continue
-		fi
-		module="$FOUND_MODULE"
-		add_staged_tidy_module "$module"
-
-		dir="${file%/*}"
-		if [[ "$dir" == "$file" ]]; then
-			dir="."
-		fi
-		local -a surviving_go_files=("$dir"/*.go)
-		if [[ ${#surviving_go_files[@]} -eq 1 && ! -f "${surviving_go_files[0]}" ]]; then
-			continue
-		fi
-		if [[ "$dir" == "$module" ]]; then
-			relative_dir="."
-		elif [[ "$module" == "." ]]; then
-			relative_dir="$dir"
-		else
-			relative_dir="${dir#"$module"/}"
-		fi
-		if [[ "$relative_dir" == "." ]]; then
-			package="."
-		else
-			package="./$relative_dir"
-		fi
-		add_staged_package "$module" "$package"
 	done
 }
 
