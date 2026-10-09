@@ -1,5 +1,5 @@
 # scripts/lint-all-modules.ps1
-# Runs linter (golangci-lint with staticcheck fallback) across all or scoped Go modules in parallel.
+# Runs golangci-lint across all or scoped Go modules in parallel.
 
 [CmdletBinding()]
 param(
@@ -80,31 +80,27 @@ if ($targetModules.Count -eq 0) {
     exit 0
 }
 
-$linter = $null
-$linterArgs = @()
-
-if (Get-Command golangci-lint -ErrorAction SilentlyContinue) {
-    $linter = "golangci-lint"
-    $linterArgs = @("run", "--allow-parallel-runners", "--concurrency=$LintConcurrency")
-    if (-not $Advisory) {
-        $linterArgs += "--disable=$($AdvisoryStyleLinters -join ',')"
-    }
-} elseif (Get-Command staticcheck -ErrorAction SilentlyContinue) {
-    $linter = "staticcheck"
-    $linterArgs = @()
-} else {
-    Write-Host "Warning: golangci-lint/staticcheck not found, skipping (install golangci-lint: https://golangci-lint.run/)" -ForegroundColor Yellow
-    exit 0
+# This gate is mandatory: `make lint`, the staged pre-commit lint and CI all
+# run it. Skipping when the analyzer is absent turns the gate into a silent
+# no-op, and substituting staticcheck hides most of the analyzer set CI
+# enforces. tools/devcheck applies the same rule for `make dev-lint`.
+if (-not (Get-Command golangci-lint -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: golangci-lint is required for the repository lint gate but is not on PATH." -ForegroundColor Red
+    Write-Host "Install the version CI pins (GOLANGCI_LINT_VERSION in .github/workflows/ci.yml)." -ForegroundColor Red
+    exit 3
+}
+$linter = "golangci-lint"
+$linterArgs = @("run", "--allow-parallel-runners", "--concurrency=$LintConcurrency")
+if (-not $Advisory) {
+    $linterArgs += "--disable=$($AdvisoryStyleLinters -join ',')"
 }
 
 Write-Host "Linting $($targetModules.Count) module(s) with $linter in parallel..." -ForegroundColor Cyan
 Write-Host "Lint budget: modules=$LintJobs analyzers/module=$LintConcurrency" -ForegroundColor DarkGray
-if ($linter -eq "golangci-lint") {
-    if ($Advisory) {
-        Write-Host "Mode: ADVISORY (full set incl. $($AdvisoryStyleLinters -join ', '); non-blocking style report)." -ForegroundColor Yellow
-    } else {
-        Write-Host "Mode: MANDATORY correctness gate (--disable=$($AdvisoryStyleLinters -join ',')); style debt via 'make lint-advisory'." -ForegroundColor Cyan
-    }
+if ($Advisory) {
+    Write-Host "Mode: ADVISORY (full set incl. $($AdvisoryStyleLinters -join ', '); non-blocking style report)." -ForegroundColor Yellow
+} else {
+    Write-Host "Mode: MANDATORY correctness gate (--disable=$($AdvisoryStyleLinters -join ',')); style debt via 'make lint-advisory'." -ForegroundColor Cyan
 }
 
 $runnerBinary = Get-TaskRunnerBinary
@@ -130,9 +126,6 @@ try {
                 "--output", "capture"
             )
             $runnerArgs += "--"
-            if ($linter -eq "staticcheck") {
-                $runnerArgs = @("--env", "GOMAXPROCS=$lintConcurrency") + $runnerArgs
-            }
             $runnerArgs += @($linter) + $linterArgs
 
             $output = @(& $runnerBinary @runnerArgs 2>&1)
