@@ -4,6 +4,8 @@
 
 Local implementation: **GO**, certified at `6125f3b4` on `spec/typed-decision-models`. All 12 leaf tasks are checked and no implementation blocker remains. Delivery and archive completion are pending merge verification; this is not a merged-main certification.
 
+Delivery split: core contract/touchpoints are submitted separately on `feat/typed-decision-core` (PR #870); the immediate consumer is `feat/typed-decision-systemone`. Both were rebased onto main baseline `0cd108c6`. The earlier GO evidence above belongs to the original implementation revision; rebased-head gates and CI must be assessed separately before merge. Original implementation history is retained on `spec/typed-decision-models`.
+
 ## Evidence
 
 - `TMPDIR=/home/mateusz/.cache/tmp/opencode make test`: passed after conformance remediation. Includes default root-module tests, multi-module mandatory lint, protobuf checks, contract tests, provider profiles, connector contract/parity checks and bounded integration sentinels. Cached unchanged test results were reused normally.
