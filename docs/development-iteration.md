@@ -471,6 +471,16 @@ remote certification includes these fixtures without changing workflow scope.
 
 ### Explicit local scope
 
+`devcheck` handles interrupt/termination signals and delegates check commands to
+the existing process-tree runner. Cancellation stops descendants and prevents
+later repeats/modules from starting; requested manifests still record failure
+and retain completed test counters and step logs. `DEV_TIMEOUT` (default `30m`,
+or `devcheck -timeout`) bounds the complete run; increase it explicitly for long
+checks. Existing Go test-binary timeout flags are unchanged. POSIX `dev-lint` and
+contract lint use the repository resource guard automatically; cancellation also
+terminates slot-waiting commands. Scope-discovery and evidence-metadata probes
+are not migrated to the process-tree runner in this slice.
+
 `PKGS` is required for test/build/lint. There is no silent fallback to the full
 repository. Patterns are relative to `MODULE`, which defaults to the root module.
 `DEV_JOBS` defaults to 1 on local Linux `agent-dev`, and 4 elsewhere; tune it for the actual machine and keep it stable during
@@ -517,11 +527,11 @@ or a bounded wait to avoid waiting indefinitely behind their own parent.
 For a hard, immediate admission check:
 `LIP_GO_SLOT_MODE=hard LIP_GO_SLOT_WAIT=0 go test ./path/to/package`.
 `scripts/lint-all-modules.sh` shares these slots through the standalone guard's
-`--lip-resource-run <command> [args...]` mode. Direct analyzer invocations,
-including `dev-lint`, must use that wrapper explicitly to participate in this
-slice's coordination. CI and non-agent-dev analyzer runs retain native behavior.
-For scoped lint feedback: `bash scripts/go-dev-guard.sh --lip-resource-run make
-dev-lint PKGS='./path/to/package'`.
+`--lip-resource-run <command> [args...]` mode. Direct analyzer invocations must
+use that wrapper explicitly; POSIX `devcheck` lint commands wrap the analyzer
+automatically. CI and non-agent-dev analyzer runs retain native behavior.
+For scoped lint feedback: `make dev-lint PKGS='./path/to/package'` automatically
+wraps the analyzer on POSIX. Direct analyzer invocations still need the wrapper.
 
 Participating compiler/analyzer commands also hold a shared cache lock, including
 advisory slot-overflow runs. `make dev-cache-maintenance` is dry by default;

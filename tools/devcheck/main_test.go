@@ -21,7 +21,7 @@ func TestExecutionPropagatesFailures(t *testing.T) {
 		cmd := exec.Command(exe, "-test.run=^TestDevcheckHelperProcess$")
 		cmd.Env = append(os.Environ(), "DEVCHECK_TEST_HELPER="+mode)
 		var output strings.Builder
-		if _, err := execute(cmd, true, &output); err == nil {
+		if _, err := execute(t.Context(), cmd, true, &output); err == nil {
 			t.Errorf("reported success for child mode %s", mode)
 		}
 	}
