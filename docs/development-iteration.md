@@ -283,6 +283,34 @@ cache inventories and dependency lists remain under
 `~/.cache/feature-plane-generator-20261008/`. These measurements describe this
 fresh-directory workload with shared caches; warm-worktree gains can differ.
 
+### Creating a task worktree
+
+`make worktree-create WORKTREE_BRANCH=fix-short-description` creates the worktree at
+the validated location. Add `WORKTREE_BASE=<ref>` to branch from something other
+than `origin/main`, or `SETUP=1` to run `make dev-doctor` in the new worktree.
+
+The directory name is the branch with slashes folded to dashes
+(`fix/short-description` becomes `worktrees/fix-short-description`), matching the
+existing layout. Pass `WORKTREE_BASE` only after fetching: a base ref that does not
+resolve locally is refused rather than silently resolved to something else.
+
+Every check runs before git does, and a refusal leaves nothing behind:
+
+- the destination must be absolute and under `<container>/worktrees/`, with its
+  parent symlinks resolved
+- an existing worktree of this repository at that path is reported and reused
+  rather than recreated, so in-progress work is never discarded
+- an existing directory that is *not* this repository's worktree is refused; so is
+  a branch that already exists locally, on `origin`, or checked out in another
+  worktree
+- a branch name that could escape its directory is rejected outright
+
+This exists because the layout is a hard constraint enforced at commit time by
+`scripts/check-worktree-layout.sh`. A wrong path is otherwise discovered only after
+the work is done. The bootstrap script runs that same guard immediately after
+creating the worktree, so a violation is immediate and attributable rather than a
+surprise at commit.
+
 ### Merging with auto-merge
 
 `main` requires branches to be up to date, and this repository has no merge
