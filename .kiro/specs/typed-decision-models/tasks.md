@@ -6,7 +6,7 @@
 - Each task writes its failing tests first (TDD) and carries only the tests that prove it.
 
 - [ ] 1. Canonical decision contract
-- [ ] 1.1 Define typed decision requests and results with their invariants
+- [x] 1.1 Define typed decision requests and results with their invariants
   - Add the decision request, question, option, level, result and answer types, the decision reject error and its predicate, as specified in design "DecisionContract".
   - Request validation rejects unknown kinds, empty or duplicate question IDs, duplicate option names, choices outside 1–255 options, scores outside 2–10 levels, and invalid JSON values, reporting the offending field.
   - Result validation accepts only one answer per question in request order, finite values in range, distributions summing to 1 within tolerance, a maximal-probability selected option, a zero-based expected score within range, and confidence only when present and in [0, 1].
