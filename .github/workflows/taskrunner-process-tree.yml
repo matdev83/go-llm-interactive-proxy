@@ -131,7 +131,21 @@ jobs:
         run: |
           race=()
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then race=(-race); fi
-          LIP_REQUIRE_CLEANUP_INTEGRATION=1 go test "${race[@]}" -v -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope ./tools/worktreeclean
+          go test "${race[@]}" -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope ./tools/internal/scopeplan ./tools/localscope
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            # A separate UID has no unrelated, non-dumpable user services. Keep
+            # the real ownership guard enabled rather than skipping integration.
+            user="lipclean${GITHUB_RUN_ID}"
+            fixture=$(mktemp -d "$RUNNER_TEMP/lip-cleanup.XXXXXX")
+            trap 'sudo userdel "$user"; sudo rm -rf -- "$fixture"' EXIT
+            go test "${race[@]}" -c -o "$fixture/cleanup.test" ./tools/worktreeclean
+            sudo useradd --no-create-home --shell /bin/bash "$user"
+            sudo chown -R "$user" "$fixture"
+            sudo -u "$user" env -i PATH=/usr/bin:/bin HOME="$fixture" TMPDIR="$fixture" LIP_REQUIRE_CLEANUP_INTEGRATION=1 \
+              "$fixture/cleanup.test" -test.v -test.timeout=10m
+          else
+            LIP_REQUIRE_CLEANUP_INTEGRATION=1 go test "${race[@]}" -v -count=1 -timeout=10m ./tools/worktreeclean
+          fi
 
       - name: Devcheck compatibility (Windows)
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os == 'Windows'
