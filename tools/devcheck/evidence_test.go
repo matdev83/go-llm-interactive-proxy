@@ -168,3 +168,16 @@ func readManifest(t *testing.T, path string) *evidence.Manifest {
 	}
 	return manifest
 }
+
+func TestRecorder_MissingLogsCannotReturnSuccess(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	recorder := newEvidenceRecorder(t.Context(), path, "test", evidence.Scope{Kind: "explicit"}, t.TempDir())
+	recorder.block("cannot retain full command logs")
+	if err := recorder.finish(nil); err == nil {
+		t.Fatal("missing log evidence returned success")
+	}
+	manifest := readManifest(t, path)
+	if manifest.Outcome != evidence.OutcomeBlocked || manifest.FailureReason != "cannot retain full command logs" {
+		t.Fatalf("lost evidence blocker: %+v", manifest)
+	}
+}
