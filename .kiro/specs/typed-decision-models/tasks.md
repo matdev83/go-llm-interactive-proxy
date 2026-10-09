@@ -74,7 +74,7 @@
   - _Validation: go test ./internal/providerprofiles/ ./internal/standardplugins/_
 
 - [ ] 4. System One frontend
-- [ ] 4.1 (P) Decode System One requests without losing order or type
+- [x] 4.1 (P) Decode System One requests without losing order or type
   - Apply bounded JSON preflight (depth, duplicate keys, trailing data), then decode `model`, `state` and ID-keyed `questions` preserving question, option and level order and the original evidence bytes.
   - Reject unknown fields, missing required fields and question-count overflow with a 422 detail naming the field; build a call carrying only the decision, the `decision.evaluate` operation, non-streaming delivery and route intent, with no client header copied.
   - Observable completion: golden fixtures for string, object and array state and for all three question types decode to the expected call, a swapped option order survives, and each rejection case maps to its field.
@@ -111,4 +111,5 @@
   - _Validation: go test ./internal/infra/runtimebundle/ -run 'Decision' && go run ./cmd/lipstd check-config --config config/examples/custom-systemone-compatible.yaml_
 
 ## Implementation Notes
+- Task 4.1: question IDs and option names are byte-bounded labels, not trimmed identifiers; exact client names survive decoding and canonical validation (requirement 1.2).
 - Task 3.3: the maintainer explicitly approved the host-owned multi-user policy addition for operator-owned credentials. Unknown and personal-auth factories remain denied; the existing shared-deployment gate remains enabled.
