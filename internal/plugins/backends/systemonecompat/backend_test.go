@@ -115,3 +115,38 @@ func TestBackend_TransportTimeoutRecoverableButCallerCancellationTerminal(t *tes
 		t.Fatalf("cancellation classification = %v", err)
 	}
 }
+
+func TestBackend_FailureUsageSidebandNeverReleasesAnAnswer(t *testing.T) {
+	t.Parallel()
+	for _, status := range []int{200, 429, 422} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+				_, _ = io.WriteString(w, `{"model":"jev","answers":{},"usage":{"input_tokens":3,"output_tokens":0,"cost":0.0000005}}`)
+			}))
+			defer srv.Close()
+			be, err := BuildCompatible("decision", backendNode(t, srv.URL), srv.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream, err := be.Open(t.Context(), decisionCall(), routing.AttemptCandidate{})
+			if err != nil || stream == nil {
+				t.Fatalf("evidence stream missing: %v", err)
+			}
+			defer func() { _ = stream.Close() }()
+			ev, err := stream.Recv(t.Context())
+			if ev.Kind != "" || err == nil || lipapi.IsRecoverablePreOutput(err) != (status != 422) || lipapi.IsDecisionReject(err) != (status == 422) {
+				t.Fatalf("failure emitted an event or lost classification: ev=%+v err=%v", ev, err)
+			}
+			source, ok := stream.(interface{ DrainUsageEvidence() []lipapi.Event })
+			if !ok {
+				t.Fatal("accounting sideband missing")
+			}
+			evidence := source.DrainUsageEvidence()
+			if len(evidence) != 1 || evidence[0].InputTokens != 3 || !evidence[0].UsagePresence.OutputTokens || evidence[0].OutputTokens != 0 || evidence[0].CostNanoUnits != 500 || len(source.DrainUsageEvidence()) != 0 {
+				t.Fatalf("provider evidence = %+v", evidence)
+			}
+		})
+	}
+}

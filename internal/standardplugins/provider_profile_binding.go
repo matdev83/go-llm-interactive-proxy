@@ -239,7 +239,11 @@ type profileFamilyBuilder func(profile providerprofiles.CompiledProfile, instanc
 
 var profileFamilyBuilders = map[providerprofiles.Family]profileFamilyBuilder{
 	providerprofiles.FamilySystemOne: func(profile providerprofiles.CompiledProfile, instanceID string, node yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-		be, err := systemonecompat.BuildCompatible(instanceID, node, upstream)
+		headers := http.Header{}
+		for _, header := range profile.Profile.Headers {
+			headers.Set(header.Name, header.Value)
+		}
+		be, err := systemonecompat.BuildCompatibleWithHeaders(instanceID, node, upstream, headers)
 		return applyProfileCapabilities(be, err, profile)
 	},
 	providerprofiles.FamilyOpenAIChat: func(profile providerprofiles.CompiledProfile, instanceID string, node yaml.Node, upstream *http.Client) (execbackend.Backend, error) {

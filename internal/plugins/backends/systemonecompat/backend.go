@@ -23,6 +23,13 @@ const ID = "custom-systemone-compatible"
 // BuildCompatible constructs a decision-only backend using strict compatible
 // configuration and static model inventory. Credentials are resolved per call.
 func BuildCompatible(instanceID string, n yaml.Node, client *http.Client) (execbackend.Backend, error) {
+	return BuildCompatibleWithHeaders(instanceID, n, client, nil)
+}
+
+// BuildCompatibleWithHeaders binds validated, operator-owned profile headers.
+// The header map is cloned once; no caller header is consulted during execution.
+func BuildCompatibleWithHeaders(instanceID string, n yaml.Node, client *http.Client, headers http.Header) (execbackend.Backend, error) {
+	headers = headers.Clone()
 	cfg, err := config.DecodeCompatibleModeConfig(instanceID, ID, n)
 	if err != nil {
 		return execbackend.Backend{}, err
@@ -59,9 +66,13 @@ func BuildCompatible(instanceID string, n yaml.Node, client *http.Client) (execb
 				return nil, err
 			}
 			key := compatmode.FirstAPIKey(compatmode.ResolveEnvAPIKeys(cfg.APIKeyEnvVarRoot))
-			events, err := evaluateWire(ctx, client, endpoint, key, cand.Primary.Model, *call.Decision, nil)
+			events, err := evaluateWire(ctx, client, endpoint, key, cand.Primary.Model, *call.Decision, headers)
 			if err != nil {
-				return nil, classifyError(ctx, err)
+				classified := classifyError(ctx, err)
+				if evidence, ok := errors.AsType[*failureUsageError](err); ok {
+					return &failureUsageStream{FixedEventStream: lipapi.NewFixedEventStream(nil), failure: classified, evidence: []lipapi.Event{evidence.usage}}, nil
+				}
+				return nil, classified
 			}
 			return lipapi.NewFixedEventStream(events), nil
 		},

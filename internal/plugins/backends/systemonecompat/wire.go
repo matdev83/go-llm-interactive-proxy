@@ -36,8 +36,13 @@ func evaluateWire(ctx context.Context, client *http.Client, endpoint, key, model
 		return nil, err
 	}
 	for name, values := range safeHeaders {
-		switch strings.ToLower(name) {
-		case "http-referer", "x-title":
+		lower := strings.ToLower(name)
+		if strings.HasPrefix(lower, "x-provider-") && !strings.Contains(lower, "secret") && !strings.Contains(lower, "token") {
+			req.Header[name] = append([]string(nil), values...)
+			continue
+		}
+		switch lower {
+		case "http-referer", "x-title", "user-agent", "anthropic-version", "anthropic-beta", "openai-beta":
 			req.Header[name] = append([]string(nil), values...)
 		}
 	}
@@ -55,12 +60,12 @@ func evaluateWire(ctx context.Context, client *http.Client, endpoint, key, model
 		return nil, lipapi.RecoverablePreOutputError(errors.New("system one response exceeds its bound or could not be read"))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &wireHTTPError{status: resp.StatusCode, body: data}
+		return nil, withFailureUsage(data, &wireHTTPError{status: resp.StatusCode, body: data})
 	}
 	events, err := responseEvents(data, decision)
 	if err != nil {
 		// Never propagate decoded upstream content or a parser's payload fragment.
-		return nil, lipapi.RecoverablePreOutputError(errors.New("invalid System One answer"))
+		return nil, withFailureUsage(data, lipapi.RecoverablePreOutputError(errors.New("invalid System One answer")))
 	}
 	return events, nil
 }
@@ -147,15 +152,17 @@ type wireAnswer struct {
 	Confidence    *float64            `json:"confidence"`
 }
 
+type wireUsage struct {
+	Input  *int         `json:"input_tokens"`
+	Output *int         `json:"output_tokens"`
+	Cost   *json.Number `json:"cost"`
+}
+
 func responseEvents(data []byte, request lipapi.DecisionRequest) ([]lipapi.Event, error) {
 	var response struct {
 		Model   string                `json:"model"`
 		Answers map[string]wireAnswer `json:"answers"`
-		Usage   struct {
-			Input  *int         `json:"input_tokens"`
-			Output *int         `json:"output_tokens"`
-			Cost   *json.Number `json:"cost"`
-		} `json:"usage"`
+		Usage   wireUsage             `json:"usage"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&response); err != nil {
@@ -209,27 +216,35 @@ func responseEvents(data []byte, request lipapi.DecisionRequest) ([]lipapi.Event
 	if err := result.ValidateFor(request); err != nil {
 		return nil, err
 	}
+	usage, err := response.Usage.event()
+	if err != nil {
+		return nil, err
+	}
+	return []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventDecisionResult, Decision: &result}, usage, {Kind: lipapi.EventResponseFinished}}, nil
+}
+
+func (u wireUsage) event() (lipapi.Event, error) {
 	usage := lipapi.Event{Kind: lipapi.EventUsageDelta}
-	if response.Usage.Input != nil {
-		if *response.Usage.Input < 0 {
-			return nil, errors.New("negative usage")
+	if u.Input != nil {
+		if *u.Input < 0 {
+			return usage, errors.New("negative usage")
 		}
-		usage.InputTokens, usage.UsagePresence.InputTokens = *response.Usage.Input, true
+		usage.InputTokens, usage.UsagePresence.InputTokens = *u.Input, true
 	}
-	if response.Usage.Output != nil {
-		if *response.Usage.Output < 0 {
-			return nil, errors.New("negative usage")
+	if u.Output != nil {
+		if *u.Output < 0 {
+			return usage, errors.New("negative usage")
 		}
-		usage.OutputTokens, usage.UsagePresence.OutputTokens = *response.Usage.Output, true
+		usage.OutputTokens, usage.UsagePresence.OutputTokens = *u.Output, true
 	}
-	if response.Usage.Cost != nil {
-		cost, err := response.Usage.Cost.Float64()
+	if u.Cost != nil {
+		cost, err := u.Cost.Float64()
 		nano := math.Round(cost * 1e9)
 		if err != nil || cost < 0 || math.IsNaN(nano) || math.IsInf(nano, 0) || nano < 0 || nano >= float64(math.MaxInt64) {
-			return nil, errors.New("invalid provider cost")
+			return usage, errors.New("invalid provider cost")
 		}
 		usage.CostNanoUnits, usage.CostPresent = int64(nano), true
 		usage.Currency, usage.CostSource = "USD", "provider_reported"
 	}
-	return []lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventDecisionResult, Decision: &result}, usage, {Kind: lipapi.EventResponseFinished}}, nil
+	return usage, nil
 }

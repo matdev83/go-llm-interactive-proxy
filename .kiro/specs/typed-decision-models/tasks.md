@@ -99,8 +99,8 @@
   - _Boundary: SystemOneFrontend_
   - _Validation: go test ./internal/plugins/frontends/systemone/ ./internal/standardplugins/_
 
-- [ ] 5. Integration
-- [ ] 5.1 Prove the end-to-end decision path and ship the config example
+- [x] 5. Integration
+- [x] 5.1 Prove the end-to-end decision path and ship the config example
   - Add one runtime test through the standard host with two stub System One upstreams: the first answers 529, the second answers; assert one client response, two B-legs, upstream usage recorded, and one billing call when billing ports are injected.
   - In the same test file, assert a decision is denied while a secret guard is configured and a chat request routed to the decision backend is rejected before any upstream call.
   - Add `config/examples/custom-systemone-compatible.yaml` (frontend, TypeSafe profile, custom instance) and confirm it passes config checking.
@@ -111,6 +111,7 @@
   - _Validation: go test ./internal/infra/runtimebundle/ -run 'Decision' && go run ./cmd/lipstd check-config --config config/examples/custom-systemone-compatible.yaml_
 
 ## Implementation Notes
+- Task 5.1: stock request-size estimates require model_catalog.enabled; the integration fixture and example use an offline catalog. Failed upstream attempts retain validated usage/cost via the existing DrainUsageEvidence sideband, before any answer event. Quote sizing includes question/choice labels; validated operator profile headers are wired through the family builder.
 - Task 4.3: shared frontendpipe uses an optional DecodeErrorWriter to retain field-specific rejection details without changing existing frontends. Nil decision carriers are omitted from canonical JSON to preserve ordinary chat/event serialization and wire-proof identities.
 - Task 4.1: question IDs and option names are byte-bounded labels, not trimmed identifiers; exact client names survive decoding and canonical validation (requirement 1.2).
 - Task 3.3: the maintainer explicitly approved the host-owned multi-user policy addition for operator-owned credentials. Unknown and personal-auth factories remain denied; the existing shared-deployment gate remains enabled.

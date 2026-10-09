@@ -190,7 +190,7 @@ func Validate(p Profile) error {
 	if (p.Family == FamilyAnthropic && p.Auth.Mode == AuthBearerEnv) || (p.Family != FamilyAnthropic && p.Auth.Mode == AuthAPIKeyEnv) {
 		return fmt.Errorf("profile %q: auth mode %q is not supported by family %q", p.ID, p.Auth.Mode, p.Family)
 	}
-	if p.Family != FamilyOpenAIChat && p.Family != FamilyOpenAIResponses && len(p.Headers) > 0 {
+	if p.Family != FamilyOpenAIChat && p.Family != FamilyOpenAIResponses && p.Family != FamilySystemOne && len(p.Headers) > 0 {
 		return fmt.Errorf("profile %q: static headers are not supported by family %q", p.ID, p.Family)
 	}
 	if len(p.Headers) > MaxHeaders {
