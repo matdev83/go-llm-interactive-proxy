@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
@@ -60,6 +61,13 @@ func writeScopeFile(t *testing.T, root, name, body string) {
 
 func TestLocalLintPlanReadsActualGitAndTestImportGraph(t *testing.T) {
 	root := scopeFixture(t)
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(t.TempDir(), "repository-link")
+		if err := os.Symlink(root, link); err != nil {
+			t.Fatal(err)
+		}
+		root = link
+	}
 	writeScopeFile(t, root, "base/base.go", "package base\nconst Value = 2\n")
 	plan, err := buildLintPlan(context.Background(), root, "changed", "", false)
 	if err != nil {
