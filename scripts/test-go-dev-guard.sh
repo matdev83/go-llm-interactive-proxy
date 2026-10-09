@@ -17,6 +17,9 @@ if [[ $(uname -s) == Linux ]]; then resource_nice=$(ps -o ni= -p "$$" | tr -d ' 
 printf '%s\n' "${GOMAXPROCS:-}" "${GOFLAGS:-}" "$resource_nice" > "$GUARD_TEST_RESOURCES"
 printf '%s\n' "${TMPDIR:-}" > "$GUARD_TEST_TMPDIR"
 printf '%s\n' "${LIP_GO_SLOT_HELD:-}" > "$GUARD_TEST_SLOT"
+if [[ ${GUARD_TEST_PROBE_CACHE:-} == 1 ]]; then
+	if flock -n -x "$LIP_GO_SLOT_DIR/cache" true; then exit 97; fi
+fi
 printf 'fake toolchain output\n'
 exit "${GUARD_TEST_EXIT:-0}"
 STUB
@@ -162,7 +165,7 @@ if [[ $(uname -s) == Linux ]]; then
 	grep -q 'waiting for a slot' "$fixture/err" && grep -q 'running without one' "$fixture/err"
 	grep -q 'slot0 held for .* by pid' "$fixture/err"
 	[[ $(cat "$GUARD_TEST_SLOT") == none ]]
-	LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=0 LIP_GO_SLOT_MODE=advisory bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err"
+	GUARD_TEST_PROBE_CACHE=1 LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=0 LIP_GO_SLOT_MODE=advisory bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err"
 	grep -q 'LIP_GO_SLOT_MODE=advisory' "$fixture/err"
 	[[ $(cat "$GUARD_TEST_SLOT") == none ]]
 	# Hard limits never start the toolchain when every slot remains busy.
@@ -171,6 +174,9 @@ if [[ $(uname -s) == Linux ]]; then
 	LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=0 LIP_GO_SLOT_MODE=hard bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err" || status=$?
 	[[ $status == 75 && ! -e "$GUARD_TEST_CALLS" ]]
 	grep -q 'resource-blocked' "$fixture/err"
+	status=0
+	LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=0 LIP_GO_SLOT_MODE=hard bash "$script_dir/go-dev-guard.sh" --lip-resource-run "$fixture/bin/real-go" analyzer > "$fixture/out" 2> "$fixture/err" || status=$?
+	[[ $status == 75 && ! -e "$GUARD_TEST_CALLS" ]]
 	# Nested commands retain the parent's slot even under hard policy.
 	LIP_GO_SLOTS=1 LIP_GO_SLOT_WAIT=0 LIP_GO_SLOT_MODE=hard LIP_GO_SLOT_HELD=7 allowed test ./...
 	[[ $(cat "$GUARD_TEST_SLOT") == 7 ]]
@@ -191,5 +197,60 @@ if [[ $(uname -s) == Linux ]]; then
 	LIP_GO_SLOTS=1 bash "$script_dir/go-dev-guard.sh" -C . test ./... > "$fixture/out" 2> "$fixture/err"
 	wait "$holder" 2>/dev/null || true
 	[[ $(cat "$GUARD_TEST_SLOT") == 0 ]] && ! grep -q 'running without one' "$fixture/err"
+	# Analyzer work uses the same slot budget, not an independent semaphore.
+	GUARD_TEST_PROBE_CACHE=1 LIP_GO_SLOT_MODE=hard LIP_GO_SLOT_WAIT=0 bash "$script_dir/go-dev-guard.sh" --lip-resource-run "$fixture/bin/real-go" analyzer > "$fixture/out" 2> "$fixture/err"
+	[[ $(cat "$GUARD_TEST_SLOT") == 0 ]]
+	grep -qx analyzer "$GUARD_TEST_CALLS"
+	GUARD_TEST_PROBE_CACHE=1 allowed build ./...
+	# Real flock contention: maintenance cannot overlap active compiler/analyzer
+	# cache readers, even when the slot policy would otherwise fail open.
+	exec {cache_fd}>"$LIP_GO_SLOT_DIR/cache"
+	flock -s "$cache_fd"
+	rm -f "$GUARD_TEST_CALLS"
+	status=0
+	LIP_GO_SLOT_WAIT=0 bash "$script_dir/go-dev-guard.sh" --lip-resource-exclusive "$fixture/bin/real-go" maintenance > "$fixture/out" 2> "$fixture/err" || status=$?
+	[[ $status == 75 && ! -e "$GUARD_TEST_CALLS" ]]
+	grep -q 'resource-blocked' "$fixture/err"
+	flock -u "$cache_fd"
+	flock -x "$cache_fd"
+	for invocation in go analyzer; do
+		rm -f "$GUARD_TEST_CALLS"
+		status=0
+		if [[ $invocation == go ]]; then
+			LIP_GO_SLOT_WAIT=0 bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err" || status=$?
+		else
+			LIP_GO_SLOT_WAIT=0 bash "$script_dir/go-dev-guard.sh" --lip-resource-run "$fixture/bin/real-go" analyzer > "$fixture/out" 2> "$fixture/err" || status=$?
+		fi
+		[[ $status == 75 && ! -e "$GUARD_TEST_CALLS" ]]
+	done
+	flock -u "$cache_fd"
+	exec {cache_fd}>&-
+	# Exclusive owners can invoke nested guarded Go without self-deadlock.
+	LIP_GO_SLOT_WAIT=0 bash "$script_dir/go-dev-guard.sh" --lip-resource-exclusive bash "$script_dir/go-dev-guard.sh" build ./... > "$fixture/out" 2> "$fixture/err"
+	[[ $(cat "$GUARD_TEST_SLOT") == maintenance ]]
+	# Exit status and lock release survive a failed maintenance command.
+	status=0
+	GUARD_TEST_EXIT=17 bash "$script_dir/go-dev-guard.sh" --lip-resource-exclusive "$fixture/bin/real-go" maintenance >/dev/null || status=$?
+	[[ $status == 17 ]]
+	flock -n -x "$LIP_GO_SLOT_DIR/cache" true
+	# Maintenance's real entry point is dry by default. --apply delegates only
+	# to fake tools here; never clear the development host's caches in a test.
+	cat > "$fixture/bin/go" <<'STUB'
+#!/usr/bin/env bash
+printf 'go %s\n' "$*" >> "$GUARD_TEST_MAINTENANCE"
+[[ ${LIP_GO_CACHE_HELD:-} == exclusive && ${LIP_GO_SLOT_HELD:-} == maintenance ]]
+STUB
+	cat > "$fixture/bin/golangci-lint" <<'STUB'
+#!/usr/bin/env bash
+printf 'lint %s\n' "$*" >> "$GUARD_TEST_MAINTENANCE"
+[[ ${LIP_GO_CACHE_HELD:-} == exclusive && ${LIP_GO_SLOT_HELD:-} == maintenance ]]
+STUB
+	chmod +x "$fixture/bin/go" "$fixture/bin/golangci-lint"
+	export GUARD_TEST_MAINTENANCE="$fixture/maintenance"
+	bash "$script_dir/dev-cache-maintenance.sh" > "$fixture/out"
+	[[ ! -e $GUARD_TEST_MAINTENANCE ]]
+	bash "$script_dir/dev-cache-maintenance.sh" --apply > "$fixture/out"
+	printf 'go clean -cache\nlint cache clean\n' > "$fixture/expected-maintenance"
+	cmp "$fixture/expected-maintenance" "$GUARD_TEST_MAINTENANCE"
 fi
 echo 'PASS: Go development race guard blocks before toolchain execution; normal/CI delegation preserved; agent-dev TMPDIR stays on ext4; heavy commands share host-wide slots.'

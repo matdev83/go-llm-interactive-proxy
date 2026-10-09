@@ -287,6 +287,7 @@ new_lint_fixture() {
 	mkdir -p "$LINT_REPO/scripts" "$LINT_REPO/internal/archtest" "$LINT_REPO/internal/rootpkg" \
 		"$LINT_REPO/connectors/local" "$LINT_BIN"
 	cp "$SCRIPT_DIR/lint-all-modules.sh" "$LINT_REPO/scripts/lint-all-modules.sh"
+	cp "$SCRIPT_DIR/go-dev-guard.sh" "$LINT_REPO/scripts/go-dev-guard.sh"
 	printf 'module example.test/root\n\ngo 1.24\n' >"$LINT_REPO/go.mod"
 	printf 'module example.test/local\n\ngo 1.24\n' >"$LINT_REPO/connectors/local/go.mod"
 	cat >"$LINT_BIN/go" <<'EOF'
@@ -334,6 +335,7 @@ run_lint_fixture() {
 			FAKE_LINT_FAIL_MATCH="$fail_match" \
 			GOFLAGS='-tags=caller' LIP_LOCAL_ARCH_TRIMPATH="$trim" \
 			LIP_LINT_JOBS=1 LIP_LINT_CONCURRENCY=2 \
+			LIP_GO_SLOT_DIR="$TMP/lint-slots" LIP_DEV_TMPDIR="$TMP/lint-tmp" \
 			bash scripts/lint-all-modules.sh "$@"
 	) >"$TMP/lint-output" 2>&1
 }

@@ -45,6 +45,11 @@ dev-lint:
 dev-doctor:
 	$(GO) run -buildvcs=false ./tools/devcheck -task=doctor -module="$(MODULE)" -evidence="$(DEV_EVIDENCE)"
 
+# Dry by default; cleanup is a deliberate operation, never an iteration step.
+.PHONY: dev-cache-maintenance
+dev-cache-maintenance:
+	bash scripts/dev-cache-maintenance.sh $(if $(filter 1,$(CACHE_APPLY)),--apply,)
+
 # Create a task worktree at the validated location. WORKTREE_BRANCH takes a
 # branch name; the directory is derived by folding slashes to dashes, matching
 # the existing layout. SETUP=1 additionally runs the repository's doctor.
