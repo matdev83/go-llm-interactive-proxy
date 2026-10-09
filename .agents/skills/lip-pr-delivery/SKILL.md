@@ -4,7 +4,7 @@ description: "Triage LIP PRs against current main, deliver sequential or stacked
 license: MIT
 metadata:
   author: go-llm-interactive-proxy
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # LIP PR Workflow
@@ -30,6 +30,13 @@ For local iteration, temp-storage requirements, and remote-only race coverage, u
 Triage is complete when the verdict is supported by current-source evidence and any verification gaps are explicit. Remote mutation is a separate operation.
 
 ## Delivery
+
+### Closed set and completion
+
+- Record the target PR numbers and completion condition before remote mutation. For "all currently open PRs", snapshot the initial list; newly arriving PRs are reported separately and enter the run only when the user expands scope.
+- Include only the smallest blocking repairs needed to deliver those targets, linked to the target and failing gate. Existing fixes on current main take precedence over new repair work.
+- Before materially expanding a repair plan, adding further slices, or continuing repeated remediation that is not converging, explain the blocker and smallest next action and obtain the user's decision. Ordinary waiting for applicable CI is not scope expansion.
+- Finish when the target set and necessary blocking repairs are merged and merged-main verification is complete. Report new arrivals and deferred work without adopting them; perform cleanup only within its requested scope.
 
 ### Sequence and history
 
