@@ -25,7 +25,7 @@
   - _Validation: go test ./pkg/lipapi/_
 
 - [ ] 2. Core touchpoints
-- [ ] 2.1 (P) Size billing quotes for decision calls
+- [x] 2.1 (P) Size billing quotes for decision calls
   - Extend the default request-size estimator to count decision evidence, instruction and criteria bytes for calls carrying a decision; leave chat estimates unchanged.
   - Observable completion: a decision call yields an available, non-zero estimate proportional to its payload, and existing estimator tests still pass.
   - _Requirements: 4.3, 4.4_

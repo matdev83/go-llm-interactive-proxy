@@ -36,6 +36,29 @@ func TestDefaultSizeEstimator_textOnly_available(t *testing.T) {
 	}
 }
 
+func TestDefaultSizeEstimator_decisionPayloadCounts(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{Decision: &lipapi.DecisionRequest{
+		Evidence: json.RawMessage(`"data"`),
+		Questions: []lipapi.DecisionQuestion{
+			{ID: "yes", Kind: lipapi.DecisionKindNoul, Instructions: json.RawMessage(`"ask"`), TrueCriteria: json.RawMessage(`"ok"`), FalseCriteria: json.RawMessage(`"no"`)},
+			{ID: "pick", Kind: lipapi.DecisionKindChoice, Options: []lipapi.DecisionOption{{Name: "a", Description: json.RawMessage(`"one"`)}}},
+			{ID: "grade", Kind: lipapi.DecisionKindScore, Levels: []json.RawMessage{json.RawMessage(`"lo"`), json.RawMessage(`"hi"`)}},
+		},
+	}}
+	est := modelcatalog.DefaultSizeEstimator{}
+	got := est.EstimateRequestTokens(t.Context(), call)
+	// Original JSON bytes: 6 evidence + 5 instruction + 8 noul criteria +
+	// 5 option description + 8 score levels.
+	if !got.Available || got.Units != "bytes" || got.Input != 32 {
+		t.Fatalf("decision estimate = %+v, want 32 available bytes", got)
+	}
+	call.Decision.Evidence = json.RawMessage(`"data-more"`)
+	if got := est.Estimate(t.Context(), call); got.Input != 37 {
+		t.Fatalf("larger decision estimate = %+v, want 37 bytes", got)
+	}
+}
+
 func TestDefaultSizeEstimator_instructions_counted(t *testing.T) {
 	t.Parallel()
 	est := modelcatalog.DefaultSizeEstimator{}
