@@ -17,7 +17,7 @@ import (
 func TestManifestRecordsCleanRevision(t *testing.T) {
 	root := repoFixture(t)
 
-	manifest := New(Input{Task: "test", Scope: Scope{Kind: "explicit", Module: "."}, Workdir: root})
+	manifest := New(t.Context(), Input{Task: "test", Scope: Scope{Kind: "explicit", Module: "."}, Workdir: root})
 	manifest.Finish(nil, "")
 
 	want := fixtureGit(t, root, "rev-parse", "HEAD")
@@ -44,11 +44,11 @@ func TestManifestRecordsCleanRevision(t *testing.T) {
 func TestManifestDirtyDigestIdentifiesPayload(t *testing.T) {
 	root := repoFixture(t)
 	write(t, root, "notes.txt", "first")
-	first := New(Input{Task: "test", Workdir: root}).Revision
+	first := New(t.Context(), Input{Task: "test", Workdir: root}).Revision
 
 	write(t, root, "notes.txt", "second")
-	second := New(Input{Task: "test", Workdir: root}).Revision
-	repeated := New(Input{Task: "test", Workdir: root}).Revision
+	second := New(t.Context(), Input{Task: "test", Workdir: root}).Revision
+	repeated := New(t.Context(), Input{Task: "test", Workdir: root}).Revision
 
 	if first.DirtyDigest == second.DirtyDigest {
 		t.Errorf("distinct payloads share digest %q", first.DirtyDigest)
@@ -69,7 +69,7 @@ func TestManifestReportsDirtyGoFiles(t *testing.T) {
 	write(t, root, "dirty_test.go", "package dirty\n")
 	write(t, root, "notes.md", "notes\n")
 
-	got := New(Input{Task: "test", Workdir: root}).Revision.DirtyGoFiles
+	got := New(t.Context(), Input{Task: "test", Workdir: root}).Revision.DirtyGoFiles
 	want := []string{"dirty.go", "dirty_test.go"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("dirty go files = %v, want %v", got, want)
@@ -79,7 +79,7 @@ func TestManifestReportsDirtyGoFiles(t *testing.T) {
 // Claim: a failed command makes the run a failure, and its test counters are
 // preserved instead of being dropped with the failed step.
 func TestManifestTotalsIncludeFailedStepCounters(t *testing.T) {
-	manifest := New(Input{Task: "test", Workdir: t.TempDir()})
+	manifest := New(t.Context(), Input{Task: "test", Workdir: t.TempDir()})
 	manifest.Steps = append(manifest.Steps,
 		Step{Label: "ok", Result: OutcomePassed, Tests: &Stats{Passed: 7, Cached: 2}},
 		Step{Label: "bad", Result: OutcomeFailed, ExitCode: 2, Tests: &Stats{Passed: 1, Failed: 1, Skipped: 3}},
@@ -112,7 +112,7 @@ func TestManifestTotalsIncludeFailedStepCounters(t *testing.T) {
 // missing toolchain says nothing about the code, and a reader who sees `failed`
 // goes looking for a defect that is not there.
 func TestManifestBlockedOutranksReturnedError(t *testing.T) {
-	manifest := New(Input{Task: "lint", Workdir: t.TempDir()})
+	manifest := New(t.Context(), Input{Task: "lint", Workdir: t.TempDir()})
 	manifest.Finish(assertionError("go: some unrelated failure"), "required tool golangci-lint is unavailable")
 
 	if manifest.Outcome != OutcomeBlocked {
@@ -127,7 +127,7 @@ func TestManifestBlockedOutranksReturnedError(t *testing.T) {
 // ran and is reported as failed. A manifest must never present a partial run as
 // a complete, passing one.
 func TestManifestRecordsInterruptedRun(t *testing.T) {
-	manifest := New(Input{Task: "test", Workdir: t.TempDir()})
+	manifest := New(t.Context(), Input{Task: "test", Workdir: t.TempDir()})
 	manifest.Steps = append(manifest.Steps, Step{Label: "one", Result: OutcomePassed})
 	manifest.Finish(assertionError("stopped before the second module"), "")
 
@@ -151,7 +151,7 @@ func TestManifestReportsTruncatedDirtyDigest(t *testing.T) {
 		write(t, root, filepath.ToSlash(filepath.Join("bulk", string(rune('a'+i%26))+itoa(i)+".txt")), "body\n")
 	}
 
-	got := New(Input{Task: "test", Workdir: root}).Revision
+	got := New(t.Context(), Input{Task: "test", Workdir: root}).Revision
 	if !got.DirtyTruncated {
 		t.Errorf("%d dirty files reported without truncation", got.DirtyPathCount)
 	}
@@ -177,7 +177,7 @@ func itoa(i int) string {
 // does not exist yet.
 func TestWriteProducesReadableManifest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "verification.json")
-	manifest := New(Input{
+	manifest := New(t.Context(), Input{
 		Task:    "test",
 		Scope:   Scope{Kind: "explicit", Module: ".", Packages: []string{"./internal/qa"}},
 		Workdir: t.TempDir(),
@@ -234,7 +234,7 @@ func TestRevisionUsesRequestedWorktree(t *testing.T) {
 	root := repoFixture(t)
 	t.Setenv("GIT_DIR", filepath.Join(root, ".git"))
 
-	got := New(Input{Task: "test", Workdir: root}).Revision
+	got := New(t.Context(), Input{Task: "test", Workdir: root}).Revision
 	if got.Head != fixtureGit(t, root, "rev-parse", "HEAD") {
 		t.Errorf("head = %q, want the fixture commit", got.Head)
 	}

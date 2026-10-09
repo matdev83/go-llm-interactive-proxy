@@ -491,8 +491,10 @@ and retain completed test counters and step logs. `DEV_TIMEOUT` (default `30m`,
 or `devcheck -timeout`) bounds the complete run; increase it explicitly for long
 checks. Existing Go test-binary timeout flags are unchanged. POSIX `dev-lint` and
 contract lint use the repository resource guard automatically; cancellation also
-terminates slot-waiting commands. Scope-discovery and evidence-metadata probes
-are not migrated to the process-tree runner in this slice.
+terminates slot-waiting commands. Scope-discovery, quarantine validation and
+evidence-metadata subprocesses use the same process-tree owner and caller
+context. Machine-readable probe output remains complete, not diagnostic-truncated;
+cancelled planning cannot report a successful full-scope fallback.
 Native CLI/tooling regressions run in the taskrunner process-tree workflow;
 manual dispatch additionally enables focused Unix race checks for `devcheck`.
 

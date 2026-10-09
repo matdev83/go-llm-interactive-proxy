@@ -83,7 +83,7 @@ func run(ctx context.Context) (err error) {
 	if *task == "delivery" && *evidencePath != "" {
 		return errors.New("delivery produces a planning report, not a verification manifest; evidence is unsupported")
 	}
-	recorder := newEvidenceRecorder(*evidencePath, *task, evidence.Scope{
+	recorder := newEvidenceRecorder(ctx, *evidencePath, *task, evidence.Scope{
 		Kind:     *scope,
 		Module:   *module,
 		Packages: strings.Fields(*packages),
@@ -100,6 +100,9 @@ func run(ctx context.Context) (err error) {
 				err = errors.Join(err, writeErr)
 			}
 		}()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if *task == "delivery" {
 		if *module != "." || *packages != "" || *scope != "explicit" || *full || *planOnly || *fresh || *repeat != 1 {
@@ -126,7 +129,7 @@ func run(ctx context.Context) (err error) {
 		return err
 	}
 	if *task == "quarantine" {
-		if err := checkQuarantine(root, quarantine); err != nil {
+		if err := checkQuarantine(ctx, root, quarantine); err != nil {
 			return err
 		}
 		fmt.Println(skipPattern(quarantine))
