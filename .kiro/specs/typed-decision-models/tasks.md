@@ -111,6 +111,7 @@
   - _Validation: go test ./internal/infra/runtimebundle/ -run 'Decision' && go run ./cmd/lipstd check-config --config config/examples/custom-systemone-compatible.yaml_
 
 ## Implementation Notes
+- Feature validation remediation: existing scale fixtures include the fifth compatible family; System One has compile-time B-leg lifecycle assertions, fixed-route collision fixtures, and a typed positive/hard-negative standard backend contract instead of claiming chat scenarios.
 - Task 5.1: stock request-size estimates require model_catalog.enabled; the integration fixture and example use an offline catalog. Failed upstream attempts retain validated usage/cost via the existing DrainUsageEvidence sideband, before any answer event. Quote sizing includes question/choice labels; validated operator profile headers are wired through the family builder.
 - Task 4.3: shared frontendpipe uses an optional DecodeErrorWriter to retain field-specific rejection details without changing existing frontends. Nil decision carriers are omitted from canonical JSON to preserve ordinary chat/event serialization and wire-proof identities.
 - Task 4.1: question IDs and option names are byte-bounded labels, not trimmed identifiers; exact client names survive decoding and canonical validation (requirement 1.2).

@@ -73,7 +73,12 @@ func standardFrontendRouteClaims(t *testing.T) []httpcontract.RouteClaim {
 	var claims []httpcontract.RouteClaim
 	for _, owner := range owners {
 		provider := providers[owner]
-		for i, raw := range standardFrontendClaimConfigs {
+		configs := standardFrontendClaimConfigs
+		if owner == "systemone" {
+			// System One has a fixed path, not configurable OpenResponses routes.
+			configs = []string{"{}", "max_questions: 1", "max_questions: 256"}
+		}
+		for i, raw := range configs {
 			got, err := provider(owner, claimsConfigNode(t, raw))
 			if err != nil {
 				t.Fatalf("owner %q config %d: route claims: %v", owner, i, err)
