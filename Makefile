@@ -21,6 +21,13 @@ DEV_JOBS ?= 4
 DEV_REPEAT ?= 1
 DEV_TIMEOUT ?= 30m
 DEV_OUTPUT ?= stream
+BENCH_BASELINE ?=
+BENCH_CANDIDATE ?=
+BENCH_PATTERN ?=
+BENCH_FIXTURES ?=
+BENCH_OUT ?=
+BENCH_SAMPLES ?= 10
+BENCH_TIME ?= 1s
 DEV_BASE ?=
 DEV_PLAN ?= 0
 DEV_FULL ?= 0
@@ -46,6 +53,10 @@ dev-lint:
 	$(GO) run -buildvcs=false ./tools/devcheck -task=lint -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -timeout="$(DEV_TIMEOUT)" -output="$(DEV_OUTPUT)" -evidence="$(DEV_EVIDENCE)"
 dev-doctor:
 	$(GO) run -buildvcs=false ./tools/devcheck -task=doctor -module="$(MODULE)" -timeout="$(DEV_TIMEOUT)" -evidence="$(DEV_EVIDENCE)"
+
+.PHONY: bench-compare
+bench-compare:
+	$(GO) run -buildvcs=false ./tools/benchcompare -baseline="$(BENCH_BASELINE)" -candidate="$(BENCH_CANDIDATE)" -module="$(MODULE)" -packages="$(PKGS)" -bench="$(BENCH_PATTERN)" -fixtures="$(BENCH_FIXTURES)" -out="$(BENCH_OUT)" -samples=$(BENCH_SAMPLES) -benchtime="$(BENCH_TIME)"
 
 # Dry by default; cleanup is a deliberate operation, never an iteration step.
 .PHONY: dev-cache-maintenance

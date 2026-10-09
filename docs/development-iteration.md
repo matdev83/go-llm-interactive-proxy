@@ -590,6 +590,22 @@ Use `GODEBUG=gocachetest=1 go test ./path/to/package` for result-cache miss reas
 and `go build -x ./path/to/package` to distinguish compilation from linking.
 Record exact commands, OS, toolchain, scope, and cold/warm state with measurements.
 
+### Reproducible benchmark comparisons
+
+`make bench-compare BENCH_BASELINE=/absolute/baseline BENCH_CANDIDATE=/absolute/candidate
+PKGS='./path/to/pkg' BENCH_PATTERN='BenchmarkName$' BENCH_FIXTURES='path/to/testdata'
+BENCH_OUT=/new/external/evidence/directory` compares two existing clean worktrees
+without creating or deleting resources. `MODULE` selects the same nested module
+on both sides; `BENCH_SAMPLES` defaults to 10 and `BENCH_TIME` to 1s.
+
+The command checks matching fixture contents and toolchain/build settings, runs
+identical flags with alternating baseline/candidate order, retains every raw
+sample plus a report, and invokes benchstat at a pinned revision. It refuses empty
+benchmark selection, changed sources/fixtures, and overwritten evidence paths.
+Fewer than six repetitions warn that timing evidence is insufficient. Inspect
+`benchstat.txt` intervals/significance yourself; the command never declares a
+speedup from a lower mean or from a smoke run. This is not a noisy PR timing gate.
+
 ### Verification manifests
 
 Use `DEV_OUTPUT=summary` with `DEV_EVIDENCE=<path>` for concise verification
