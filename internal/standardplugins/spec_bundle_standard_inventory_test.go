@@ -18,6 +18,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"openai-legacy",
 		"openai-responses",
 		"openresponses",
+		"systemone",
 	}
 	var gotFE []string
 	for _, e := range b.Frontends {

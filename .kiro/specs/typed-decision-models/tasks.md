@@ -73,7 +73,7 @@
   - _Boundary: SystemOneProfiles_
   - _Validation: go test ./internal/providerprofiles/ ./internal/standardplugins/_
 
-- [ ] 4. System One frontend
+- [x] 4. System One frontend
 - [x] 4.1 (P) Decode System One requests without losing order or type
   - Apply bounded JSON preflight (depth, duplicate keys, trailing data), then decode `model`, `state` and ID-keyed `questions` preserving question, option and level order and the original evidence bytes.
   - Reject unknown fields, missing required fields and question-count overflow with a 422 detail naming the field; build a call carrying only the decision, the `decision.evaluate` operation, non-streaming delivery and route intent, with no client header copied.
@@ -92,7 +92,7 @@
   - _Depends: 1.2_
   - _Validation: go test ./internal/plugins/frontends/systemone/ -run 'Encode|Error'_
 
-- [ ] 4.3 Mount the frontend on `POST /v1/systemone`
+- [x] 4.3 Mount the frontend on `POST /v1/systemone`
   - Add the route claim, plugin config (`max_questions`, default 256), mount and handler on the shared create pipeline with body-model route selection, and register the frontend contribution and route claims in the standard distribution.
   - Observable completion: a handler test shows an authenticated request reaches the executor and an unauthenticated one gets the standard authentication outcome; the standard contribution list includes `systemone` and the route claim does not collide with existing claims.
   - _Requirements: 1.1, 1.4, 1.5_
@@ -111,5 +111,6 @@
   - _Validation: go test ./internal/infra/runtimebundle/ -run 'Decision' && go run ./cmd/lipstd check-config --config config/examples/custom-systemone-compatible.yaml_
 
 ## Implementation Notes
+- Task 4.3: shared frontendpipe uses an optional DecodeErrorWriter to retain field-specific rejection details without changing existing frontends. Nil decision carriers are omitted from canonical JSON to preserve ordinary chat/event serialization and wire-proof identities.
 - Task 4.1: question IDs and option names are byte-bounded labels, not trimmed identifiers; exact client names survive decoding and canonical validation (requirement 1.2).
 - Task 3.3: the maintainer explicitly approved the host-owned multi-user policy addition for operator-owned credentials. Unknown and personal-auth factories remain denied; the existing shared-deployment gate remains enabled.

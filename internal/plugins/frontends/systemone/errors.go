@@ -14,6 +14,10 @@ import (
 // WireErrors renders System One error envelopes for the shared create pipeline.
 type WireErrors struct{}
 
+func (wire WireErrors) WriteDecodeError(w http.ResponseWriter, err error) error {
+	return wire.WriteExecuteError(w, classifyExecute(err))
+}
+
 func writeJSON(w http.ResponseWriter, status int, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {

@@ -23,6 +23,7 @@ import (
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	frontopenresponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openresponses"
+	frontsystemone "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/systemone"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/providerprofiles"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins/contrib"
 	"gopkg.in/yaml.v3"
@@ -110,6 +111,7 @@ func DerivedViews() (contrib.Views, error) { return contrib.Derive(StandardContr
 
 func standardFrontendContributions() []standardFrontendContribution {
 	return []standardFrontendContribution{
+		{id: frontsystemone.ID, mount: frontsystemone.Mount, routes: systemOneFrontendRouteClaims, contract: contrib.ContractSubject{ID: frontsystemone.ID, Kind: "frontend"}},
 		{id: frontopenairesponses.ID, mount: frontopenairesponses.Mount, routes: openAIResponsesFrontendRouteClaims, contract: contrib.ContractSubject{ID: frontopenairesponses.ID, Kind: "frontend"}},
 		{id: frontopenailegacy.ID, mount: frontopenailegacy.Mount, routes: openAILegacyFrontendRouteClaims, contract: contrib.ContractSubject{ID: frontopenailegacy.ID, Kind: "frontend"}},
 		{id: frontanthropic.ID, mount: frontanthropic.Mount, routes: anthropicFrontendRouteClaims, contract: contrib.ContractSubject{ID: frontanthropic.ID, Kind: "frontend"}},
