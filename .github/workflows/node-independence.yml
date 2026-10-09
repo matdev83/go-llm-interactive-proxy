@@ -113,6 +113,26 @@ jobs:
           # The shared composite owns cache identity, size and main publication.
           cache: false
 
+      # Replay the same mandatory quality gates as CI with their prerequisites
+      # installed. Missing analyzers must fail, not narrow the no-Node proof.
+      - name: Install host verification tools
+        if: needs.changes.result == 'success' && needs.changes.outputs.host == 'true'
+        env:
+          GOLANGCI_LINT_VERSION: 2.14.0
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+          for attempt in 1 2 3; do
+            if go install github.com/bufbuild/buf/cmd/buf@v1.66.0; then break; fi
+            if [[ "$attempt" == 3 ]]; then exit 1; fi
+            sleep $((attempt * 15))
+          done
+          archive="golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz"
+          curl --retry 3 -sSfLo "$RUNNER_TEMP/$archive" "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/$archive"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64" >> "$GITHUB_PATH"
+
       # The full lane produced 6,014 MiB on main; a 1,536 MiB snapshot evicted
       # most entries; the next runs spent 7-9 minutes in the first unit pass.
       # policy.json retains up to 7 GiB for this lane (including growth room).
