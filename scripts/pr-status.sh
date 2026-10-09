@@ -516,7 +516,7 @@ STUB
 	[[ $(classify OPEN false MERGEABLE BEHIND '[{"bucket":"pass"}]' '' false) == "$EXIT_BLOCKED" ]] || { echo "FAIL: behind branch reported ready" >&2; return 1; }
 	[[ $(classify CLOSED false MERGEABLE CLEAN '[{"bucket":"pass"}]' '' false) == "$EXIT_BLOCKED" ]] || { echo "FAIL: closed PR reported ready" >&2; return 1; }
 	local snapshot
-	snapshot=$(compgen -G "$fixture/logs/pr-1-*.json" || true)
+	snapshot=$(compgen -G "$fixture/logs/pr-1-*.json" | sort | head -n1 || true)
 	if [[ -z "$snapshot" ]] || [[ ! -s $snapshot ]]; then
 		echo "FAIL: no detail snapshot retained in $fixture/logs: $(ls -A "$fixture/logs" 2>&1)" >&2
 		return 1
