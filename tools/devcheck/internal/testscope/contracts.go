@@ -16,10 +16,19 @@ type ContractPlan struct {
 	Base    string
 	Changed []string
 	Tests   []string
+	Groups  []ContractTestGroup
 	Reasons []string
 	Lint    []Module
 	QA      []string
 	Scripts []string
+}
+
+// ContractTestGroup selects named existing tests that live in one package
+// outside ./internal/archtest, which is where registration surfaces certify
+// themselves (standard-family composition, fixed-route collisions).
+type ContractTestGroup struct {
+	Package string
+	Tests   []string
 }
 
 // BuildContracts includes branch, index, working-tree and untracked changes.
@@ -38,6 +47,14 @@ func BuildContracts(ctx context.Context, root, base string) (ContractPlan, error
 	}
 	plan := ContractPlan{Base: comparison, Changed: paths}
 	plan.Tests, plan.Reasons = selectContracts(paths)
+	registrationTests, groups, registrationReasons := selectRegistrationContracts(paths)
+	plan.Tests = append(plan.Tests, registrationTests...)
+	plan.Groups = groups
+	plan.Reasons = append(plan.Reasons, registrationReasons...)
+	slices.Sort(plan.Tests)
+	plan.Tests = slices.Compact(plan.Tests)
+	slices.Sort(plan.Reasons)
+	plan.Reasons = slices.Compact(plan.Reasons)
 	plan.QA, plan.Scripts = selectAutomation(paths)
 	packages := make(map[string][]string)
 	for _, name := range paths {
@@ -93,6 +110,9 @@ func selectAutomation(paths []string) ([]string, []string) {
 			scripts = append(scripts, "scripts/ci-scope.sh --self-test")
 			qa = append(qa, "TestQAFastPreflight_MainPushLaneScopes")
 		}
+		if strings.HasPrefix(name, ".github/workflows/") || name == "scripts/check-workflows.sh" {
+			scripts = append(scripts, "scripts/check-workflows.sh")
+		}
 	}
 	slices.Sort(qa)
 	slices.Sort(scripts)
@@ -130,4 +150,38 @@ func selectContracts(paths []string) ([]string, []string) {
 	slices.Sort(tests)
 	slices.Sort(reasons)
 	return slices.Compact(tests), slices.Compact(reasons)
+}
+
+// selectRegistrationContracts turns a change to any plugin registration
+// surface into the existing checks that certify it: backend lifecycle and
+// family invariants in ./internal/archtest, the standard-composition backend
+// TCK, and the fixed-route collision proof. A new kind, family or route fails
+// these before review rather than during a later full gate.
+func selectRegistrationContracts(paths []string) ([]string, []ContractTestGroup, []string) {
+	registration := false
+	for _, name := range paths {
+		if !strings.HasSuffix(name, ".go") || isTestFile(name) {
+			continue
+		}
+		if strings.HasPrefix(name, "internal/standardplugins/") ||
+			strings.HasPrefix(name, "internal/pluginreg/") ||
+			strings.HasPrefix(name, "internal/plugins/backends/") ||
+			strings.HasPrefix(name, "internal/plugins/frontends/") ||
+			strings.HasPrefix(name, "internal/providerprofiles/") {
+			registration = true
+			break
+		}
+	}
+	if !registration {
+		return nil, nil, nil
+	}
+	return []string{
+			"TestOfficialBackendsHaveLifecycleContractTests",
+			"TestNonCartesianScale_ThousandProfilesDoNotMultiplyCartesianPairs",
+		},
+		[]ContractTestGroup{
+			{Package: "./internal/testkit/contract/backend", Tests: []string{"TestStandardComposition_CertifiesEveryInProcessFamily"}},
+			{Package: "./internal/stdhttp/selfdefense", Tests: []string{"TestBuiltInImpossiblePathSetNeverMakesAPublishedRouteUnreachable"}},
+		},
+		[]string{"plugin registration surface"}
 }

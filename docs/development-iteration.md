@@ -139,8 +139,11 @@ own modules; test-only packages retain vet and tests. Metadata changes check the
 whole affected module, and removing a module with surviving sources expands
 checks to its parent module. Root metadata still triggers all-module tidy.
 Feature-plane and protobuf generation run when their inputs or checking scripts
-change. The cheap goroutine and regex guardrails remain repository-wide.
-Standalone quality checks and full pre-commit mode retain their previous scope.
+change; workflow edits run `scripts/check-workflows.sh` (actionlint) when it is
+installed, and CI preflight installs the pinned tool and runs it on every PR that
+touches `.github/workflows` regardless. The cheap goroutine and regex guardrails
+remain repository-wide. Standalone quality checks and full pre-commit mode retain
+their previous scope.
 
 Measured against `eef98f56` on Linux `agent-dev`, Go 1.26.6, golangci-lint
 2.14.0, a two-CPU quota, stable shared caches, and the normal host Go guard:
@@ -328,15 +331,19 @@ surprise at commit.
 
 `make pr-status PR=<n>` prints one PR's head and base SHA with their OIDs,
 mergeability, per-check buckets, stacking, and a one-line verdict. `make pr-watch
-PR=<n>` polls it and stops on a terminal verdict. Both are read-only: they never
-merge, close, comment, edit, or push, and the self-test greps the script for those
-verbs so the guarantee cannot rot.
+PR=<n>` polls it, prints the report only on a transition, and stops on a terminal
+verdict; an unchanged poll is silent so a long watch stays readable. Both are
+read-only: they never merge, close, comment, edit, or push, and the self-test
+greps the script for those verbs so the guarantee cannot rot.
 
-Only required checks are classified. Intentional skips are accepted; absent or
-unreadable required-check evidence stays blocked. Readiness also requires GitHub's
-`CLEAN` merge state, so behind branches and unresolved protection requirements
-cannot become ready merely because the reported checks are green. The revision
-is re-read after checks to detect movement during observation.
+Check evidence is bound to the observed head commit: the tool reads that commit's
+own check runs and statuses, never a check list that belongs to an earlier head.
+The required contexts come from the base branch's protection; an unreadable
+inventory, or a required context that has no run on this head, stays blocked and
+names the missing check. Intentional skips are accepted. Readiness also requires
+GitHub's `CLEAN` merge state, so behind branches and unresolved protection
+requirements cannot become ready merely because the reported checks are green. The
+revision is re-read after checks to detect movement during observation.
 
 The exit code is the contract, and the distinction between `failed` and `blocked`
 is the point:

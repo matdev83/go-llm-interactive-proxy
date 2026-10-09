@@ -202,6 +202,10 @@ EOF
 printf 'proto\n' >>"$FAKE_GUARD_LOG"
 buf lint
 EOF
+	cat >"$repo/scripts/check-workflows.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'workflows\n' >>"$FAKE_GUARD_LOG"
+EOF
 	cat >"$repo/scripts/lint-all-modules.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'lint\n' >>"$FAKE_GUARD_LOG"
@@ -600,6 +604,7 @@ printf 'name: changed CI\n' >"$REPO/.github/workflows/ci.yml"
 git -C "$REPO" add .github/workflows/ci.yml
 expect_pass "$REPO" --staged
 assert_contains "$TMP/buf.log" 'BUF lint'
+assert_contains "$TMP/guards.log" workflows
 
 new_repo script-policy
 printf '\n# staged policy trigger\n' >>"$REPO/scripts/quality-checks.sh"
@@ -607,6 +612,7 @@ git -C "$REPO" add scripts/quality-checks.sh
 expect_pass "$REPO" --staged
 assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
 assert_contains "$TMP/buf.log" 'BUF lint'
+assert_contains "$TMP/guards.log" workflows
 
 # Empty staged scope does not widen to the root module, while the two cheap
 # source guardrails continue to run.
@@ -618,6 +624,7 @@ assert_not_contains "$TMP/go.log" 'GO vet '
 assert_not_contains "$TMP/go.log" 'GO mod tidy'
 assert_not_contains "$TMP/go.log" 'generate-feature-planes.go'
 assert_not_contains "$TMP/buf.log" BUF
+assert_not_contains "$TMP/guards.log" workflows
 assert_cheap_guards
 
 # Formatting, build, vet, tidy, and Git-scope failures must fail the staged gate.
@@ -646,6 +653,7 @@ assert_contains "$TMP/go.log" 'GO build ./...'
 assert_contains "$TMP/go.log" 'GO vet ./...'
 assert_contains "$TMP/go.log" 'GO run ./scripts/generate-feature-planes.go -check'
 assert_contains "$TMP/buf.log" 'BUF lint'
+assert_contains "$TMP/guards.log" workflows
 
 # Mandatory staged/direct lint shares the archtest trimpath compiler variant
 # with the preceding local build and test checks, while other scopes retain the
