@@ -116,20 +116,10 @@ The source-change gate limits a commit or PR to **100 modified `*.go` files** (1
 - On this host, config-source integrity tests require `TMPDIR` on **ext4** (`/tmp` is tmpfs and makes them fail with `source-integrity-failed` regardless of your change). `scripts/require-ext4-tmpdir.sh` reports this up front; see `docs/development-iteration.md` for the storage requirement and how to find a suitable path.
 - Keep working files outside the repository: `.gitignore` ignores everything at the repo root, so a new root file is invisible to `git status`, and `TestRootHygiene_MarkdownFiles` rejects root Markdown other than `AGENTS.md`/`README.md` at commit time. Write scratch to the global scratch path.
 
-- Automatic local feedback: `make dev-test-changed` selects branch changes plus staged, unstaged and untracked edits against the merge base with local `origin/main`. Inspect with `DEV_PLAN=1`, override the comparison with `DEV_BASE=<ref>`, or run complete default module tests with `DEV_FULL=1`. This does not replace comprehensive delivery or GitHub checks. See `docs/development-iteration.md` for selection and fallback rules.
-- Inner loop: `make dev-test PKGS='./path/to/package/...'`; use `make dev-build` or `make dev-lint` with the same explicit scope when needed. For nested modules add `MODULE=connectors/name` and use module-relative `PKGS`. These are feedback, not delivery certification; include affected consumers when contracts change.
-- Diagnose slow iteration with `make dev-doctor` and `DEV_REPEAT=2` on an identical scoped command. Do not clear Go/lint caches, force rebuilds (`-a`), or add `-count=1` to routine loops. Use a fresh run deliberately for final regression evidence. Keep cache directories stable across worktrees and sessions.
-- Run focused checks during edits; run the applicable comprehensive gates after a coherent change. Do not repeatedly alternate test/quality/QA/race/coverage variants after every edit. See `docs/development-iteration.md` for the maintained performance policy.
-- Focused test: `go test -run TestName ./path/to/pkg`.
-- Fast inner-loop pass: `make test-quick` (alias for a single one-pass `go test ./...`); default unit: `make test-unit`.
-- Windows test-cost ratchet: `make test-cost` is the explicit authoritative budget check; it is opt-in and not part of `make test`.
-- Database dialect parity: `make test-db-parity` (or `make test-db-parity-sqlite` / `make test-db-parity-postgres-direct`).
-- Quality gate: `make quality-checks`.
-- Full default: `make test`.
-- Cross-frontend/backend or protocol matrix: `make parity-checks`.
-- Wide/release-grade change: `make qa`.
+- Local iteration, contract/lint selection, delivery-slice reports, comprehensive gate selection and command lookup: `docs/development-iteration.md`. Use scoped feedback while editing, then applicable comprehensive gates on the coherent change; local feedback is not delivery certification.
+- Agent task artifacts and restart recovery: `docs/agent-handoffs.md`. Validate source-bound evidence before task acceptance; artifact validity does not confer review approval.
 - Concurrency/streaming changes: run focused non-race tests locally; race evidence comes exclusively from remote GitHub CI, which runs the race detector nightly on `main` (and on demand via `workflow_dispatch`), not on every PR. Per-PR CI is Linux-only; Windows and macOS legs run daily, and for OS-sensitive paths or a `full-ci` label. The development-host race guard is policy, including direct Go commands. Never bypass it with an absolute toolchain path, alternate PATH, host spoofing, or `LIP_ALLOW_RACE_ON_DEV`. Verify guard behavior with the fake-toolchain tests in `scripts/test-go-dev-guard.sh`; installation is documented in `docs/development-iteration.md`.
-- Fuzz parser/decoder changes where practical: `make test-fuzz` or targeted `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path`.
+- Fuzz parser/decoder changes where practical; command lookup is in `docs/development-iteration.md`.
 
 ## Go Conventions
 

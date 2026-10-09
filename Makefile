@@ -23,18 +23,27 @@ DEV_BASE ?=
 DEV_PLAN ?= 0
 DEV_FULL ?= 0
 DEV_FRESH ?= 0
+# Optional verification manifest. Set DEV_EVIDENCE=<path> to record the revision,
+# dirty tree, scope, per-command results and per-step logs of a dev check.
+DEV_EVIDENCE ?=
+DEV_HEAD ?=
+DEV_CONSUMER ?=
 
-.PHONY: dev-test dev-test-changed dev-build dev-lint dev-doctor
+.PHONY: dev-test dev-test-changed dev-contract-check dev-delivery-plan dev-build dev-lint dev-doctor
 dev-test:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=test -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
+	$(GO) run -buildvcs=false ./tools/devcheck -task=test -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
 dev-test-changed:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=test -scope=changed -module="$(MODULE)" -packages="$(PKGS)" -base="$(DEV_BASE)" -plan=$(DEV_PLAN) -full=$(DEV_FULL) -fresh=$(DEV_FRESH) -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
+	$(GO) run -buildvcs=false ./tools/devcheck -task=test -scope=changed -module="$(MODULE)" -packages="$(PKGS)" -base="$(DEV_BASE)" -plan=$(DEV_PLAN) -full=$(DEV_FULL) -fresh=$(DEV_FRESH) -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
+dev-contract-check:
+	$(GO) run -buildvcs=false ./tools/devcheck -task=contracts -scope=changed -module="$(MODULE)" -packages="$(PKGS)" -base="$(DEV_BASE)" -plan=$(DEV_PLAN) -full=$(DEV_FULL) -fresh=$(DEV_FRESH) -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
+dev-delivery-plan:
+	@$(GO) run -buildvcs=false ./tools/devcheck -task=delivery -base="$(DEV_BASE)" -head="$(DEV_HEAD)" -consumer="$(DEV_CONSUMER)" -evidence="$(DEV_EVIDENCE)"
 dev-build:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=build -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
+	$(GO) run -buildvcs=false ./tools/devcheck -task=build -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
 dev-lint:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=lint -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT)
+	$(GO) run -buildvcs=false ./tools/devcheck -task=lint -module="$(MODULE)" -packages="$(PKGS)" -jobs=$(DEV_JOBS) -repeat=$(DEV_REPEAT) -evidence="$(DEV_EVIDENCE)"
 dev-doctor:
-	$(GO) run -buildvcs=false ./tools/devcheck -task=doctor -module="$(MODULE)"
+	$(GO) run -buildvcs=false ./tools/devcheck -task=doctor -module="$(MODULE)" -evidence="$(DEV_EVIDENCE)"
 
 # Test parallelism defaults to the machine's logical core count. The previous
 # fixed -parallel=8 left >=8-core dev boxes half idle for t.Parallel-heavy
@@ -79,7 +88,10 @@ help:
 	@echo "Targets:"
 	@echo "  make dev-test/dev-build/dev-lint PKGS='./path/...' [MODULE=connectors/name] [DEV_JOBS=4] [DEV_REPEAT=2] - scoped, measured iteration"
 	@echo "  make dev-test-changed [DEV_BASE=origin/main] [DEV_PLAN=1] [DEV_FULL=1] [DEV_FRESH=1] - local affected-package tests; CI remains comprehensive"
+	@echo "  make dev-contract-check [DEV_BASE=<ref>] [DEV_PLAN=1] - selected existing contracts and direct-package lint"
+	@echo "  make dev-delivery-plan [DEV_BASE=<ref>] [DEV_HEAD=<commit>] [DEV_CONSUMER='<consumer>'] - JSON slice metrics, not certification"
 	@echo "  make dev-doctor [MODULE=.] - effective toolchain/cache configuration and diagnostics"
+	@echo "  make dev-test/dev-build/dev-lint [DEV_EVIDENCE=<path>] - additionally record revision, scope, results and per-step logs as a verification manifest"
 	@echo "  make quality-checks  - generate-feature-planes -check, gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
 	@echo "  make profile-only-check [PROFILE_ONLY_BASE=<git-rev>] - fail-closed provider-profile change-surface ratchet"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
