@@ -142,6 +142,11 @@ func buildLintPlan(ctx context.Context, root, mode, base string, direct bool) (l
 	if err != nil {
 		return lintPlan{}, err
 	}
+	// Go reports physical module directories, including macOS /var -> /private/var.
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return lintPlan{}, err
+	}
 	paths, err := changedPaths(ctx, root, mode, base)
 	if err != nil {
 		return lintPlan{}, err
