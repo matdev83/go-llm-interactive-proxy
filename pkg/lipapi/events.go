@@ -96,7 +96,7 @@ func isContentClassKind(k EventKind) bool {
 type Event struct {
 	Kind EventKind
 	// Decision carries the validated result on EventDecisionResult only.
-	Decision *DecisionResult
+	Decision *DecisionResult `json:",omitempty"`
 
 	MessageIndex int
 	Delta        string

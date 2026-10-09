@@ -152,10 +152,10 @@ func TestDecisionRequestValidate_rejectsInvalidRequests(t *testing.T) {
 			field: "Questions[0].ID",
 		},
 		{
-			name: "padded question id",
+			name: "oversized question id",
 			req: lipapi.DecisionRequest{
 				Evidence:  json.RawMessage(`"evidence"`),
-				Questions: []lipapi.DecisionQuestion{mkDecisionNoulQuestion(" q")},
+				Questions: []lipapi.DecisionQuestion{mkDecisionNoulQuestion(strings.Repeat("q", lipapi.MaxDecisionQuestionIDBytes+1))},
 			},
 			field: "Questions[0].ID",
 		},
