@@ -43,6 +43,7 @@ const (
 	OutcomePassed  = "passed"
 	OutcomeFailed  = "failed"
 	OutcomeBlocked = "blocked"
+	OutcomeSkipped = "skipped"
 )
 
 // Manifest is the complete record of one development check.
@@ -59,6 +60,19 @@ type Manifest struct {
 	Environment   Environment `json:"environment"`
 	Steps         []Step      `json:"steps"`
 	Totals        Totals      `json:"totals"`
+	Skips         []Skip      `json:"skips,omitempty"`
+}
+
+// Skip describes an intentionally omitted check or requested test exclusion.
+type Skip struct {
+	Target string `json:"target"`
+	Reason string `json:"reason"`
+}
+
+// Selection is the actual module/package scope of one recorded command.
+type Selection struct {
+	Module   string   `json:"module"`
+	Packages []string `json:"packages,omitempty"`
 }
 
 // Revision identifies the tree the check ran against. A clean revision is the
@@ -96,6 +110,7 @@ type Scope struct {
 // comparable across hosts.
 type Environment struct {
 	GoVersion         string `json:"go_version"`
+	GoFlags           string `json:"go_flags,omitempty"`
 	LintVersion       string `json:"lint_version,omitempty"`
 	GOOS              string `json:"goos"`
 	GOARCH            string `json:"goarch"`
@@ -116,6 +131,7 @@ type Step struct {
 	ExitCode   int       `json:"exit_code"`
 	Tests      *Stats    `json:"tests,omitempty"`
 	LogPath    string    `json:"log_path,omitempty"`
+	Scope      Selection `json:"scope"`
 }
 
 // Stats counts test events observed on the command's JSON stream.
@@ -179,6 +195,11 @@ func (m *Manifest) Finish(err error, blocked string) {
 	case err != nil:
 		m.Outcome = OutcomeFailed
 		m.FailureReason = err.Error()
+	case m.Totals.CommandsFailed > 0:
+		m.Outcome = OutcomeFailed
+		m.FailureReason = "one or more recorded steps failed"
+	case m.Scope.PlanOnly || (len(m.Steps) == 0 && len(m.Skips) > 0):
+		m.Outcome = OutcomeSkipped
 	default:
 		m.Outcome = OutcomePassed
 	}
@@ -248,6 +269,7 @@ func environment(ctx context.Context, workdir string, env []string) Environment 
 		LogicalCPUs: runtime.NumCPU(),
 	}
 	out.GoVersion = strings.TrimSpace(gitFreeOutput(ctx, workdir, env, "go", "version"))
+	out.GoFlags = strings.TrimSpace(gitFreeOutput(ctx, workdir, env, "go", "env", "GOFLAGS"))
 	if lint, lookErr := exec.LookPath("golangci-lint"); lookErr == nil {
 		out.LintVersion = strings.TrimSpace(gitFreeOutput(ctx, workdir, env, lint, "version"))
 	}

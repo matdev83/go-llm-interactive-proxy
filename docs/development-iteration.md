@@ -592,6 +592,18 @@ Record exact commands, OS, toolchain, scope, and cold/warm state with measuremen
 
 ### Verification manifests
 
+Use `DEV_OUTPUT=summary` with `DEV_EVIDENCE=<path>` for concise verification
+output and complete retained stdout/stderr logs. Streaming remains the default;
+summary mode refuses to discard details without an evidence destination. Each
+step records its actual module/package scope and full-log path. Requested
+quarantine/explicit/inherited-GOFLAGS exclusions and omitted execution are recorded in `skips`;
+plan-only or empty selected checks report `skipped`, not successful verification.
+Missing logs or failed recorded steps cannot return a passing report/exit status.
+
+```
+make dev-test PKGS='./tools/devcheck/...' DEV_OUTPUT=summary DEV_EVIDENCE=~/scratch-ci/verification.json
+```
+
 Set `DEV_EVIDENCE=<path>` on a verification `dev-*` target (including
 `dev-contract-check`) to record what the check actually
 proved, as JSON beside a per-step log per command:

@@ -102,7 +102,7 @@ func checkQuarantine(ctx context.Context, root string, entries []quarantineEntry
 		}
 		cmd := exec.Command("git", "grep", "-q", "--untracked", "-E", `^func `+entry.Test+`\(`, "--", "*_test.go")
 		cmd.Dir = root
-		if _, err := execute(ctx, cmd, false, io.Discard); err != nil {
+		if _, err := execute(ctx, cmd, false, io.Discard, nil); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
