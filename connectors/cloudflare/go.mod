@@ -3,7 +3,7 @@ module github.com/matdev83/go-llm-interactive-proxy/connectors/cloudflare
 go 1.26.6
 
 require (
-	github.com/Microsoft/go-winio v0.6.2
+	github.com/Microsoft/go-winio v0.6.3
 	github.com/matdev83/go-llm-interactive-proxy v0.0.0
 	github.com/matdev83/go-llm-interactive-proxy/connector-support/openaicompat v0.0.0
 	google.golang.org/grpc v1.83.2
