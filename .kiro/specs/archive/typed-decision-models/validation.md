@@ -2,11 +2,15 @@
 
 ## Verdict
 
-Local implementation: **GO**, certified at `6125f3b4` on `spec/typed-decision-models`. All 12 leaf tasks are checked and no implementation blocker remains. Delivery and archive completion are pending merge verification; this is not a merged-main certification.
+Merged-main implementation: **GO**, certified at `953dcfc564311b3ea15faec7bea4384e68b9937c`. All 12 leaf tasks are checked and no implementation blocker remains. Issue #804 is closed.
 
-Delivery split: core contract/touchpoints are submitted separately on `feat/typed-decision-core` (PR #870); the immediate consumer is `feat/typed-decision-systemone`. Both were rebased onto main baseline `0cd108c6`. The earlier GO evidence above belongs to the original implementation revision; rebased-head gates and CI must be assessed separately before merge. Original implementation history is retained on `spec/typed-decision-models`.
+Delivery order: CI repair #877 (`402f3d15`), core #870 (`2d23e8e8`), then endpoint #878 (`953dcfc5`). The original endpoint PR #871 was concurrently merged into the core feature branch, not main; its preserved commit `f187600b` was transplanted and delivered through #878. The full feature is present on the certified main baseline.
 
 ## Evidence
+
+- Fresh required CI and full Linux suite/lint passed on core head `7a6e8a29` (run `37994861628`) and endpoint head `62493135` (run `37995671090`). Real native PostgreSQL 17 provisioning, environment verification and `make test-db-parity` executed successfully; no parity gate was bypassed. All required checks and review-thread resolution were rechecked immediately before each merge.
+- On merged main `953dcfc5`: canonical, estimator, profile, standard-distribution, System One frontend/backend tests passed; `go test ./internal/infra/runtimebundle -run '^TestDecision_' -count=1 -timeout=5m` passed; the built CLI validated the example and served a real HTTP decision through an independent local upstream, returning the resolved model, probability and provider usage. Main was fast-forwarded only and remained clean.
+- Earlier local implementation evidence follows; it supplements, rather than replaces, the fresh merged-main and PR-head certification above.
 
 - `TMPDIR=/home/mateusz/.cache/tmp/opencode make test`: passed after conformance remediation. Includes default root-module tests, multi-module mandatory lint, protobuf checks, contract tests, provider profiles, connector contract/parity checks and bounded integration sentinels. Cached unchanged test results were reused normally.
 - Focused System One frontend/backend, canonical, profile, estimator and standard-host integration tests: passed. Decoder fuzzing: 30-second run passed.
@@ -38,5 +42,5 @@ Delivery split: core contract/touchpoints are submitted separately on `feat/type
 
 - No live authenticated vendor calls or TypeSafe SDK execution were performed. Vendor profiles are verified through catalog/build tests and the shared compatible-wire contract with local upstreams.
 - Local race testing was not run, per repository policy; remote race evidence remains pending.
-- Deferred requirements remain deferred. No push, PR or merge was performed.
-- Keep this spec active until merged-main verification permits archive closeout; do not set `completed: true` from branch-only evidence.
+- Deferred requirements remain deferred. The feature and its blocking CI repair are merged.
+- Completion metadata is based on merged-main verification, not branch-only evidence.
