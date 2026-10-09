@@ -98,6 +98,7 @@ func assertLintToolScenario(t *testing.T, scenario lintToolScenario) {
 		t.Fatal(err)
 	}
 	writeLintFixture(t, filepath.Join(root, lintAllModulesScript), readRepositoryFile(t, "scripts", "lint-all-modules.sh"), 0o755)
+	writeLintFixture(t, filepath.Join(root, "scripts", "go-dev-guard.sh"), readRepositoryFile(t, "scripts", "go-dev-guard.sh"), 0o755)
 	// The root module must exist so a resolved analyzer actually runs; the fake
 	// linter replaces all analysis.
 	writeLintFixture(t, filepath.Join(root, "go.mod"), "module example.invalid/lintfixture\n\ngo 1.26\n", 0o644)
@@ -131,6 +132,8 @@ func assertLintToolScenario(t *testing.T, scenario lintToolScenario) {
 		"LIP_FAKE_LINTER_NAME=",
 		"LIP_LINT_JOBS=",
 		"LIP_LINT_CONCURRENCY=",
+		"LIP_GO_SLOT_DIR="+filepath.Join(root, "slots"),
+		"LIP_DEV_TMPDIR="+filepath.Join(root, "tmp"),
 	)
 	output, runErr := cmd.CombinedOutput()
 

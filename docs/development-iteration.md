@@ -516,7 +516,30 @@ either policy; children that scrub that variable must retain advisory policy
 or a bounded wait to avoid waiting indefinitely behind their own parent.
 For a hard, immediate admission check:
 `LIP_GO_SLOT_MODE=hard LIP_GO_SLOT_WAIT=0 go test ./path/to/package`.
-This policy does not yet coordinate external analyzers or cache maintenance.
+`scripts/lint-all-modules.sh` shares these slots through the standalone guard's
+`--lip-resource-run <command> [args...]` mode. Direct analyzer invocations,
+including `dev-lint`, must use that wrapper explicitly to participate in this
+slice's coordination. CI and non-agent-dev analyzer runs retain native behavior.
+For scoped lint feedback: `bash scripts/go-dev-guard.sh --lip-resource-run make
+dev-lint PKGS='./path/to/package'`.
+
+Participating compiler/analyzer commands also hold a shared cache lock, including
+advisory slot-overflow runs. `make dev-cache-maintenance` is dry by default;
+`CACHE_APPLY=1` explicitly clears the Go build and lint caches under an exclusive
+lock. It uses the same `LIP_GO_SLOT_DIR` (default `~/.cache/lip-go-slots`) and wait
+budget. Cache-lock timeout always returns 75 without executing the command,
+regardless of advisory slot policy. Maintenance invoked within a resource-owning
+parent is rejected instead of upgrading its lock and deadlocking. Its child Go
+commands inherit the exclusive owner and do not reacquire locks.
+
+The lock protocol is cooperative: reinstall the updated standalone guard before
+relying on it, and use the maintenance command instead of uncoordinated cron
+cleanup. This repository change does not install the guard, alter cron, delete
+module caches, or clear any caches by default. Existing unwrapped processes and
+older guard installations do not participate. A pending exclusive lock has no
+fairness guarantee; bounded timeout makes that a resource blocker, not permission
+to clean concurrently. Tests exercise the protocol with real flock contention
+and fake tools; they never clean host caches.
 Make and Bash
 gates pass explicit package flags, which take precedence over `GOFLAGS`; use
 `LIP_TEST_PACKAGES`, `LIP_TEST_PARALLEL`, and `DEV_JOBS` for their budget overrides,

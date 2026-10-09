@@ -2,6 +2,21 @@
 # Installed as the user's PATH-level go command; never replaces the toolchain.
 set -euo pipefail
 
+# Repository analyzers reuse this standalone guard's admission mechanism.
+# Exclusive mode is for explicitly requested cache maintenance only.
+resource_mode=go
+case "${1:-}" in
+--lip-resource-run) resource_mode=analyzer; shift ;;
+--lip-resource-exclusive) resource_mode=maintenance; shift ;;
+esac
+if [[ $resource_mode != go && $# == 0 ]]; then
+	echo 'go guard: resource mode requires a command.' >&2
+	exit 2
+fi
+delegate=("${GO_DEV_GUARD_REAL_GO:-/usr/local/bin/go}")
+if [[ $resource_mode != go ]]; then delegate=("$1"); shift; fi
+resource_args=("$@")
+
 blocked_host=false
 hosts=("${HOSTNAME:-}" "${COMPUTERNAME:-}")
 if command -v hostname >/dev/null 2>&1; then
@@ -34,7 +49,7 @@ if [[ -z "$go_flags" && "${GOENV:-}" != off ]]; then
 	fi
 fi
 
-if [[ "$blocked_host" == true ]]; then
+if [[ "$blocked_host" == true && $resource_mode == go ]]; then
 	args=("$@")
 	index=0
 	# Go's global -C precedes its subcommand.
@@ -120,7 +135,9 @@ lip_go_slot_run() {
 	case "${1:-}" in -C|--C) index=2 ;; -C=*|--C=*) index=1 ;; esac
 	local args=("$@")
 	command_name=${args[index]:-}
-	case "$command_name" in build|test|vet|install) ;; *) return 0 ;; esac
+	if [[ $resource_mode == go ]]; then
+		case "$command_name" in build|test|vet|install) ;; *) return 0 ;; esac
+	fi
 	local slots=${LIP_GO_SLOTS:-2} wait=${LIP_GO_SLOT_WAIT:-900}
 	local mode=${LIP_GO_SLOT_MODE:-advisory}
 	case "$mode" in
@@ -130,14 +147,14 @@ lip_go_slot_run() {
 	[[ $slots =~ ^[1-9][0-9]*$ ]] || slots=2
 	[[ $wait =~ ^[0-9]+$ ]] || wait=900
 	local dir=${LIP_GO_SLOT_DIR:-$HOME/.cache/lip-go-slots} slot status announced=false
-	local deadline=$((SECONDS + wait)) real_go=${GO_DEV_GUARD_REAL_GO:-/usr/local/bin/go}
+	local deadline=$((SECONDS + wait))
 	mkdir -p "$dir"
 	while :; do
 		for ((slot = 0; slot < slots; slot++)); do
 			# flock -o keeps the lock in flock itself, so a leaked test
 			# subprocess cannot hold the slot after go exits.
 			status=0
-			LIP_GO_SLOT_HELD=$slot flock -n -o -E 211 "$dir/slot$slot" "$real_go" "$@" || status=$?
+			LIP_GO_SLOT_HELD=$slot flock -n -o -E 211 "$dir/slot$slot" "${delegate[@]}" "$@" || status=$?
 			((status == 211)) || exit "$status"
 		done
 		((SECONDS < deadline)) || break
@@ -157,6 +174,34 @@ lip_go_slot_run() {
 	export LIP_GO_SLOT_HELD=none
 }
 
+# Cache exclusion never fails open: advisory slot overflow still holds a shared
+# cache lock. flock owns the lock, without leaking its descriptor to workers.
+lip_go_cache_run() {
+	local dir=${LIP_GO_SLOT_DIR:-$HOME/.cache/lip-go-slots}
+	local wait=${LIP_GO_SLOT_WAIT:-900} status=0
+	[[ $wait =~ ^[0-9]+$ ]] || wait=900
+	mkdir -p "$dir"
+	if [[ $resource_mode == maintenance ]]; then
+		if [[ -n ${LIP_GO_SLOT_HELD:-} || -n ${LIP_GO_CACHE_HELD:-} ]]; then
+			echo 'go guard: resource-blocked: maintenance cannot upgrade an inherited resource lock.' >&2
+			exit 75
+		fi
+		flock -x -w "$wait" -o -E 211 "$dir/cache" env LIP_GO_CACHE_HELD=exclusive LIP_GO_SLOT_HELD=maintenance "${delegate[@]}" "${resource_args[@]}" || status=$?
+	else
+		[[ -z ${LIP_GO_SLOT_HELD:-} && -z ${LIP_GO_CACHE_HELD:-} ]] || return 0
+		local command_args=("${resource_args[@]}")
+		if [[ $resource_mode == analyzer ]]; then command_args=(--lip-resource-run "${delegate[@]}" "${resource_args[@]}"); fi
+		flock -s -w "$wait" -o -E 211 "$dir/cache" env LIP_GO_CACHE_HELD=shared bash "$0" "${command_args[@]}" || status=$?
+	fi
+	if ((status == 211)); then
+		echo "go guard: resource-blocked: cache lock unavailable within ${wait}s; command not started." >&2
+		exit 75
+	fi
+	exit "$status"
+}
+
+if [[ $resource_mode == maintenance ]]; then lip_go_cache_run; fi
+
 # Keep this installed script standalone. Resource defaults apply only locally
 # on the Linux VM; race policy above also applies when CI markers are present.
 if [[ ${OS:-} != Windows_NT && $(uname -s) == Linux && -z ${CI:-} && -z ${GITHUB_ACTIONS:-} ]]; then
@@ -165,13 +210,18 @@ if [[ ${OS:-} != Windows_NT && $(uname -s) == Linux && -z ${CI:-} && -z ${GITHUB
 		[[ ${host%%.*} == agent-dev ]] && local_vm=true
 	done
 	if [[ $local_vm == true ]]; then
+		index=0
+		case "${1:-}" in -C|--C) index=2 ;; -C=*|--C=*) index=1 ;; esac
+		if [[ $resource_mode == analyzer || ${resource_args[index]:-} =~ ^(build|test|vet|install)$ ]]; then
+			lip_go_cache_run
+		fi
 		lip_dev_tmpdir
 		: "${GOMAXPROCS:=2}"
 		export GOMAXPROCS
 		# Preserve persisted and quoted flags verbatim; explicit -p wins.
 		package_flags=${go_flags//\"/}
 		package_flags=${package_flags//\'/}
-		if [[ ! $package_flags =~ (^|[[:space:]])-p(=|[[:space:]]|$) ]]; then
+		if [[ $resource_mode == go && ! $package_flags =~ (^|[[:space:]])-p(=|[[:space:]]|$) ]]; then
 			GOFLAGS="${go_flags:+$go_flags }-p=1"
 			export GOFLAGS
 		fi
@@ -182,4 +232,4 @@ if [[ ${OS:-} != Windows_NT && $(uname -s) == Linux && -z ${CI:-} && -z ${GITHUB
 		lip_go_slot_run "$@"
 	fi
 fi
-exec "${GO_DEV_GUARD_REAL_GO:-/usr/local/bin/go}" "$@"
+exec "${delegate[@]}" "$@"

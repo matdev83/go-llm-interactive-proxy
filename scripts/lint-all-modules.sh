@@ -168,9 +168,9 @@ run_module_lint() {
       export GOFLAGS="$effective_go_flags"
     fi
     if (( ADVISORY )); then
-      golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" "${packages[@]}"
+      bash "$ROOT/scripts/go-dev-guard.sh" --lip-resource-run golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" "${packages[@]}"
     else
-      golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" --disable=modernize,paralleltest,thelper "${packages[@]}"
+      bash "$ROOT/scripts/go-dev-guard.sh" --lip-resource-run golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" --disable=modernize,paralleltest,thelper "${packages[@]}"
     fi
   )
 }
