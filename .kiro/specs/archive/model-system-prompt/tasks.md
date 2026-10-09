@@ -1,6 +1,6 @@
 # Implementation queue
 
-Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/checkbox is controlled by the parent after independent review; this file does not mark it complete. User approval covers faithful plan materialization, not production completion. Exactly six pending leaf tasks follow, sequentially: implementer → independent reviewer → remediation if needed → fresh parent evidence → parent checkbox/explicit selective commit. Subagents do not commit or edit task checkboxes.
+Task 1 was approved nonbehavioral design/spec materialization, RED N/A. The six implementation leaf tasks below completed sequential implementer/reviewer/remediation/verification cycles. Completion evidence and merged provenance are recorded in `validation.md`; approvals are preserved.
 
 ## 2. Configuration and ordered matcher
 
@@ -70,5 +70,13 @@ Task 1 is nonbehavioral design/spec materialization, RED N/A. Its acceptance/che
 
 - All task implementations and attributable integration remediations passed independent review; local regex, quality, comprehensive tests, SQLite/PostgreSQL parity and built-service health smoke passed on the integrated production tree.
 - Architecture limits were preserved: measured copies 370, cleanup sites 23, convergence shrinkage -797 against the unchanged -795 threshold.
-- Delivery is proposed as persistence-only foundation plus matcher/runtime consumer, not the historical matcher-inclusive checkpoint; exact path sets, budgets and local command evidence are in the task-owned scratchpad.
-- Final feature certification remains pending remote race/fuzz evidence on the published final SHA. No push, PR, merge or local race was performed; implementation completion is not a FEATURE_GO claim.
+- Delivery completed through merged PRs #837 and #836; the integrated feature reached main in b3cd514d54e6b375e0d354006fa01eb574792a0a. Historical substrate checkpoints are not separate delivered features.
+- The original broad-lane failure was an unchanged billing-store package timeout, not a detected feature race. Separate CI repair #856 preserved coverage and isolated that exhaustive package. Final six-lane race, backend security and Tier-1 fuzz evidence passed on exact SHA c2e06ec132701bce6f4d3250ecd97a2c25284959.
+
+## Completion Status
+
+- [x] All implementation tasks independently reviewed and implemented on main.
+- [x] Fresh feature/runtime/store checks and required SQLite/PostgreSQL continuity parity passed.
+- [x] Built distribution validated enabled config, served `/healthz` with HTTP 200, and shut down cleanly without provider inference calls.
+- [x] All six remote race lanes and actual security/Tier-1 fuzz stages passed; downloaded evidence SHA verified.
+- [x] Feature source equivalence confirmed between certified SHA and closeout main baseline c2eace237f4e128e6439ce79fb616fdd3d401cc8. Deferred scope remains excluded.
