@@ -2,6 +2,8 @@ module github.com/matdev83/go-llm-interactive-proxy
 
 go 1.26.6
 
+toolchain go1.26.9
+
 require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/anthropics/anthropic-sdk-go v1.75.0
