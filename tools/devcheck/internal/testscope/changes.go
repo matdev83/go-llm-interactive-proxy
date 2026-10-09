@@ -1,27 +1,21 @@
 package testscope
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/gitscope"
+	"github.com/matdev83/go-llm-interactive-proxy/tools/taskrunner"
 )
 
 func commandOutput(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-	cmd.Env = append(gitscope.Environ(), "GOWORK=off")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("%s %v: %w: %s", name, args, err, strings.TrimSpace(stderr.String()))
-	}
-	return out, nil
+	return taskrunner.Output(ctx, taskrunner.Request{
+		Argv: append([]string{name}, args...), Dir: dir,
+		Env: append(gitscope.Environ(), "GOWORK=off"), ClearEnv: true, Timeout: 2 * time.Minute,
+	})
 }
 
 func changedPaths(ctx context.Context, root, base string) ([]string, string, error) {

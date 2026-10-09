@@ -127,12 +127,12 @@ jobs:
         run: |
           race=()
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then race=(-race); fi
-          go test "${race[@]}" -count=1 -timeout=10m ./tools/devcheck
+          go test "${race[@]}" -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope
 
       - name: Devcheck compatibility (Windows)
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite == 'true' && runner.os == 'Windows'
         shell: pwsh
-        run: go test -count=1 -timeout=10m ./tools/devcheck
+        run: go test -count=1 -timeout=10m ./tools/devcheck/... ./tools/lintscope
 
       - name: Report unrelated PR bypass
         if: needs.scope.result == 'success' && needs.scope.outputs.run_suite != 'true'

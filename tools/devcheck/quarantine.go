@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -93,12 +94,18 @@ func withQuarantine(command []string, entries []quarantineEntry) []string {
 
 // checkQuarantine fails when an entry no longer names a test in the repository,
 // so fixed or renamed tests leave the list instead of staying silently skipped.
-func checkQuarantine(root string, entries []quarantineEntry) error {
+func checkQuarantine(ctx context.Context, root string, entries []quarantineEntry) error {
 	var stale []string
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		cmd := exec.Command("git", "grep", "-q", "--untracked", "-E", `^func `+entry.Test+`\(`, "--", "*_test.go")
 		cmd.Dir = root
-		if err := cmd.Run(); err != nil {
+		if _, err := execute(ctx, cmd, false, io.Discard); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
 			stale = append(stale, entry.Test)
 		}
 	}

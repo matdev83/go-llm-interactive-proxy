@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -28,7 +29,7 @@ type evidenceRecorder struct {
 	blockReason string
 }
 
-func newEvidenceRecorder(path, task string, scope evidence.Scope, workdir string) *evidenceRecorder {
+func newEvidenceRecorder(ctx context.Context, path, task string, scope evidence.Scope, workdir string) *evidenceRecorder {
 	if path == "" {
 		return nil
 	}
@@ -36,7 +37,7 @@ func newEvidenceRecorder(path, task string, scope evidence.Scope, workdir string
 	if !filepath.IsAbs(absolute) {
 		absolute = filepath.Join(workdir, absolute)
 	}
-	manifest := evidence.New(evidence.Input{
+	manifest := evidence.New(ctx, evidence.Input{
 		Task:    task,
 		Scope:   scope,
 		Env:     os.Environ(),
