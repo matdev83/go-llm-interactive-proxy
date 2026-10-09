@@ -480,6 +480,8 @@ checks. Existing Go test-binary timeout flags are unchanged. POSIX `dev-lint` an
 contract lint use the repository resource guard automatically; cancellation also
 terminates slot-waiting commands. Scope-discovery and evidence-metadata probes
 are not migrated to the process-tree runner in this slice.
+Native CLI/tooling regressions run in the taskrunner process-tree workflow;
+manual dispatch additionally enables focused Unix race checks for `devcheck`.
 
 `PKGS` is required for test/build/lint. There is no silent fallback to the full
 repository. Patterns are relative to `MODULE`, which defaults to the root module.
