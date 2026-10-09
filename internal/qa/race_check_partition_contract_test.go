@@ -279,15 +279,16 @@ func TestRaceCheckStagedScanPartitionsArchtestFromOrdinaryScopes(t *testing.T) {
 		{
 			// The full scan already separates archtest with a dedicated 25m
 			// budget; the partition must not disturb it. Main's lane structure
-			// additionally separates billing (60m skip-budget) and durable
-			// runtime into their own invocations; the support-agreement run
-			// carries -run so the fixture harness records only the four below.
+			// additionally separates billing, billingstore and durable runtime;
+			// the support-agreement run carries -run so the fixture harness
+			// records only the five below.
 			name:   "full scan keeps its separate archtest invocation and 25m budget",
 			staged: false,
 			fullList: []string{
 				"github.com/matdev83/go-llm-interactive-proxy/internal/archtest",
 				"github.com/matdev83/go-llm-interactive-proxy/internal/archtest/tools/changesurface",
 				"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
+				"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore",
 				"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk",
 			},
 			wantExit: 0,
@@ -298,6 +299,11 @@ func TestRaceCheckStagedScanPartitionsArchtestFromOrdinaryScopes(t *testing.T) {
 					},
 					requiredFlags:  []string{"-race", "-tags=precommit,integration", "-count=1"},
 					forbiddenFlags: []string{"-timeout="},
+				},
+				{
+					packages:       []string{"./internal/infra/billingstore"},
+					requiredFlags:  []string{"-race", "-tags=precommit,integration", "-count=1", "-timeout=60m"},
+					forbiddenFlags: []string{"-skip", "-run"},
 				},
 				{
 					packages: []string{
