@@ -94,6 +94,7 @@ validate_branch() {
 	[[ "$branch" != *//* ]] || die "branch name must not contain an empty component: $branch"
 	name=$(sanitize_name "$branch")
 	[[ -n "$name" ]] || die "branch name has no usable characters: $branch"
+	git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "invalid branch name: $branch"
 	printf '%s' "$name"
 }
 
@@ -209,6 +210,14 @@ self_test() {
 		{ echo "FAIL: worktree not created at $container/worktrees/fix-demo" >&2; return 1; }
 	grep -q "branch: fix/demo" <<<"$out" || { echo "FAIL: branch not reported" >&2; echo "$out" >&2; return 1; }
 	[[ -s "$container/guard-calls" ]] || { echo "FAIL: layout guard was not consulted" >&2; return 1; }
+	# An existing relative parent must not turn a relative destination into an
+	# accepted absolute one.
+	out=$(cd "$container/branches/main" && bash "$script" fix/relative-existing --path ../../worktrees/fix-relative-existing --base main 2>&1) && rc=0 || rc=$?
+	[[ $rc -eq 1 && ! -e "$container/worktrees/fix-relative-existing" ]] ||
+		{ echo "FAIL: relative destination with existing parent accepted" >&2; return 1; }
+	# Folding slash to dash must not reuse a different branch's worktree.
+	out=$(cd "$container/branches/main" && bash "$script" fix-demo --base main 2>&1) && rc=0 || rc=$?
+	[[ $rc -eq 1 ]] || { echo "FAIL: reused a worktree holding a different branch" >&2; return 1; }
 
 	# Claim: creating again is safe and idempotent. It must report the existing
 	# worktree rather than discard whatever that worktree now holds.
@@ -309,6 +318,7 @@ main() {
 	repo=$(main_worktree)
 	name=$(validate_branch "$branch")
 	if [[ -n "$want_path" ]]; then
+		[[ "$want_path" == /* ]] || refuse "destination must be absolute: $want_path"
 		dest=$(cd "$(dirname "$want_path")" 2>/dev/null && pwd -P)/$(basename "$want_path") ||
 			die "cannot resolve --path parent: $want_path"
 	else
@@ -320,6 +330,8 @@ main() {
 	validate_destination "$container" "$name" "$dest"
 
 	if existing=$(existing_worktree_for "$repo" "$dest"); then
+		[[ $(git_at_env "$existing" symbolic-ref --quiet --short HEAD) == "$branch" ]] ||
+			refuse "destination is a worktree holding another branch: $dest"
 		# Already the right thing: report and succeed rather than recreate it.
 		# Recreating would discard whatever the worktree already holds.
 		echo "worktree already exists: $existing"
@@ -353,8 +365,8 @@ main() {
 
 	# The same guard that would stop the commit, run now so a failure is
 	# immediate and attributable.
-	if [[ -x "$dest/scripts/check-worktree-layout.sh" ]]; then
-		bash "$dest/scripts/check-worktree-layout.sh" >/dev/null ||
+	if [[ -f "$dest/scripts/check-worktree-layout.sh" ]]; then
+		(cd "$dest" && bash scripts/check-worktree-layout.sh) >/dev/null ||
 			refuse "created $dest but it fails the repository layout guard"
 	fi
 
