@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs linter (golangci-lint with staticcheck fallback) across all or scoped Go modules in parallel.
+# Runs golangci-lint across all or scoped Go modules in parallel.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,14 +38,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-LINTER=""
-if command -v golangci-lint >/dev/null 2>&1; then
-  LINTER="golangci-lint"
-elif command -v staticcheck >/dev/null 2>&1; then
-  LINTER="staticcheck"
-else
-  echo "Warning: golangci-lint/staticcheck not found, skipping (install golangci-lint: https://golangci-lint.run/)" >&2
-  exit 0
+# This gate is mandatory: `make lint`, the staged pre-commit lint and CI all
+# run it. Skipping when the analyzer is absent turns the gate into a silent
+# no-op, and substituting staticcheck hides most of the analyzer set CI
+# enforces. tools/devcheck applies the same rule for `make dev-lint`.
+if ! command -v golangci-lint >/dev/null 2>&1; then
+  {
+    echo "ERROR: golangci-lint is required for the repository lint gate but is not on PATH."
+    echo "Install the version CI pins (GOLANGCI_LINT_VERSION in .github/workflows/ci.yml):"
+    echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@<pinned-version>"
+  } >&2
+  exit 3
 fi
 
 declare -A MODULE_SET=()
@@ -164,27 +167,21 @@ run_module_lint() {
     if [[ "$trim_arch" == true ]]; then
       export GOFLAGS="$effective_go_flags"
     fi
-    if [[ "$LINTER" == "golangci-lint" ]]; then
-      if (( ADVISORY )); then
-        golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" "${packages[@]}"
-      else
-        golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" --disable=modernize,paralleltest,thelper "${packages[@]}"
-      fi
+    if (( ADVISORY )); then
+      golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" "${packages[@]}"
     else
-      GOMAXPROCS="$LINT_CONCURRENCY" staticcheck "${packages[@]}"
+      golangci-lint run --allow-parallel-runners --concurrency="$LINT_CONCURRENCY" --disable=modernize,paralleltest,thelper "${packages[@]}"
     fi
   )
 }
 
-if [[ "$LINTER" == "golangci-lint" ]]; then
-  if (( ADVISORY )); then
-    echo "Mode: ADVISORY (full set incl. modernize, paralleltest, thelper; non-blocking style report)."
-  else
-    echo "Mode: MANDATORY correctness gate (--disable=modernize,paralleltest,thelper); style debt via 'make lint-advisory'."
-  fi
+if (( ADVISORY )); then
+  echo "Mode: ADVISORY (full set incl. modernize, paralleltest, thelper; non-blocking style report)."
+else
+  echo "Mode: MANDATORY correctness gate (--disable=modernize,paralleltest,thelper); style debt via 'make lint-advisory'."
 fi
 
-export ROOT LINTER ADVISORY LINT_CONCURRENCY STAGED DIRECT
+export ROOT ADVISORY LINT_CONCURRENCY STAGED DIRECT
 export -f run_module_lint
 for module in "${MODULES[@]}"; do
   printf '%s\0%s\0' "$module" "${MODULE_PACKAGES[$module]:-./...}"
