@@ -33,3 +33,15 @@ func TestContractSelection_SurfaceCoverageAndNarrowEdits(t *testing.T) {
 		}
 	}
 }
+
+func TestAutomationSelection_UsesExistingScriptAndConsumerContracts(t *testing.T) {
+	t.Parallel()
+	qa, scripts := selectAutomation([]string{"scripts/race-check.sh", ".github/workflows/race-fuzz-nightly.yml"})
+	if !slices.Contains(qa, "TestRaceCheckStagedScanPartitionsArchtestFromOrdinaryScopes") || !slices.Contains(scripts, "scripts/test-race-check.sh") {
+		t.Fatalf("automation consumer/self-test missing: %v %v", qa, scripts)
+	}
+	qa, scripts = selectAutomation([]string{"docs/guide.md", "internal/plugins/features/example/body.go"})
+	if len(qa) != 0 || len(scripts) != 0 {
+		t.Fatalf("ordinary edits broadened: %v %v", qa, scripts)
+	}
+}

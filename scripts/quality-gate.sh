@@ -12,6 +12,10 @@ echo "=== Pre-Commit Quality Gate ==="
 echo ""
 
 staged_files="$(git diff --cached --no-renames --name-only --diff-filter=ACMRD)"
+if grep -qE '^(scripts/|\.github/workflows/|\.githooks/)' <<< "$staged_files"; then
+	echo "Checking known automation self-tests and consumer contracts..."
+	go run ./tools/devcheck -task=contracts -scope=changed -base=HEAD -automation-only
+fi
 if ! grep -qE '\.go$' <<< "$staged_files"; then
 	if grep -qE '(^|/)(go\.mod|go\.sum)$' <<< "$staged_files"; then
 		echo "No staged Go source files detected; checking module metadata."

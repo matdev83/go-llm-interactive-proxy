@@ -29,6 +29,36 @@ func runContractCheck(ctx context.Context, root, base string, opts testPlanOptio
 		_, err := fmt.Fprintln(diagnostics, "plan-only: no contracts or lint executed")
 		return err
 	}
+	for _, script := range plan.Scripts {
+		command := append([]string{"bash"}, strings.Fields(script)...)
+		if err := runContractCommandRecorded(ctx, root, command, false, output, diagnostics, opts.recorder); err != nil {
+			return err
+		}
+	}
+	if len(plan.QA) != 0 {
+		cmd := exec.CommandContext(ctx, "go", "test", "-list", contractPattern(plan.QA), "./internal/qa")
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Stderr = diagnostics
+		listed, err := commandOutput(ctx, cmd)
+		if err != nil {
+			return err
+		}
+		if err := validateListedContracts(plan.QA, string(listed)); err != nil {
+			return err
+		}
+		command, err := commandFor("test", "./internal/qa", opts.jobs, opts.fresh)
+		if err != nil {
+			return err
+		}
+		command = slices.Insert(command, len(command)-1, "-run", contractPattern(plan.QA))
+		if err := runContractCommandRecorded(ctx, root, command, true, output, diagnostics, opts.recorder); err != nil {
+			return err
+		}
+	}
+	if opts.automationOnly {
+		return nil
+	}
 	if len(plan.Tests) != 0 {
 		// A removed/renamed test must not turn an exact -run filter into a
 		// successful no-op. Ask the test binary, not a source-text scanner.

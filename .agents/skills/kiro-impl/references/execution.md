@@ -169,6 +169,10 @@ For behavioral work, use the cycle below. Nonbehavioral work runs applicable val
 
 ## Step 4: Final Validation
 
+Before whole-scope success, reconcile `docs/agent-closeout.md`: all earlier
+objectives, registered verification runs, delivery and authorized cleanup remain
+owned until resolved. The handoff task index alone is not session completion.
+
 **Autonomous mode**:
 - After all tasks complete, run `/kiro-validate-impl $1` as a GO/NO-GO gate
 - If validation returns GO → before reporting feature success, apply `kiro-verify-completion` to the feature-level claim using the validation result and fresh supporting evidence
