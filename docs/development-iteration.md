@@ -311,6 +311,43 @@ the work is done. The bootstrap script runs that same guard immediately after
 creating the worktree, so a violation is immediate and attributable rather than a
 surprise at commit.
 
+### Reading PR delivery status
+
+`make pr-status PR=<n>` prints one PR's head and base SHA with their OIDs,
+mergeability, per-check buckets, stacking, and a one-line verdict. `make pr-watch
+PR=<n>` polls it and stops on a terminal verdict. Both are read-only: they never
+merge, close, comment, edit, or push, and the self-test greps the script for those
+verbs so the guarantee cannot rot.
+
+Only required checks are classified. Intentional skips are accepted; absent or
+unreadable required-check evidence stays blocked. Readiness also requires GitHub's
+`CLEAN` merge state, so behind branches and unresolved protection requirements
+cannot become ready merely because the reported checks are green. The revision
+is re-read after checks to detect movement during observation.
+
+The exit code is the contract, and the distinction between `failed` and `blocked`
+is the point:
+
+| code | meaning |
+| ---- | ------- |
+| 0 | ready: every required check passes on this head |
+| 1 | failed: at least one required check failed |
+| 2 | usage: bad arguments, or `gh`/`jq` missing |
+| 3 | blocked: checks pending, draft, conflicting, base PR unmerged, or head branch gone |
+| 4 | stale: the verdict was green, but the head or base moved since the last observation |
+
+Every invocation re-reads the checks for the head it observes, so what it prints
+is never itself stale. Staleness is about the conclusion carried over from an
+earlier invocation: a green result is the only verdict a reader carries forward,
+so it is downgraded to `stale` when the revision moved. A failure or a block is
+equally true of the head in front of the reader and keeps its own code.
+
+Stacked PRs are resolved through their base: green checks on a PR whose base has
+not landed are `blocked`, not `ready`, because they were computed against a base
+that is about to change. Full JSON is kept under `LIP_PR_LOG_DIR` (default
+`~/.cache/lip-pr-logs`); last-observed revisions under `LIP_PR_STATE_DIR`. Both
+default under the XDG cache, never inside a worktree.
+
 ### Merging with auto-merge
 
 `main` requires branches to be up to date, and this repository has no merge
