@@ -57,7 +57,7 @@
   - _Depends: 1.2_
   - _Validation: go test ./internal/plugins/backends/systemonecompat/ -run 'Wire'_
 
-- [ ] 3.2 Classify upstream failures and expose the backend
+- [x] 3.2 Classify upstream failures and expose the backend
   - Classify upstream statuses: 401, 402, 403, 404, 429, 5xx, 524, 529, transport errors, timeouts and invalid answers are recoverable pre-output errors; 400, 413 and 422 become terminal decision rejects carrying only bounded field, message and type; cancellation is never retried.
   - Build the backend from compatible-mode config with only the `decisions` capability, non-streaming transport, static model inventory, and an open path that refuses other operations; log only backend, model, status and error category.
   - Observable completion: a status table test passes, a chat call to this backend fails negotiation, and logs captured in tests contain no request or answer content.
