@@ -666,7 +666,6 @@ jobs:
     timeout-minutes: 30
     env:
       PG_BIN: /usr/lib/postgresql/17/bin
-      PG_DATA: ${{ runner.temp }}/lip-postgres-parity
       PGPASSWORD: lip
     steps:
       - name: Fail closed if scope detection failed
@@ -689,6 +688,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          PG_DATA="$RUNNER_TEMP/lip-postgres-parity"
+          echo "PG_DATA=$PG_DATA" >> "$GITHUB_ENV"
           key="$RUNNER_TEMP/postgresql-key.asc"
           curl --fail --silent --show-error --retry 3 https://www.postgresql.org/media/keys/ACCC4CF8.asc -o "$key"
           fingerprint=$(gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" { print $10; exit }')
