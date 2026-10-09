@@ -463,7 +463,7 @@ jobs:
       # The owner-callback escape gate type-checks the whole module for two
       # operating systems (~2 min on its own) and runs in the parallel
       # owner-gate job instead, so it does not set this job's wall time.
-      - name: Complete root suite with precommit tags
+      - name: Complete root suite with runtimebundle integration coverage
         if: needs.changes.result == 'success' && needs.changes.outputs.test == 'true'
         shell: bash
         env:
@@ -482,7 +482,24 @@ jobs:
           fi
           # -w drops DWARF from the ~400 test binaries (~30% faster links); stack traces
           # and test behaviour are unchanged.
-          go test -tags=precommit -ldflags=-w -timeout=25m -skip "^(${skip})\$" "${packages[@]}"
+          # Run runtimebundle once with its slow real-stack sentinels enabled.
+          # Keep integration tags off the other packages so unrelated exhaustive
+          # and external-topology tests do not add work to this required suite.
+          unit_packages=()
+          integration_packages=()
+          for pkg in "${packages[@]}"; do
+            if [[ "$pkg" == */internal/infra/runtimebundle ]]; then
+              integration_packages+=("$pkg")
+            else
+              unit_packages+=("$pkg")
+            fi
+          done
+          if [[ ${#unit_packages[@]} -gt 0 ]]; then
+            go test -tags=precommit -ldflags=-w -timeout=25m -skip "^(${skip})\$" "${unit_packages[@]}"
+          fi
+          if [[ ${#integration_packages[@]} -gt 0 ]]; then
+            go test -tags=precommit,integration -ldflags=-w -timeout=25m -skip "^(${skip})\$" "${integration_packages[@]}"
+          fi
 
       - name: Save bounded ci-suite Go cache
         if: success() && needs.changes.result == 'success' && needs.changes.outputs.test == 'true' && matrix.shard == 'rest'
