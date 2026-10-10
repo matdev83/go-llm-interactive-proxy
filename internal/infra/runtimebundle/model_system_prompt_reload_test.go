@@ -253,7 +253,7 @@ plugins:
 	var responseID string
 	continuations := lipcont.NewMemoryStore()
 	continuationHandler := openresponses.NewHandler(openresponses.HandlerConfig{AllowUnauthenticated: true, Authorizer: promptContinuationAuth{}, Executor: ex, ContinuationStore: continuations})
-	for turn := 0; turn < 2; turn++ {
+	for turn := range 2 {
 		payload := map[string]any{"model": "wire-backend:gpt-4o", "input": fmt.Sprintf("CONTINUATION-735-client-%d", turn), "store": true}
 		if responseID != "" {
 			payload["previous_response_id"] = responseID

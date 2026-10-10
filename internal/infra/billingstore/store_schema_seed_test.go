@@ -160,22 +160,22 @@ func applyTestSchema(ctx context.Context, ex testSchemaExecer) error {
 // same database or upgrade tests that pre-build a legacy schema still run the
 // real migrations. Each fixture owns its own database, so this never shares
 // mutable state across tests.
-func seedTestSchemaIfEmpty(t testing.TB, bunDB *bun.DB) {
-	t.Helper()
+func seedTestSchemaIfEmpty(tb testing.TB, bunDB *bun.DB) {
+	tb.Helper()
 	ctx := context.Background()
 	var existing int
 	if err := bunDB.NewRaw(`SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(ctx, &existing); err != nil {
-		t.Fatalf("billingstore test schema: inspect database: %v", err)
+		tb.Fatalf("billingstore test schema: inspect database: %v", err)
 	}
 	if existing != 0 {
 		return
 	}
 	if err := loadTestSchema(); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	conn, err := bunDB.DB.Conn(ctx)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	defer func() { _ = conn.Close() }()
 	if err := conn.Raw(func(raw any) error {
@@ -192,7 +192,7 @@ func seedTestSchemaIfEmpty(t testing.TB, bunDB *bun.DB) {
 		_, stepErr := backup.Step(-1)
 		return errors.Join(stepErr, backup.Finish())
 	}); err != nil {
-		t.Fatalf("billingstore test schema: clone: %v", err)
+		tb.Fatalf("billingstore test schema: clone: %v", err)
 	}
 }
 
