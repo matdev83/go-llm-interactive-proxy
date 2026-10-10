@@ -117,7 +117,7 @@ func declaredTopLevelNames(file *ast.File) []string {
 
 // connectorSubtreeFiles lists every Go source file owned by connector authors,
 // including connector tests and the shared connector support modules.
-func connectorSubtreeFiles(root string, t *testing.T) []string {
+func connectorSubtreeFiles(t *testing.T, root string) []string {
 	t.Helper()
 	var files []string
 	for _, dir := range []string{firstPartyConnectorsDir, firstPartySupportDir} {
@@ -194,7 +194,7 @@ func TestMultiUserBackendPolicy_HostOwnedRegistryExists(t *testing.T) {
 func TestConnectorSubtree_CannotImportHostSecurityAuthority(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	for _, path := range connectorSubtreeFiles(root, t) {
+	for _, path := range connectorSubtreeFiles(t, root) {
 		rel := SlashPath(strings.TrimPrefix(path, root+string(filepath.Separator)))
 		src, err := os.ReadFile(path)
 		if err != nil {
@@ -218,7 +218,7 @@ func TestConnectorSubtree_CannotImportHostSecurityAuthority(t *testing.T) {
 func TestConnectorSubtree_CannotReCreateHostMultiUserAuthority(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	for _, path := range connectorSubtreeFiles(root, t) {
+	for _, path := range connectorSubtreeFiles(t, root) {
 		rel := SlashPath(strings.TrimPrefix(path, root+string(filepath.Separator)))
 		src, err := os.ReadFile(path)
 		if err != nil {
