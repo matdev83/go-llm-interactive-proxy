@@ -252,25 +252,18 @@ func TestCharacterize_CompactionRuntime_PurePreviewBeforePreserverAndCommitAfter
 		"Response release sequence must execute BeforeResponseRelease -> committed ResponseReleased/Observer -> AfterResponseRelease")
 }
 
-// TestCharacterize_CompactionRuntime_DependencyGapForTask51 records the exact dependency gap
-// for Task 5.1:
-//  1. Current runtime uses concrete `*compactiondetect.Detector` in ExecutorConfig and responsePipeline.
-//  2. Task 5.1 target will define `type CompactionDetector interface` in package runtime accepting
-//     `compaction.PreservationMeta` directly without importing concrete implementation.
-//  3. This test asserts that the four operations (PreviewRequest, RequestOpened,
-//     PreviewResponse, ResponseReleased)
-//     are fully sufficient to represent all runtime compaction observation requirements.
+// The detector interface supports all four compaction observation operations.
 func TestCharacterize_CompactionRuntime_DependencyGapForTask51(t *testing.T) {
 	t.Parallel()
 
 	// Reflectively verify current CompactionRuntime struct field types
-	rtType := reflect.TypeFor[runtime.CompactionRuntime]()
-	detectorField, ok := rtType.FieldByName("Detector")
-	require.True(t, ok, "CompactionRuntime must have Detector field")
+	rtType := reflect.TypeFor[runtime.CorePorts]()
+	detectorField, ok := rtType.FieldByName("CompactionDetector")
+	require.True(t, ok, "CorePorts must have CompactionDetector field")
 	assert.Equal(t, "runtime.CompactionDetector", detectorField.Type.String(),
-		"CompactionRuntime field must be the CompactionDetector interface")
+		"CorePorts field must be the CompactionDetector interface")
 	assert.Equal(t, reflect.Interface, detectorField.Type.Kind(),
-		"CompactionRuntime.Detector must be an interface kind")
+		"CorePorts.CompactionDetector must be an interface kind")
 
 	// Verify all four runtime methods exist on CompactionDetector with expected signature patterns
 	portType := detectorField.Type

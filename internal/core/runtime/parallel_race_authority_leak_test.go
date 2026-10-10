@@ -386,7 +386,7 @@ func TestParallelRaceAuthorityLeak_L5_CommitMemoInjectionFailureReleasesAuthorit
 
 	innerMemo := interleavedthinking.NewMemoStore(4096)
 	memoStore := &failingUpdateMemoStore{inner: innerMemo}
-	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,

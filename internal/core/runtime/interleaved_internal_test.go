@@ -74,7 +74,7 @@ func TestExecutor_LoadInterleavedState_DisabledSkipsStore(t *testing.T) {
 	}
 	ex := TestExecutor()
 	ex.Store = spy
-	ex.Processor = nil // disabled
+	ex.InterleavedProcessor = nil // disabled
 
 	got, err := ex.loadInterleavedState(context.Background(), "a-leg-1")
 	if err != nil {
@@ -102,7 +102,7 @@ func TestExecutor_LoadInterleavedState_EnabledFetchesStore(t *testing.T) {
 	}
 	ex := TestExecutor()
 	ex.Store = spy
-	ex.Processor = &testInterleavedProcessorAdapter{} // non-nil processor indicates enabled
+	ex.InterleavedProcessor = &testInterleavedProcessorAdapter{} // non-nil processor indicates enabled
 
 	got, err := ex.loadInterleavedState(context.Background(), "a-leg-1")
 	if err != nil {

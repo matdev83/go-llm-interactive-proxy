@@ -70,7 +70,7 @@ func newPendingThinkerFixture(t *testing.T, streamToClient string, outcome *cont
 	}
 	testStoreInner(from, lipapi.NewFixedEventStream(append(events, lipapi.Event{Kind: lipapi.EventResponseFinished})))
 
-	turn, err := ex.Processor.BeginTurn(context.Background(), InterleavedTurnInput{
+	turn, err := ex.InterleavedProcessor.BeginTurn(context.Background(), InterleavedTurnInput{
 		ALegID:         from.facts.aLegID,
 		Selector:       from.facts.baseline.Route.Selector,
 		Backend:        attempt.cand.Primary.Backend,

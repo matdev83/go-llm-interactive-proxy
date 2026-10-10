@@ -156,7 +156,7 @@ func TestExecutor_concurrentAdmissionWhileOverrideMutations(t *testing.T) {
 			if tc.thinker {
 				ex, st = thinkerOverrideExecutor(t, &routeOpenCapture{}, false)
 				ex.Backends = tc.backends(log)
-				ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+				ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 					Instructions:          "Think step by step.",
 					StreamToClient:        "hidden",
 					MaxMemoBytes:          4096,

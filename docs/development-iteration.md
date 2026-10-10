@@ -508,6 +508,8 @@ run them locally with `go test -tags=integration ./tools/devcheck/...`. The exis
 full Linux race check and `make qa` already enable `precommit,integration`, so
 remote certification includes these fixtures without changing workflow scope.
 
+The heavier runtimebundle end-to-end host, HTTP, billing, and reload tests live behind `integration`; run them with `go test -count=1 -tags=integration ./internal/infra/runtimebundle/`. The whole-module owner-callback source gate uses `precommit` and runs in its dedicated required CI job.
+
 ### Explicit local scope
 
 Change collection and direct package ownership share `tools/internal/scopeplan`:

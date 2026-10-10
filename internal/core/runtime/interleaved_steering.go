@@ -38,7 +38,7 @@ func (e *Executor) publishMemoSteeringOverlay(
 	if e == nil || ctx == nil {
 		return errors.New("executor: invalid memo steering publish arguments")
 	}
-	if e.Processor == nil {
+	if e.InterleavedProcessor == nil {
 		return errors.New("executor: interleaved processor unavailable")
 	}
 	if e.SteeringWriterFactory == nil {
@@ -50,7 +50,7 @@ func (e *Executor) publishMemoSteeringOverlay(
 	if err != nil {
 		return err
 	}
-	_, err = writer.Put(ctx, e.Processor.MemoSteeringPutRequest(memo))
+	_, err = writer.Put(ctx, e.InterleavedProcessor.MemoSteeringPutRequest(memo))
 	return err
 }
 
@@ -62,7 +62,7 @@ func (e *Executor) deactivateMemoSteeringOverlay(ctx context.Context, aLegID str
 	if e == nil || ctx == nil || aLegID == "" {
 		return nil
 	}
-	if e.Processor == nil {
+	if e.InterleavedProcessor == nil {
 		return nil
 	}
 	if e.SteeringWriterFactory == nil {
@@ -72,7 +72,7 @@ func (e *Executor) deactivateMemoSteeringOverlay(ctx context.Context, aLegID str
 	if err != nil {
 		return err
 	}
-	_, err = writer.Deactivate(ctx, e.Processor.MemoSteeringOverlayID())
+	_, err = writer.Deactivate(ctx, e.InterleavedProcessor.MemoSteeringOverlayID())
 	if err != nil && !errors.Is(err, conversationprojection.ErrOverlayNotFound) && !errors.Is(err, conversationprojection.ErrALegNotFound) {
 		e.logMemoSteeringDeactivateFailed(ctx, aLegID, err)
 		return err
@@ -99,7 +99,7 @@ func (e *Executor) refreshMemoSteeringFacts(
 	if e == nil || ctx == nil {
 		return facts, false
 	}
-	if e.Processor == nil {
+	if e.InterleavedProcessor == nil {
 		return facts, false
 	}
 	reader := e.conversationViewReader()
@@ -113,7 +113,7 @@ func (e *Executor) refreshMemoSteeringFacts(
 	}
 	memoVisibleSuppressed := suppressVisibleMemo && e.memoStateVisibleToClient(ctx, facts.aLegID, state)
 	if memoVisibleSuppressed {
-		snap = withoutSteeringOverlay(snap, e.Processor.IsMemoSteeringOverlay)
+		snap = withoutSteeringOverlay(snap, e.InterleavedProcessor.IsMemoSteeringOverlay)
 	}
 	if snap.StateRevision == conversationRevision(facts) && !memoVisibleSuppressed {
 		return facts, true
@@ -170,10 +170,10 @@ func projectRefreshedMemoContext(ctx context.Context, source recvTurnFacts, log 
 // memoStateVisibleToClient reports whether the currently linked memo was
 // surfaced to the client during this logical turn.
 func (e *Executor) memoStateVisibleToClient(ctx context.Context, aLegID string, state interleavedstate.State) bool {
-	if e == nil || e.Processor == nil || aLegID == "" {
+	if e == nil || e.InterleavedProcessor == nil || aLegID == "" {
 		return false
 	}
-	return e.Processor.IsMemoVisibleToClient(ctx, aLegID)
+	return e.InterleavedProcessor.IsMemoVisibleToClient(ctx, aLegID)
 }
 
 // withoutSteeringOverlay returns a copy of snap without overlays matching

@@ -63,34 +63,27 @@ type executorRuntime struct {
 // executorBuildInput groups the upstream unit results consumed by
 // [buildExecutorRuntime].
 type executorBuildInput struct {
-	Bctx               buildContext
-	Ledger             *ResourceLedger
-	NowFn              func() time.Time
-	Ext                *extensionRuntime
-	Model              *modelRuntime
-	Persistence        *persistenceRuntime
-	Security           *securityRuntime
-	Observability      *observabilityRuntime
-	ControlPlane       *controlPlaneRuntime
-	UsageAuthority     *authorityapp.Service
-	Concurrency        *concurrencyAuthorityRuntime
-	SnapshotGeneration *snapshotgen.Publisher
-	TerminalWork       *terminalWorkRuntime
-	SharedMutable      *sharedMutableRuntime
-	AccountingStores   *processAccountingStores
-	Metering           *meteringRuntime
-	BackendIdentities  map[string]BackendStateIdentity
-	// CompactionDetector is the process-owned detector shared by all
-	// generations. Nil disables compaction observation.
-	CompactionDetector            runtime.CompactionDetector
-	BackgroundScheduler           *auxreq.BackgroundScheduler
-	GenerationRunner              *infraaux.GenerationExecutorRunner
-	TerminalPolicyReader          runtime.TerminalPolicyReader
-	ConversationReader            conversationprojection.Reader
-	ConversationBootstrap         runtime.ConversationBootstrap
-	ConversationReaderStockOrigin bool
-	ConversationStore             conversationview.Store
-	InterleavedProcessor          runtime.InterleavedProcessor
+	Bctx                buildContext
+	Ledger              *ResourceLedger
+	NowFn               func() time.Time
+	Ext                 *extensionRuntime
+	Model               *modelRuntime
+	Persistence         *persistenceRuntime
+	Security            *securityRuntime
+	Observability       *observabilityRuntime
+	ControlPlane        *controlPlaneRuntime
+	UsageAuthority      *authorityapp.Service
+	Concurrency         *concurrencyAuthorityRuntime
+	SnapshotGeneration  *snapshotgen.Publisher
+	TerminalWork        *terminalWorkRuntime
+	SharedMutable       *sharedMutableRuntime
+	AccountingStores    *processAccountingStores
+	Metering            *meteringRuntime
+	BackendIdentities   map[string]BackendStateIdentity
+	CorePorts           runtime.CorePorts
+	BackgroundScheduler *auxreq.BackgroundScheduler
+	GenerationRunner    *infraaux.GenerationExecutorRunner
+	ConversationStore   conversationview.Store
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -158,9 +151,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		// Allocate a new slice so a candidate-local quota registration never
 		// mutates the caller-owned production options backing array.
 		prod.RequestRegistrations = append([]authority.RequestRegistration{*quotaReg}, prod.RequestRegistrations...)
-	}
-	interleaved := runtime.InterleavedRuntime{
-		Processor: in.InterleavedProcessor,
 	}
 	// Compute accounting runtime fields.
 	accountingRT := runtime.AccountingRuntime{}
@@ -295,6 +285,7 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 	prod.BillingExposureAdmission = bindUnsupportedV2NativeUsage(prod.BillingExposureAdmission, in.Model.BackendKinds)
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
+			CorePorts:                          in.CorePorts,
 			Store:                              in.Persistence.Store,
 			Backends:                           in.Model.Backends,
 			ALegLifecycle:                      aLeg,
@@ -302,8 +293,6 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 			Now:                                in.NowFn,
 			MaxPendingWireEvents:               cfg.Server.EffectiveMaxPendingWireEvents(),
 			StreamRecovery:                     streamRecovery,
-			ConversationViewReader:             in.ConversationReader,
-			ConversationBootstrap:              in.ConversationBootstrap,
 			ConversationViewTagger:             newConversationViewTaggerAdapter(convStore),
 			LargeBodyAssessor:                  largeBodyAssessor,
 			LargeBodyGenerationID:              largeBodyGenID,
@@ -329,11 +318,9 @@ func buildExecutorRuntime(in executorBuildInput) (*executorRuntime, error) {
 		Extension: runtime.ExtensionRuntime{
 			Bus:                              bctx.Bus,
 			RuntimeSnapshot:                  in.Ext.Snap,
-			TerminalPolicyReader:             in.TerminalPolicyReader,
 			ToolCallFinalizationMaxArgsBytes: maxArgsBytes,
 		},
-		Interleaved: interleaved,
-		Compaction:  runtime.CompactionRuntime{Detector: in.CompactionDetector, BackgroundAux: compactionBackground},
+		Compaction: runtime.CompactionRuntime{BackgroundAux: compactionBackground},
 	})
 	genRunner.Bind(exec)
 	secureSessionStore := in.Persistence.SecureSession.appStore

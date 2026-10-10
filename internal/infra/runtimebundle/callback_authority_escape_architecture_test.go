@@ -35,20 +35,6 @@ var callbackSupportedBuildContexts = []callbackBuildContext{
 	{GOOS: "windows", GOARCH: "amd64"},
 }
 
-func TestRuntimebundle_NoCompleteOwnerCallbackEscapes(t *testing.T) {
-	t.Parallel()
-	pkgs, analyzed := loadOwnerReachablePackagesAcrossContexts(t, nil)
-	ownerPkg := packageByPath(t, pkgs, runtimebundlePkgPath)
-	// Scope sentinels: a narrowed runtimebundle-only load must fail this gate.
-	packageByPath(t, pkgs, lipruntimePkgPath)
-	packageByPath(t, pkgs, lipstdPkgPath)
-	owners := resolveProtectedOwners(t, ownerPkg)
-	if hits := findOwnerCallbackEscapesInPackages(pkgs, owners); len(hits) > 0 {
-		t.Fatalf("forbidden complete-owner callback escapes:\n%s", strings.Join(hits, "\n"))
-	}
-	assertOwnerReachableProductionInventory(t, pkgs, analyzed)
-}
-
 func TestRuntimebundle_OwnerCallbackEscapeFixtures(t *testing.T) {
 	t.Parallel()
 	fixtureRoot, err := filepath.Abs(filepath.Join("testdata", "callbackescape"))

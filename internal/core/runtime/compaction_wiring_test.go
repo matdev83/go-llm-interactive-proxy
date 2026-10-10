@@ -78,7 +78,7 @@ func compactionTestExecutorWithStore(t *testing.T, d runtime.CompactionDetector,
 		}),
 	})
 	if d != nil {
-		ex.CompactionRuntime = runtime.CompactionRuntime{Detector: d}
+		ex.CompactionDetector = d
 	}
 	return ex
 }

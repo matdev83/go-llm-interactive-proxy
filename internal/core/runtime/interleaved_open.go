@@ -71,7 +71,7 @@ func (e *Executor) interleavedEnabled() bool {
 	if e == nil {
 		return false
 	}
-	return e.Processor != nil
+	return e.InterleavedProcessor != nil
 }
 
 // loadInterleavedState fetches the persisted thinker cycle state for the A-leg.

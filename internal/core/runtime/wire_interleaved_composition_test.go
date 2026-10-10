@@ -35,7 +35,7 @@ func TestWireInterleaved_DeclinesWhenInterleavedEnabled(t *testing.T) {
 	// 1. Without interleaved thinking configured: assessor is reached and accepts.
 	exDisabled := TestExecutor()
 	exDisabled.LargeBodyAssessor = &mockAcceptLargeBodyAssessor{}
-	exDisabled.Processor = nil
+	exDisabled.InterleavedProcessor = nil
 
 	if exDisabled.interleavedEnabled() {
 		t.Fatalf("expected interleavedEnabled to be false when Processor is nil")
@@ -58,7 +58,7 @@ func TestWireInterleaved_DeclinesWhenInterleavedEnabled(t *testing.T) {
 	// and AssessLargeBody declines with DeclineReasonAuthorityBlocker.
 	exEnabled := TestExecutor()
 	exEnabled.LargeBodyAssessor = &mockAcceptLargeBodyAssessor{}
-	exEnabled.Processor = &testInterleavedProcessorAdapter{}
+	exEnabled.InterleavedProcessor = &testInterleavedProcessorAdapter{}
 
 	if !exEnabled.interleavedEnabled() {
 		t.Fatalf("expected interleavedEnabled to be true when Processor is set")

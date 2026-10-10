@@ -152,7 +152,7 @@ func hybridParallelExecutor(t *testing.T, backends map[string]execbackend.Backen
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
 	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
@@ -445,7 +445,7 @@ func TestParallelRace_CommitMemoInjectionFailureCleansUpStreams(t *testing.T) {
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,

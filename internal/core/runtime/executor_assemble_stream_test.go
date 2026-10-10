@@ -99,7 +99,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		t.Parallel()
 		localPrep := newPrep()
 		ex := TestExecutor()
-		ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "hidden"}, interleavedthinking.NewMemoStore(1024))
+		ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "hidden"}, interleavedthinking.NewMemoStore(1024))
 		hiddenOut := out
 		hiddenOut.ready = newReadyAttempt(&attemptSession{
 			inner: stream,
@@ -118,7 +118,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		t.Parallel()
 		localPrep := newPrep()
 		ex := TestExecutor()
-		ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "visible"}, interleavedthinking.NewMemoStore(1024))
+		ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "visible"}, interleavedthinking.NewMemoStore(1024))
 		visibleOut := out
 		visibleOut.ready = newReadyAttempt(&attemptSession{
 			inner: stream,
@@ -144,7 +144,7 @@ func TestAssembleExecutorStream_WrapperSelection(t *testing.T) {
 		localPrep.wirePayload = wp
 		localPrep.wirePayload = wp
 		ex := TestExecutor()
-		ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "visible"}, interleavedthinking.NewMemoStore(1024))
+		ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{StreamToClient: "visible"}, interleavedthinking.NewMemoStore(1024))
 		wireOut := out
 		wireOut.ready = newReadyAttempt(&attemptSession{
 			inner: stream,

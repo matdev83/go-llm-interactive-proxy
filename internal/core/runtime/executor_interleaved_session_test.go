@@ -72,7 +72,7 @@ func interleavedSecureExecutor(t *testing.T, backends map[string]execbackend.Bac
 	ex.Backends = backends
 	ex.Now = func() time.Time { return time.Unix(3000, 0) }
 	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
@@ -352,7 +352,7 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 			return executorTextStream("exec answer")
 		}),
 	}
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		RegularTurnsRemaining: 2,
 	}, memoStore)

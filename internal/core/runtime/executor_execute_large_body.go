@@ -424,7 +424,7 @@ func (e *Executor) ExecuteLargeBody(
 	if err := largebody.ValidateExecuteLargeBody(accepted, src, live); err != nil {
 		return largebody.ExecutionResult{}, err
 	}
-	if _, ok := e.Detector.(CompactionWireDetector); ok && !accepted.CompactionComplete {
+	if _, ok := e.CompactionDetector.(CompactionWireDetector); ok && !accepted.CompactionComplete {
 		return largebody.ExecutionResult{}, fmt.Errorf("executor: large body accepted for wire execution but compaction facts are incomplete")
 	}
 
@@ -711,7 +711,7 @@ func (e *Executor) ExecuteLargeBody(
 		return largebody.ExecutionResult{}, err
 	}
 
-	if e.Detector != nil && accepted.CompactionComplete {
+	if e.CompactionDetector != nil && accepted.CompactionComplete {
 		preparedReq.compactionOpenMeta = e.observeCompactionOpenedWire(outCtx, preparedReq, out, accepted.CompactionFacts)
 	}
 

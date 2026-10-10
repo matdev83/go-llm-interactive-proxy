@@ -1,3 +1,5 @@
+//go:build integration
+
 package runtimebundle_test
 
 import (
@@ -28,53 +30,6 @@ const (
 	refinement4StockCallID    = billing.BillingCallID("bc_00000000000000000000000000000071")
 	refinement4StockSessionID = "refinement4-stock-session"
 )
-
-const (
-	// refinement4StockPhaseWait bounds one synchronous phase wait of the stock
-	// observation->economic sentinel. Every phase wait shares the sentinel's
-	// single parent context, so that parent must cover the sum of the phase
-	// budgets (see refinement4StockSentinelBudget) or one slow phase silently
-	// preempts the rest under load.
-	refinement4StockPhaseWait = 8 * time.Second
-
-	// refinement4StockPhaseWaitCount is the number of sequential phase waits in
-	// TestRefinement4StockObservationToEconomicSettlement: three economic-head
-	// waits (provider, customer, customer replay), provider amount, settlement,
-	// head revision, and provider current amount.
-	refinement4StockPhaseWaitCount = 7
-
-	// refinement4StockSentinelBudget is the sentinel's own deadlock detector,
-	// not a performance budget. The composed pipeline is poll-driven at
-	// production intervals (100ms observation relay, 1s revision workers), so
-	// its wall clock scales several-fold under the package's default parallel
-	// test load: isolated it completes in ~4s, and under full-package
-	// parallelism it has been measured at ~20.6s (default) and ~24.0s
-	// (-parallel=32). Batch C made waitRefinement4StockOutboxDrained inherit
-	// this parent (it previously imposed a fixed 4s per-drain child), so the
-	// parent is now the only bound on a healthy slow drain. 60s matches the
-	// sibling refinement5_2 sentinel that shares the same drain helper and
-	// covers the 56s sum of the seven phase waits, while the 4s drain stall
-	// window and the per-phase budgets remain the fail-fast detectors.
-	refinement4StockSentinelBudget = 60 * time.Second
-)
-
-// TestRefinement4StockSentinelBudgetCoversPhaseWaits is the deterministic
-// regression for the load-sensitive drain failure. A parent deadline smaller
-// than the sum of the phase waits that share it cannot let every phase use its
-// own budget: under the package's default parallel test load the pre-fix 25s
-// parent was exhausted mid-pipeline and surfaced as the confusing
-// "outbox drain parent done ... (last pending "\x00unset")" instead of a
-// precise phase timeout, because Batch C made the drain inherit the parent
-// rather than imposing a fixed per-drain child. This pins the invariant that
-// the sentinel budget dominates every phase budget it is shared with.
-func TestRefinement4StockSentinelBudgetCoversPhaseWaits(t *testing.T) {
-	t.Parallel()
-	minBudget := refinement4StockPhaseWait * refinement4StockPhaseWaitCount
-	if refinement4StockSentinelBudget < minBudget {
-		t.Fatalf("sentinel budget %s must cover the sum of %d phase waits (%s); a smaller parent silently preempts shared phases under load",
-			refinement4StockSentinelBudget, refinement4StockPhaseWaitCount, minBudget)
-	}
-}
 
 // TestRefinement4StockObservationToEconomicSettlement proves the complete
 // production bridge. The observation transaction is the only input to the
@@ -278,52 +233,6 @@ func refinement4StockMeteringConfig(t *testing.T, journalPath string) string {
 	return configPath
 }
 
-func refinement4StockObservation(subject metering.SubjectRef, id string, revision uint64, providerNano int64, semantics string, supersedes []metering.ObservationRef) metering.Observation {
-	now := time.Unix(1_700_101_000+int64(revision), 0).UTC()
-	inputKey := metering.ComponentKey{Direction: metering.DirectionInput, Component: metering.ComponentInputToken, Unit: metering.UnitToken, SchemaID: metering.DefaultInclusionSchemaID}
-	outputKey := metering.ComponentKey{Direction: metering.DirectionOutput, Component: metering.ComponentOutputToken, Unit: metering.UnitToken, SchemaID: metering.DefaultInclusionSchemaID}
-	input := metering.Decimal{Coefficient: "1000000", Scale: 0}
-	output := metering.Decimal{Coefficient: "1000000", Scale: 0}
-	amount := metering.DecimalFromNanoUnits(providerNano)
-	correlation := metering.CorrelationV2{
-		StoreID: subject.StoreID, TenantID: subject.TenantID, ALegID: subject.ALegID,
-		BillingCallID: subject.BillingCallID, BLegID: subject.BLegID, AttemptID: subject.AttemptID,
-		AttemptSeq: subject.AttemptSeq, ProviderAccountKey: subject.ProviderAccountKey,
-	}
-	observation := metering.Observation{
-		Version: metering.ObservationVersionV2, ID: id, SourceEventKey: "refinement4-stock-source-" + id, Revision: revision,
-		StreamID: "refinement4-stock-stream", Sequence: revision, Origin: metering.OriginProvider,
-		Acquisition: metering.AcquisitionProviderResponse, Authority: metering.AuthorityObservedClaim,
-		Perspective: metering.PerspectiveOperator, Boundary: metering.BoundaryBackendIngress, Lifecycle: metering.LifecycleBackendAttempt,
-		Subject: subject, Correlation: correlation, Semantics: semantics,
-		ObservedAt: now, ReceivedAt: now, MappingRef: "refinement4-stock:v1", Supersedes: supersedes,
-		Charges: []metering.ReportedCharge{{ChargeItemID: "provider-cost", Amount: &amount, Currency: "USD", Kind: metering.ChargeKindAggregate, Payer: metering.PaymentParty{Kind: metering.PaymentPartyOperator}}},
-	}
-	if semantics == metering.SemanticsDelta {
-		observation.Measures = []metering.Measure{
-			{Key: inputKey, Value: &input, Quality: metering.QualityObserved},
-			{Key: outputKey, Value: &output, Quality: metering.QualityObserved},
-		}
-	}
-	return observation
-}
-
-func refinement4StockCallLeg(observation metering.Observation) billing.CallLegUsageRecord {
-	started := observation.ObservedAt
-	finished := started.Add(time.Second)
-	return billing.CallLegUsageRecord{
-		CallID: observationCallID(observation), ALegID: observation.Subject.ALegID, BLegID: observation.Subject.BLegID,
-		AttemptSeq: int(observation.Subject.AttemptSeq), BackendID: billingHostLoopBackendID, ProviderID: "refinement4-stock-provider", ModelID: billingHostLoopModelID,
-		StartedAt: started, FinishedAt: finished, Outcome: billing.LegOutcomeWinner, Surfaced: billing.SurfacedYes,
-		Evidence: billing.FinalBillingEvidence{
-			InputTokens: billing.Quantity{Value: billingHostLoopInputTokens, Present: true}, OutputTokens: billing.Quantity{Value: billingHostLoopOutputTokens, Present: true},
-			TotalTokens: billing.Quantity{Value: billingHostLoopInputTokens + billingHostLoopOutputTokens, Present: true},
-			Source:      billing.EvidenceSourceProviderReported, Authority: billing.EvidenceAuthorityAuthoritative, DedupeKey: "refinement4-stock-terminal-usage",
-		},
-		Observations: []metering.Observation{observation},
-	}
-}
-
 func refinement4StockCallClosure(pricingRef, policyRef billing.VersionRef, observation metering.Observation) billing.CallUsageRecord {
 	return billing.CallUsageRecord{
 		SchemaVersion: billing.CurrentRecordSchemaVersion, CallID: observationCallID(observation), AccountID: observation.Subject.AccountID,
@@ -331,10 +240,6 @@ func refinement4StockCallClosure(pricingRef, policyRef billing.VersionRef, obser
 		StartedAt: observation.ObservedAt, FinishedAt: observation.ObservedAt.Add(2 * time.Second), Outcome: billing.TurnOutcomeCompleted,
 		CustomerPricingRef: pricingRef, ChargePolicyRef: policyRef, ExpectedBLegIDs: []string{observation.Subject.BLegID},
 	}
-}
-
-func observationCallID(observation metering.Observation) billing.BillingCallID {
-	return billing.BillingCallID(observation.Subject.BillingCallID)
 }
 
 //nolint:revive // test helper keeps t first per Go testing convention

@@ -702,7 +702,7 @@ func newAdversarialInterleavedExecutor(t *testing.T, ptbObs traffic.Observer, ho
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Now = func() time.Time { return time.Unix(5000, 0) }
 	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,

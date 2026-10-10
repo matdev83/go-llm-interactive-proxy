@@ -41,19 +41,14 @@ func TestGenericAggregatesContainNoPerFeatureFields(t *testing.T) {
 			relFile:    "internal/infra/runtimebundle/build_executor.go",
 			structName: "executorBuildInput",
 			allowedExceptions: map[string]string{
-				"CompactionDetector":   archTestModulePath + "/internal/core/runtime.CompactionDetector",
-				"TerminalPolicyReader": archTestModulePath + "/internal/core/runtime.TerminalPolicyReader",
-				"InterleavedProcessor": archTestModulePath + "/internal/core/runtime.InterleavedProcessor",
+				"CorePorts": archTestModulePath + "/internal/core/runtime.CorePorts",
 			},
 		},
 		{
 			relFile:    "internal/core/runtime/executor_config.go",
 			structName: "ExecutorConfig",
 			allowedExceptions: map[string]string{
-				"Interleaved":                "InterleavedRuntime",
 				"Compaction":                 "CompactionRuntime",
-				"Processor":                  "InterleavedProcessor",
-				"Detector":                   "CompactionDetector",
 				"SecretGuardDecisionMetrics": archTestModulePath + "/internal/core/extensions.SecretGuardDecisionMetrics",
 				"ConversationViewObserver":   "ConversationViewObserver",
 				"TerminalPolicyReader":       "TerminalPolicyReader",

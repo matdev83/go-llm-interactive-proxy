@@ -163,7 +163,8 @@ func configureRuntimeCompactionPreserver(t *testing.T, d runtime.CompactionDetec
 			CompactionPreservers: []compaction.Preserver{p},
 		}),
 	})
-	ex.CompactionRuntime = runtime.CompactionRuntime{Detector: d, BackgroundAux: aux}
+	ex.CompactionDetector = d
+	ex.BackgroundAux = aux
 	return ex
 }
 
