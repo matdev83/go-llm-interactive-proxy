@@ -412,16 +412,25 @@ func TestNewClassifierNormalizesOmittedModeToHeuristic(t *testing.T) {
 	}
 }
 
-func TestClassifierIdentityIsTheStableFeatureIdentity(t *testing.T) {
+// TestClassifierIDIsTheRegisteredFeatureName pins the operator-facing feature
+// name as a literal instead of echoing the package constant the getter returns.
+// The ID is the plugin name an operator writes under plugins.features and the key
+// the standard distribution registers, so the contract is the value itself.
+func TestClassifierIDIsTheRegisteredFeatureName(t *testing.T) {
 	t.Parallel()
 
+	const registeredFeatureName = "session-classification"
 	classifier := mustClassifier(t, sessionclassification.Config{Mode: sessionclassification.ModeHeuristic}, newFakeStore(), fixedNow())
-	if classifier.ID() != sessionclassification.ID {
-		t.Fatalf("classifier ID = %q, want %q", classifier.ID(), sessionclassification.ID)
+	if got := classifier.ID(); got != registeredFeatureName {
+		t.Fatalf("classifier ID = %q, want the registered feature name %q", got, registeredFeatureName)
 	}
 	var plane sdkclassification.Classifier = classifier
-	if _, err := sdkclassification.ClassifierIdentity(plane); err != nil {
+	id, err := sdkclassification.ClassifierIdentity(plane)
+	if err != nil {
 		t.Fatalf("ClassifierIdentity: %v", err)
+	}
+	if id != registeredFeatureName {
+		t.Fatalf("ClassifierIdentity = %q, want the registered feature name %q", id, registeredFeatureName)
 	}
 }
 
@@ -729,12 +738,26 @@ func TestClassifyFailsOpenWhenProcessStateIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestClassifyFailsOpenPreservingPriorPositiveOnStateFailure(t *testing.T) {
+// TestClassifyKeepsAcceptedPositiveWhenStateIsUnavailable proves an accepted
+// positive is never downgraded or replaced by a state failure: the state holder is
+// wired to fail, and the turn still returns the accepted snapshot unchanged
+// without resolving it (requirements 1.4, 6.5).
+//
+// The unavailable state holder is the point of the fixture. An earlier version
+// injected a durable load failure instead, but the warm-positive short-circuit
+// returns before any store call, so that fixture could never be reached and the
+// test only repeated TestClassifyKeepsPriorPositiveWithoutTouchingProcessState.
+func TestClassifyKeepsAcceptedPositiveWhenStateIsUnavailable(t *testing.T) {
 	t.Parallel()
 
-	store := newFakeStore()
-	store.loadErr = errors.New("durable load failed")
-	classifier := mustClassifier(t, sessionclassification.Config{Mode: sessionclassification.ModeHeuristic}, store, fixedNow())
+	authority := &fakeAuthority{err: errors.New("state holder closed")}
+	classifier, err := sessionclassification.NewClassifier(
+		sessionclassification.Config{Mode: sessionclassification.ModeHeuristic},
+		sessionclassification.ClassifierDeps{State: authority, Now: fixedNow()},
+	)
+	if err != nil {
+		t.Fatalf("NewClassifier: %v", err)
+	}
 	prior := session.Classification{
 		Kind:       session.KindCodingAgent,
 		Source:     session.SourceRemote,
@@ -751,6 +774,9 @@ func TestClassifyFailsOpenPreservingPriorPositiveOnStateFailure(t *testing.T) {
 	}
 	if got != prior {
 		t.Fatalf("classification = %+v, want the preserved prior positive %+v", got, prior)
+	}
+	if calls := authority.callCount(); calls != 0 {
+		t.Fatalf("warm positive resolved process state %d times, want zero", calls)
 	}
 }
 
