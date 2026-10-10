@@ -203,7 +203,7 @@ func TestScanCall_RejectsInconsistentJSONMirrorBeforeScanning(t *testing.T) {
 			if err == nil {
 				t.Fatalf("mode %v accepted an inconsistent JSON mirror", tc.mode)
 			}
-			if len(out.Findings) != 0 || out.MutationCount != 0 || out.ScanLimitHit || len(out.exactPrivateFindings) != 0 || len(out.discoveryFindings) != 0 {
+			if len(out.Findings) != 0 || out.MutationCount != 0 || out.BytesScanned != 0 || out.ScanLimitHit || len(out.exactPrivateFindings) != 0 || len(out.discoveryFindings) != 0 {
 				t.Fatalf("mirror rejection left scan state: %+v", out)
 			}
 			if !reflect.DeepEqual(call, before) {
