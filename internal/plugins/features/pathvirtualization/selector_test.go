@@ -590,6 +590,32 @@ func TestSelectorResolveAcceptsTypedStringArrays(t *testing.T) {
 	}
 }
 
+// TestSelectorResolveRejectsAnIndexBeyondIntRange pins the narrowing order of the
+// array-index rule: the parsed index is compared against the element count as an
+// unsigned value before it is narrowed, so an index that is representable as
+// uint64 but not as int is skipped as unresolved instead of being narrowed into a
+// negative position that names a value outside the array.
+func TestSelectorResolveRejectsAnIndexBeyondIntRange(t *testing.T) {
+	t.Parallel()
+
+	// 18446744073709551615 is math.MaxUint64: ParseUint accepts it, int cannot
+	// hold it. The pointer itself is a legal RFC 6901 token, so the refusal has to
+	// come from resolution and not from parsing.
+	const pointer = `/paths/18446744073709551615`
+
+	selector, reject := pathvirtualization.ParseSelector(pointer)
+	if reject != pathvirtualization.SelectorRejectNone {
+		t.Fatalf("ParseSelector(%q) rejected with %v, want acceptance", pointer, reject)
+	}
+	leaves, skip := selector.Resolve(decodeDocument(t, `{"paths":["/a","/b"]}`))
+	if skip != pathvirtualization.SelectorSkipUnresolved {
+		t.Fatalf("skip = %v, want %v", skip, pathvirtualization.SelectorSkipUnresolved)
+	}
+	if len(leaves) != 0 {
+		t.Fatalf("leaves = %+v, want none: an index past the array addresses nothing", leaves)
+	}
+}
+
 // TestSelectorSetResolutionIsOrderedAndBounded proves a compiled set resolves in
 // configuration order and reports every refused pointer separately, with the
 // result size bounded by the set rather than by payload size.
