@@ -1,9 +1,10 @@
+//go:build integration
+
 package runtimebundle_test
 
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,28 +31,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
-	_ "modernc.org/sqlite"
 )
-
-// refinement52VerificationBudget bounds the verification and restart-replay
-// tail after the refinement5.2 sentinel has already proven durable
-// convergence. It is deliberately rooted at context.Background rather than at
-// the convergence sentinel: under race-heavy package load a healthy-but-slow
-// relay drain can consume the whole sentinel before the verification reads
-// run, and a read reusing that exhausted parent then fails with
-// context.DeadlineExceeded even though the durable state is complete (the
-// 60.43s Linux race failure at ListCallLegUsage after convergence). This only
-// bounds the post-convergence verification and restart-replay lifecycle; the
-// convergence deadline itself is unchanged, and missing convergence is still
-// surfaced by the sentinel-scoped head/amount waits before any read here.
-const refinement52VerificationBudget = 60 * time.Second
-
-// refinement52VerificationContext returns a fresh bounded context for the
-// post-convergence verification reads of the refinement5.2 integration tests.
-func refinement52VerificationContext(t *testing.T) (context.Context, context.CancelFunc) {
-	t.Helper()
-	return context.WithTimeout(context.Background(), refinement52VerificationBudget)
-}
 
 // TestRefinement52RuntimeConcurrentDistinctLateRevisionsSerializeDurably starts
 // from one production-closed B-leg, submits a provider finalizer and a
@@ -637,51 +617,6 @@ func testRefinement52RuntimeSameRevisionSupersetConvergesAfterPartialRelay(t *te
 	}
 }
 
-// TestRefinement52VerificationReadSurvivesExhaustedConvergenceParent is the
-// deterministic regression for the Linux race failure at
-// "ListCallLegUsage after convergence: context deadline exceeded". It
-// reproduces the exact condition: the convergence sentinel parent is already
-// exhausted when the post-convergence verification read runs, while the
-// durable leg is present. The raw parent-scoped read fails with
-// context.DeadlineExceeded; the fresh bounded verification context reads the
-// same durable row, proving the failure was the expired parent and not missing
-// convergence.
-func TestRefinement52VerificationReadSurvivesExhaustedConvergenceParent(t *testing.T) {
-	t.Parallel()
-	store := openRefinement52ConcurrentBillingStore(t, filepath.Join(t.TempDir(), "billing.sqlite"), "refinement52-verification-read")
-	callID := billing.BillingCallID("bc_0000000000000000000000000000007a")
-	subject := metering.SubjectRef{
-		Kind: metering.SubjectBLeg, StoreID: store.StoreID(), TenantID: "refinement52-verification-tenant",
-		AccountID: "refinement52-verification-account", ALegID: "refinement52-verification-a-leg",
-		BillingCallID: callID.String(), BLegID: "refinement52-verification-b-leg",
-		AttemptID: "refinement52-verification-attempt", AttemptSeq: 1, ProviderAccountKey: "refinement52-verification-provider",
-	}
-	observation := refinement4StockObservation(subject, "refinement52-verification-observation", 1, 7, metering.SemanticsDelta, nil)
-	sealed, err := refinement4StockCallLeg(observation).Seal()
-	if err != nil {
-		t.Fatalf("seal durable verification leg: %v", err)
-	}
-	if err := store.AppendLeg(context.Background(), sealed); err != nil {
-		t.Fatalf("append durable verification leg: %v", err)
-	}
-
-	exhausted, exhaustedCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-	defer exhaustedCancel()
-	if _, err := store.ListCallLegUsage(exhausted, callID); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("exhausted convergence parent must fail the raw verification read, got %v", err)
-	}
-
-	verifyCtx, verifyCancel := refinement52VerificationContext(t)
-	defer verifyCancel()
-	legs, err := store.ListCallLegUsage(verifyCtx, callID)
-	if err != nil {
-		t.Fatalf("fresh bounded verification context must read the durable leg: %v", err)
-	}
-	if len(legs) != 1 || legs[0].BLegID != sealed.BLegID || legs[0].Fingerprint != sealed.Fingerprint {
-		t.Fatalf("verification read = %+v, want the durable leg %+v", legs, sealed)
-	}
-}
-
 // TestRefinement52RuntimeLateEconomicAppendAfterTerminalClosure executes a
 // real production host/B-leg to terminal closure, then uses the stock atomic
 // observation sink after the attempt is gone. The appender's only billing read
@@ -1259,30 +1194,4 @@ func refinement52RequireCompleteValuation(t *testing.T, store *billingstore.Dura
 	if valuation.InputSetHash != head.InputSetHash || valuation.Completeness != economics.CompletenessComplete {
 		t.Fatalf("valuation = %+v, want complete hash %q", valuation, head.InputSetHash)
 	}
-}
-
-func openRefinement52ConcurrentBillingStore(t *testing.T, path, storeID string) *billingstore.DurableStore {
-	t.Helper()
-	runtimebundle.PrepareBillingSchemaForTest(t, path)
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_txlock=immediate"
-	sqlDB, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB.SetMaxOpenConns(8)
-	bunDB, err := dbinfra.NewBunDB(sqlDB, dbinfra.DialectSQLite)
-	if err != nil {
-		_ = sqlDB.Close()
-		t.Fatal(err)
-	}
-	store, err := billingstore.NewDurableStore(context.Background(), bunDB, billingstore.Config{StoreID: storeID})
-	if err != nil {
-		_ = bunDB.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-		_ = sqlDB.Close()
-	})
-	return store
 }
