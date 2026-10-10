@@ -119,7 +119,9 @@ func injectRefinement51BlockingBackend(t *testing.T, executor *coreruntime.Execu
 // token or provider economics.
 func TestRefinement51InFlightCancellationAfterBLegStartPostsFixedFeeWithoutPhantomEconomics(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Whole-flow safety net only: the inner startup/join/provider-cost waits keep their own tight
+	// budgets. 30s was too tight under race instrumentation with parallel lanes (#886).
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	store := openBillingHostLoopStore(t)
