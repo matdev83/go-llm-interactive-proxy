@@ -80,11 +80,11 @@ func (certificationWorkspaceResolver) Resolve(context.Context) (lipworkspace.Wor
 
 // certificationYAML decodes a feature config payload the same way the operator
 // configuration path does.
-func certificationYAML(t testing.TB, document string) yaml.Node {
-	t.Helper()
+func certificationYAML(tb testing.TB, document string) yaml.Node {
+	tb.Helper()
 	var node yaml.Node
 	if err := yaml.Unmarshal([]byte(document), &node); err != nil {
-		t.Fatalf("decode feature config: %v", err)
+		tb.Fatalf("decode feature config: %v", err)
 	}
 	if len(node.Content) == 0 {
 		return node
@@ -94,8 +94,8 @@ func certificationYAML(t testing.TB, document string) yaml.Node {
 
 // certificationRegistration builds the canonical outer-enabled (or
 // outer-disabled) session-classification registration.
-func certificationRegistration(t testing.TB, enabled bool, configYAML string) lipsdk.Registration {
-	t.Helper()
+func certificationRegistration(tb testing.TB, enabled bool, configYAML string) lipsdk.Registration {
+	tb.Helper()
 	registration := lipsdk.Registration{
 		ID:          featurestate.ID,
 		FactoryKind: featurestate.ID,
@@ -103,7 +103,7 @@ func certificationRegistration(t testing.TB, enabled bool, configYAML string) li
 		Enabled:     enabled,
 	}
 	if configYAML != "" {
-		registration.Config = lipsdk.ConfigPayload{Node: certificationYAML(t, configYAML)}
+		registration.Config = lipsdk.ConfigPayload{Node: certificationYAML(tb, configYAML)}
 	}
 	return registration
 }
@@ -119,17 +119,17 @@ func certificationSQLiteDSN(path string) string {
 // certificationOpenSQLite opens (and, for the first call, creates) the durable
 // database. The caller owns the returned handle so a restart can close and
 // reopen it deliberately.
-func certificationOpenSQLite(t testing.TB, dsn string) *bun.DB {
-	t.Helper()
+func certificationOpenSQLite(tb testing.TB, dsn string) *bun.DB {
+	tb.Helper()
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
+		tb.Fatalf("open sqlite: %v", err)
 	}
 	sqlDB.SetMaxOpenConns(4)
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 	if err != nil {
 		_ = sqlDB.Close()
-		t.Fatalf("new bun db: %v", err)
+		tb.Fatalf("new bun db: %v", err)
 	}
 	return bunDB
 }
@@ -145,13 +145,13 @@ type certificationGeneration struct {
 
 // certificationCompile compiles one generation from the session-classification
 // registration alone, so the test observes exactly the surface a reload swaps.
-func certificationCompile(t testing.TB, rt *Runtime, enabled bool, configYAML string) certificationGeneration {
-	t.Helper()
+func certificationCompile(tb testing.TB, rt *Runtime, enabled bool, configYAML string) certificationGeneration {
+	tb.Helper()
 	out, err := rt.CompileGeneration(context.Background(), GenerationInput{
-		Registrations: []lipsdk.Registration{certificationRegistration(t, enabled, configYAML)},
+		Registrations: []lipsdk.Registration{certificationRegistration(tb, enabled, configYAML)},
 	})
 	if err != nil {
-		t.Fatalf("CompileGeneration(enabled=%t, config=%q): %v", enabled, configYAML, err)
+		tb.Fatalf("CompileGeneration(enabled=%t, config=%q): %v", enabled, configYAML, err)
 	}
 	return certificationGeneration{
 		classifier: lipfeature.Get(out.Planes, lipfeature.PlaneSessionClassifier),
@@ -160,20 +160,20 @@ func certificationCompile(t testing.TB, rt *Runtime, enabled bool, configYAML st
 	}
 }
 
-func (g certificationGeneration) start(t testing.TB) {
-	t.Helper()
+func (g certificationGeneration) start(tb testing.TB) {
+	tb.Helper()
 	for _, lifecycle := range g.lifecycles {
 		if err := lifecycle.Start(context.Background()); err != nil {
-			t.Fatalf("generation lifecycle Start: %v", err)
+			tb.Fatalf("generation lifecycle Start: %v", err)
 		}
 	}
 }
 
-func (g certificationGeneration) stop(t testing.TB) {
-	t.Helper()
+func (g certificationGeneration) stop(tb testing.TB) {
+	tb.Helper()
 	for _, lifecycle := range g.lifecycles {
 		if err := lifecycle.Stop(context.Background()); err != nil {
-			t.Fatalf("generation lifecycle Stop: %v", err)
+			tb.Fatalf("generation lifecycle Stop: %v", err)
 		}
 	}
 }
@@ -288,13 +288,13 @@ func (c *certificationConsumer) saw() ([]session.Classification, []string, bool)
 // certificationPlanesWithConsumer extends a compiled generation's plane set with
 // the test-only downstream consumer, so one executor snapshot carries the real
 // classifier and an observable consumer.
-func certificationPlanesWithConsumer(t testing.TB, planes lipfeature.FrozenPlaneSet, consumers ...prerequest.Handler) lipfeature.FrozenPlaneSet {
-	t.Helper()
+func certificationPlanesWithConsumer(tb testing.TB, planes lipfeature.FrozenPlaneSet, consumers ...prerequest.Handler) lipfeature.FrozenPlaneSet {
+	tb.Helper()
 	contributions := planes.ToContributions()
 	if len(consumers) > 0 {
 		if err := lipfeature.Contribute(contributions, lipfeature.PlanePreRequestHandlers,
 			consumers[0].ID(), consumers); err != nil {
-			t.Fatalf("contribute %q consumer: %v", consumers[0].ID(), err)
+			tb.Fatalf("contribute %q consumer: %v", consumers[0].ID(), err)
 		}
 	}
 	return contributions.Freeze()
@@ -307,13 +307,13 @@ func certificationPlanesWithConsumer(t testing.TB, planes lipfeature.FrozenPlane
 // One counting backend makes sure every certified turn is actually served, and an
 // optional submit hook installs the ordering barrier.
 func certificationExecutor(
-	t testing.TB,
+	tb testing.TB,
 	database *bun.DB,
 	planes lipfeature.FrozenPlaneSet,
 	submitHooks ...sdkhooks.SubmitHook,
 ) (*runtime.Executor, *atomic.Int32) {
-	t.Helper()
-	return certificationExecutorWithWorkspace(t, database, planes, certificationWorkspaceResolver{}, submitHooks...)
+	tb.Helper()
+	return certificationExecutorWithWorkspace(tb, database, planes, certificationWorkspaceResolver{}, submitHooks...)
 }
 
 // certificationExecutorWithWorkspace is the shared executor factory. It exists so
@@ -321,21 +321,21 @@ func certificationExecutor(
 // cross-harness evidence matrix supplies per-row project markers) reuses this
 // durable topology instead of duplicating it.
 func certificationExecutorWithWorkspace(
-	t testing.TB,
+	tb testing.TB,
 	database *bun.DB,
 	planes lipfeature.FrozenPlaneSet,
 	resolver lipworkspace.Resolver,
 	submitHooks ...sdkhooks.SubmitHook,
 ) (*runtime.Executor, *atomic.Int32) {
-	t.Helper()
+	tb.Helper()
 	ctx := context.Background()
 	sessionStore, err := ssbunstore.NewWithContext(ctx, database)
 	if err != nil {
-		t.Fatalf("durable secure-session store: %v", err)
+		tb.Fatalf("durable secure-session store: %v", err)
 	}
 	continuityStore, err := continuitybunstore.NewWithContext(ctx, database)
 	if err != nil {
-		t.Fatalf("durable continuity store: %v", err)
+		tb.Fatalf("durable continuity store: %v", err)
 	}
 	fingerprintKey := certificationFingerprintKey()
 	manager, err := app.NewManager(
@@ -345,7 +345,7 @@ func certificationExecutorWithWorkspace(
 		app.ManagerConfig{FingerprintKey: fingerprintKey, StoreDurable: true},
 	)
 	if err != nil {
-		t.Fatalf("secure session manager: %v", err)
+		tb.Fatalf("secure session manager: %v", err)
 	}
 	var opens atomic.Int32
 	ex := runtime.TestExecutor()
@@ -486,14 +486,14 @@ func certificationCallWith(clientSessionID, resumeToken, userAgent, prompt, mode
 }
 
 // certificationServe runs one canonical client turn end to end.
-func certificationServe(t testing.TB, ex *runtime.Executor, call *lipapi.Call) {
-	t.Helper()
+func certificationServe(tb testing.TB, ex *runtime.Executor, call *lipapi.Call) {
+	tb.Helper()
 	stream, err := ex.Execute(context.Background(), call)
 	if err != nil {
-		t.Fatalf("Execute: %v", err)
+		tb.Fatalf("Execute: %v", err)
 	}
 	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
-		t.Fatalf("collect turn: %v", err)
+		tb.Fatalf("collect turn: %v", err)
 	}
 }
 
@@ -502,11 +502,11 @@ func certificationServe(t testing.TB, ex *runtime.Executor, call *lipapi.Call) {
 // process uses to continue it. Creating it through the exported preparation seam
 // is what makes the following turns genuine resumes rather than second turns.
 func certificationResumableSession(
-	t testing.TB,
+	tb testing.TB,
 	ex *runtime.Executor,
 	clientSessionID string,
 ) (sessionID string, resumeToken string) {
-	t.Helper()
+	tb.Helper()
 	ctx := context.Background()
 	prep, err := ex.PrepareSecureSession(ctx, runtime.SecureSessionPrepInput{
 		TraceID: "certification-" + clientSessionID,
@@ -516,22 +516,22 @@ func certificationResumableSession(
 		},
 	})
 	if err != nil {
-		t.Fatalf("PrepareSecureSession: %v", err)
+		tb.Fatalf("PrepareSecureSession: %v", err)
 	}
 	begin, err := prep.ExecuteBeginTurn(prep.Context())
 	if err != nil {
-		t.Fatalf("ExecuteBeginTurn: %v", err)
+		tb.Fatalf("ExecuteBeginTurn: %v", err)
 	}
 	if !begin.IsNew {
-		t.Fatal("session setup did not create a new secure session")
+		tb.Fatal("session setup did not create a new secure session")
 	}
 	if _, _, err := prep.ResolveALeg(prep.Context(), begin.Record.ALegID); err != nil {
-		t.Fatalf("ResolveALeg: %v", err)
+		tb.Fatalf("ResolveALeg: %v", err)
 	}
 	resumeToken = prep.ResponseCarrier(begin).ResumeToken.Reveal()
 	sessionID = string(begin.Record.SessionID)
 	if sessionID == "" || resumeToken == "" {
-		t.Fatalf("session setup produced session=%q resume-token-present=%t", sessionID, resumeToken != "")
+		tb.Fatalf("session setup produced session=%q resume-token-present=%t", sessionID, resumeToken != "")
 	}
 	return sessionID, resumeToken
 }
@@ -539,15 +539,15 @@ func certificationResumableSession(
 // certificationLoadRow reads the durable classification row through an
 // independent store instance, so every assertion observes committed database
 // state rather than a process cache.
-func certificationLoadRow(t testing.TB, database *bun.DB, sessionID string) (featurestate.Record, bool) {
-	t.Helper()
+func certificationLoadRow(tb testing.TB, database *bun.DB, sessionID string) (featurestate.Record, bool) {
+	tb.Helper()
 	store, err := hostclassification.NewBunStore(database)
 	if err != nil {
-		t.Fatalf("new classification store: %v", err)
+		tb.Fatalf("new classification store: %v", err)
 	}
 	record, found, err := store.Load(context.Background(), certificationKey(sessionID))
 	if err != nil {
-		t.Fatalf("load durable classification row: %v", err)
+		tb.Fatalf("load durable classification row: %v", err)
 	}
 	return record, found
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
+	featurestate "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/sessionclassification"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
@@ -358,45 +359,76 @@ func TestWireSessionClassificationStageFailsOpenWithoutCanonicalFallback(t *test
 	}
 }
 
+// recordingWireClassifier records every bounded input the wire stage hands the
+// classifier while delegating the decision to the real process-owned classifier,
+// so a test observes both what the stage passed and what production persisted.
+type recordingWireClassifier struct {
+	rec   *wireClassificationRecorder
+	inner sessionclassification.Classifier
+}
+
+func (c recordingWireClassifier) ID() string { return c.inner.ID() }
+
+func (c recordingWireClassifier) Classify(ctx context.Context, in sessionclassification.Input) (session.Classification, error) {
+	c.rec.record(ctx, in)
+	return c.inner.Classify(ctx, in)
+}
+
 // TestWireSessionClassificationStagePreservesPriorPositiveAcrossTurns proves the
-// wire lane reuses the shared generic runner semantics: a promoted authority
-// stays coding_agent on a later wire turn whose evidence is absent, and the
-// revision neither advances nor downgrades (requirements 1.4, 2.6, 5.4).
+// wire lane reuses the shared generic runner against the real process-owned
+// classifier: the first decisive wire turn promotes the bound authority in the
+// shared store, and a later wire turn with absent evidence re-observes that same
+// stored positive without advancing or downgrading its revision
+// (requirements 1.4, 2.6, 5.4).
 func TestWireSessionClassificationStagePreservesPriorPositiveAcrossTurns(t *testing.T) {
+	probe := newClassificationStateProbe(t)
+	real := newRealClassificationClassifier(t, probeStateAuthority{store: probe}, featurestate.ModeHeuristic)
 	rec := &wireClassificationRecorder{}
-	classifier := newWireClassificationClassifier("wire-monotonic", rec, promoteOnDecisiveEvidence)
-	ex, _, _ := wireClassificationExecutor(t, testFeatureBundle{SessionClassifier: classifier})
+	ex := classificationProbeExec(t, probe, recordingWireClassifier{rec: rec, inner: real})
 
 	bound := wireClassificationBoundSession()
-	ex.runWireSessionClassificationStage(context.Background(), wireSessionClassificationInput{
-		TraceID:   "trace-wire-monotonic",
-		Session:   bound,
-		Workspace: lipworkspace.WorkspaceView{ID: wireClassificationWorkspaceID},
-		Evidence:  wireClassificationEvidence,
-	})
-	ex.runWireSessionClassificationStage(context.Background(), wireSessionClassificationInput{
-		TraceID:   "trace-wire-monotonic",
-		Session:   bound,
-		Workspace: lipworkspace.WorkspaceView{ID: wireClassificationWorkspaceID},
-		Evidence:  sessionclassification.Evidence{},
-	})
-
-	if classifier.callCount() != 2 {
-		t.Fatalf("classifier call count = %d, want one evaluation per admitted wire turn", classifier.callCount())
+	turns := []struct {
+		name     string
+		evidence sessionclassification.Evidence
+	}{
+		{name: "decisive first turn", evidence: wireClassificationEvidence},
+		{name: "absent evidence later turn", evidence: sessionclassification.Evidence{}},
+	}
+	for i, turn := range turns {
+		ex.runWireSessionClassificationStage(context.Background(), wireSessionClassificationInput{
+			TraceID:   "trace-wire-monotonic",
+			Session:   bound,
+			Workspace: lipworkspace.WorkspaceView{ID: wireClassificationWorkspaceID},
+			Evidence:  turn.evidence,
+		})
+		if got := real.callCount(); got != i+1 {
+			t.Fatalf("%s: classifier invoked %d times, want one evaluation per admitted wire turn", turn.name, got)
+		}
 	}
 	inputs := rec.seen()
+	if len(inputs) != 2 {
+		t.Fatalf("classifier observed %d inputs, want one per wire turn", len(inputs))
+	}
 	if inputs[0].Evidence != wireClassificationEvidence {
 		t.Fatalf("first wire turn evidence = %+v, want the proof evidence", inputs[0].Evidence)
 	}
 	if !inputs[1].Evidence.IsZero() {
 		t.Fatalf("second wire turn evidence = %+v, want absent evidence", inputs[1].Evidence)
 	}
-	positive, ok := classifier.positiveFor(bound.AuthoritativeSessionID, bound.ALegID)
-	if !ok || !positive.IsCodingAgent() {
-		t.Fatalf("wire classification lost its positive across turns: %+v (present=%t)", positive, ok)
+
+	key := featurestate.Key{Kind: featurestate.ScopeSecureSession, ID: bound.AuthoritativeSessionID}
+	record, found, err := probe.inner.Load(context.Background(), key)
+	if err != nil {
+		t.Fatalf("load wire classification state: %v", err)
 	}
-	if positive.Revision != 7 {
-		t.Fatalf("wire classification revision = %d, want the established 7 (no re-promotion, no downgrade)", positive.Revision)
+	if !found || !record.Classification.IsCodingAgent() {
+		t.Fatalf("wire classification lost its positive across turns: found=%v record=%+v", found, record)
+	}
+	if record.Classification.Revision != 1 {
+		t.Fatalf("wire classification revision = %d, want the established 1 (no re-promotion, no downgrade)", record.Classification.Revision)
+	}
+	if got := len(probe.rowKeys()); got != 1 {
+		t.Fatalf("wire classification durable rows = %d, want exactly the one promoted row: %v", got, probe.rowKeys())
 	}
 }
 
@@ -439,16 +471,15 @@ func TestWireSessionClassificationStageGuardsMissingExecutorState(t *testing.T) 
 	var nilExecutor *Executor
 	nilExecutor.runWireSessionClassificationStage(context.Background(), in)
 
-	rec := &wireClassificationRecorder{}
+	// No published generation snapshot: the stage must return before it could
+	// reach any classifier. The scenario below proves this is a real early
+	// return rather than a permanent no-op.
 	orphan := &Executor{}
 	orphan.runWireSessionClassificationStage(context.Background(), in)
-	if len(rec.seen()) != 0 {
-		t.Fatal("wire classification ran without a published generation snapshot")
-	}
 
 	// Once a snapshot exists the stage must actually reach the classifier, so
 	// the guard above is a real early return and not a permanent no-op.
-	rec = &wireClassificationRecorder{}
+	rec := &wireClassificationRecorder{}
 	orphan.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
 		Workspace:     workspace.NewResolverChain([]lipworkspace.Resolver{wireClassificationWorkspaceResolver{}}),
 		FeaturePlanes: freezeBundle(testFeatureBundle{SessionClassifier: newWireClassificationClassifier("wire-guards", rec, nil)}),

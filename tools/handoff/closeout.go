@@ -252,7 +252,7 @@ func checkSession(ctx context.Context, repo string, s Session, phase string, que
 			if err != nil {
 				return report, err
 			}
-			for _, line := range strings.Fields(string(out)) {
+			for line := range strings.FieldsSeq(string(out)) {
 				if line == "refs/heads/"+b {
 					report.Pending = append(report.Pending, "owned local branch remains: "+b)
 				}
@@ -265,9 +265,9 @@ func checkSession(ctx context.Context, repo string, s Session, phase string, que
 
 func artifactSHA(text, sha string) bool {
 	matched := false
-	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(line, "tested_sha=") {
-			if strings.TrimPrefix(line, "tested_sha=") != sha {
+	for line := range strings.SplitSeq(text, "\n") {
+		if got, ok := strings.CutPrefix(line, "tested_sha="); ok {
+			if got != sha {
 				return false
 			}
 			matched = true

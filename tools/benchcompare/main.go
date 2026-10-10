@@ -78,7 +78,7 @@ func compare(ctx context.Context, opts options) (runErr error) {
 	if opts.Baseline == "" || opts.Candidate == "" || opts.Packages == "" || opts.Bench == "" || opts.Fixtures == "" || opts.Out == "" || opts.Samples < 1 || opts.Timeout <= 0 {
 		return errors.New("baseline/candidate/packages/bench/fixtures/out and positive samples/timeout are required")
 	}
-	for _, pkg := range strings.Fields(opts.Packages) {
+	for pkg := range strings.FieldsSeq(opts.Packages) {
 		if (pkg != "." && !strings.HasPrefix(pkg, "./")) || slices.Contains(strings.Split(filepath.ToSlash(pkg), "/"), "..") {
 			return fmt.Errorf("invalid package %q", pkg)
 		}
@@ -258,7 +258,7 @@ func validateSample(data []byte) error {
 
 func measurementNames(data []byte) []string {
 	var names []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 4 && strings.HasPrefix(fields[0], "Benchmark") && strings.HasSuffix(fields[3], "/op") {
 			names = append(names, fields[0])

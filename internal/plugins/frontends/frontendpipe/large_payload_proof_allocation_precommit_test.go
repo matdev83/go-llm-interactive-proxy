@@ -4,6 +4,9 @@ package frontendpipe_test
 
 import (
 	"context"
+	"net/http"
+	"testing"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/largebody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/frontendpipe"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
@@ -12,8 +15,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"net/http"
-	"testing"
 )
 
 // Full release certification stays explicit; ordinary tests retain the bounded behavioral regressions.

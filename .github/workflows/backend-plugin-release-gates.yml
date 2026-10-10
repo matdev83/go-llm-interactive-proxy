@@ -24,11 +24,11 @@ jobs:
   race:
     name: Strict Linux race (${{ matrix.lane }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.lane == 'billing' && 75 || 40 }}
+    timeout-minutes: ${{ (matrix.lane == 'billing' || matrix.lane == 'billingstore') && 75 || 40 }}
     strategy:
       fail-fast: false
       matrix:
-        lane: [broad, billing, support, runtime, architecture]
+        lane: [broad, billing, billingstore, support, runtime, architecture]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

@@ -85,7 +85,7 @@ func isGoFlagSpace(value byte) bool {
 func lastGoFlagsSkip(fields []string) (string, bool, error) {
 	var pattern string
 	var found bool
-	for i := 0; i < len(fields); i++ {
+	for i := range fields {
 		field := fields[i]
 		if value, ok := strings.CutPrefix(field, "-skip="); ok {
 			pattern, found = value, true
