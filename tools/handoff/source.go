@@ -97,8 +97,7 @@ func sourceGitWithIndex(ctx context.Context, repo, index string, args ...string)
 	}
 	data, err := cmd.Output()
 	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
 			return nil, fmt.Errorf("git %v: %w: %s", args, err, strings.TrimSpace(string(exit.Stderr)))
 		}
 		return nil, fmt.Errorf("git %v: %w", args, err)

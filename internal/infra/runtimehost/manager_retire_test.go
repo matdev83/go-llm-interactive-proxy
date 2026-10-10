@@ -533,7 +533,7 @@ func TestManagerRetire_ObserverReceivesLifecycleTelemetry_NoManagerStatusCache(t
 // retirement's start-up.
 func TestManagerRetire_LastLeaseReleasedAsRetirementStartsStillCloses(t *testing.T) {
 	t.Parallel()
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		m := runtimehost.NewManager(2, nil)
 		closed := make(chan struct{})
 		owned := &ledgerOwned{closeFn: func() error { close(closed); return nil }}
@@ -545,7 +545,7 @@ func TestManagerRetire_LastLeaseReleasedAsRetirementStartsStillCloses(t *testing
 		}
 		yields := i % 8
 		go func() {
-			for j := 0; j < yields; j++ {
+			for range yields {
 				runtime.Gosched()
 			}
 			lease.Release() // races with g1's background retirement

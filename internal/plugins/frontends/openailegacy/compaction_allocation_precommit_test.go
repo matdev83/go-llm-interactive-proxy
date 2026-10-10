@@ -4,11 +4,12 @@ package openailegacy_test
 
 import (
 	"context"
+	"strings"
+	"testing"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"strings"
-	"testing"
 )
 
 // Full release certification stays explicit; ordinary tests retain the bounded behavioral regressions.

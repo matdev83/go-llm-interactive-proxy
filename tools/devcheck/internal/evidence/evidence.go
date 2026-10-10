@@ -375,8 +375,8 @@ func goPaths(paths []string) []string {
 func value(env []string, key string) string {
 	prefix := key + "="
 	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
-			return strings.TrimPrefix(entry, prefix)
+		if found, ok := strings.CutPrefix(entry, prefix); ok {
+			return found
 		}
 	}
 	return ""
