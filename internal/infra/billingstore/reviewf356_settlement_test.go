@@ -67,6 +67,7 @@ func f356LinearRule(t *testing.T, id string, key metering.ComponentKey, price st
 // f356Tariff freezes the exact component graph against the same pricing
 // reference ref83intWinnerPolicy/ref83intCall bind, with no fees.
 func f356Tariff(t *testing.T, rules []economics.RatingRule, relationships []metering.ComponentRelationship) economics.TariffSnapshot {
+	t.Helper()
 	return f356TariffWithReportingVersion(t, "v3", "", rules, relationships)
 }
 

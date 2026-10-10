@@ -353,6 +353,17 @@ func (h *Host) ensureGeneration(ctx context.Context, key string, req ActivateReq
 		key: key, model: req.Model, generation: gen, proc: proc, lis: lis, conn: conn, peer: peer,
 	}
 	h.mu.Lock()
+	// Close snapshots h.slots under this mutex before reaping. Publishing a slot
+	// after that snapshot would escape the reaper and leak the child process,
+	// listener, and RPC connection, so admission and publication share Close's
+	// critical section and fail closed once shutdown starts.
+	if h.closing {
+		h.mu.Unlock()
+		_ = conn.Close()
+		_ = lis.Close()
+		_ = proc.Close()
+		return nil, ReasonShuttingDown
+	}
 	h.slots[key] = slot
 	h.mu.Unlock()
 	return slot, nil

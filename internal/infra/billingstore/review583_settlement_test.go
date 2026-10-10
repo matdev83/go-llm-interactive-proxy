@@ -368,6 +368,7 @@ func review583Cases(t *testing.T) []review583Case {
 func TestReview583SettlementSQLite(t *testing.T) {
 	t.Parallel()
 	review583RunSettlementSuite(t, func(t *testing.T) *DurableStore {
+		t.Helper()
 		store, _, closeStore := ref83intStore(t)
 		t.Cleanup(closeStore)
 		return store

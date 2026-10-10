@@ -3,8 +3,9 @@
 package conversationview_test
 
 import (
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 // TestDBParity_PostgresDirect is the canonical parity entry point for conversationview persistence on PostgreSQL.

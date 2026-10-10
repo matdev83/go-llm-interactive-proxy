@@ -49,8 +49,10 @@ func TestPhase172F1SameIdentityCoexistencePostgresDirect(t *testing.T) {
 		require.NoError(t, capture.CaptureObservations(ctx, []metering.Observation{f1Observation(t, callID, "b-f1-pg", "f1-pg-obs-1", 1)}))
 
 		call := f1Call(t, callID, "b-f1-pg")
-		_, err = store.AdmitExposure(ctx, billing.AdmitExposureInput{AccountID: account.ID, CallID: callID.String(),
-			Max: billing.Money{Nano: 100_000, Currency: "USD"}, PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef})
+		_, err = store.AdmitExposure(ctx, billing.AdmitExposureInput{
+			AccountID: account.ID, CallID: callID.String(),
+			Max: billing.Money{Nano: 100_000, Currency: "USD"}, PricingRef: call.CustomerPricingRef, ChargePolicyRef: call.ChargePolicyRef,
+		})
 		require.NoError(t, err)
 		require.NoError(t, store.AppendCallUsage(ctx, call))
 		require.NoError(t, store.AppendCallLegUsage(ctx, f1ScalarLeg(t, callID, "b-f1-pg")))
