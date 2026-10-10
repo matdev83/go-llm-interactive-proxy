@@ -3,6 +3,7 @@ package billing
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -484,7 +485,7 @@ func (l CallLegUsageRecord) validate() error {
 		if err := ref.Validate(); err != nil {
 			return fmt.Errorf("%w: observation ref %d: %v", ErrInvalidRecord, i, err)
 		}
-		key := fmt.Sprintf("%s\x00%s\x00%d", ref.StoreID, ref.ObservationID, ref.Revision)
+		key := ref.StoreID + "\x00" + ref.ObservationID + "\x00" + strconv.FormatUint(ref.Revision, 10)
 		if _, exists := seenRefs[key]; exists {
 			return fmt.Errorf("%w: duplicate observation ref %q", ErrInvalidRecord, key)
 		}

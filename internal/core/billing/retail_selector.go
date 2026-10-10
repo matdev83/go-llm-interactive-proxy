@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -320,7 +321,7 @@ func SelectRetailBLegEvidence(in RetailSelectionInput) (RetailSelectionResult, e
 			ObservationRefs: refs,
 		}
 		for _, ref := range refs {
-			key := fmt.Sprintf("%s\x00%s\x00%d", ref.StoreID, ref.ObservationID, ref.Revision)
+			key := ref.StoreID + "\x00" + ref.ObservationID + "\x00" + strconv.FormatUint(ref.Revision, 10)
 			if _, exists := seenSelectedRefs[key]; exists {
 				return RetailSelectionResult{}, fmt.Errorf("%w: observation %q appears on multiple selected B-legs", ErrRetailSelectionDuplicate, ref.ObservationID)
 			}
@@ -526,7 +527,7 @@ func validateRetailObservationRefs(refs []metering.ObservationRef) error {
 		if err := ref.Validate(); err != nil {
 			return err
 		}
-		key := fmt.Sprintf("%s\x00%s\x00%d", ref.StoreID, ref.ObservationID, ref.Revision)
+		key := ref.StoreID + "\x00" + ref.ObservationID + "\x00" + strconv.FormatUint(ref.Revision, 10)
 		if _, ok := seen[key]; ok {
 			return fmt.Errorf("%w: %s", ErrRetailSelectionDuplicate, key)
 		}
@@ -601,7 +602,7 @@ func retailObservationRefs(leg CallLegUsageRecord, call CallUsageRecord, tenantI
 		if err != nil {
 			return nil, "", "", fmt.Errorf("%w: observation %q reference: %v", ErrRetailSelectionIncomplete, observation.ID, err)
 		}
-		key := fmt.Sprintf("%s\x00%s\x00%d", ref.StoreID, ref.ObservationID, ref.Revision)
+		key := ref.StoreID + "\x00" + ref.ObservationID + "\x00" + strconv.FormatUint(ref.Revision, 10)
 		if _, ok := seen[key]; ok {
 			return nil, "", "", fmt.Errorf("%w: observation %q", ErrRetailSelectionDuplicate, observation.ID)
 		}
