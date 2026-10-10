@@ -23,13 +23,14 @@ jobs:
   race:
     name: Strict Linux race (${{ matrix.lane }})
     runs-on: ubuntu-latest
-    # Match the maintained nightly partition: the billing scan alone has a
-    # 60-minute package bound, so it cannot share a 60-minute job with all lanes.
-    timeout-minutes: ${{ matrix.lane == 'billing' && 75 || 40 }}
+    # Match the maintained nightly partition: the billing and billing-store
+    # scans each carry a 60-minute package bound, so neither can share a
+    # 60-minute job with all lanes.
+    timeout-minutes: ${{ (matrix.lane == 'billing' || matrix.lane == 'billingstore') && 75 || 40 }}
     strategy:
       fail-fast: false
       matrix:
-        lane: [broad, billing, support, runtime, architecture]
+        lane: [broad, billing, billingstore, support, runtime, architecture]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
