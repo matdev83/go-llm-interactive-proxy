@@ -4,7 +4,6 @@ package runtimebundle_test
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -22,18 +21,14 @@ import (
 	coreruntime "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingcompose"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/billingstore"
-	dbinfra "github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
-	_ "modernc.org/sqlite"
 )
 
 var billingHostLoopMissingOperatorRef = billing.VersionRef{ID: "missing-operator", Version: "v9"}
-
-var billingHostLoopSeq atomic.Uint64
 
 func TestBillingHostLoop(t *testing.T) {
 	t.Parallel()
@@ -546,28 +541,6 @@ func TestBillingHostLoop_AdmissionDeny(t *testing.T) {
 	})
 }
 
-func openBillingHostLoopStore(t *testing.T) *billingstore.DurableStore {
-	t.Helper()
-	dsn := fmt.Sprintf("file:billing-host-loop-%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)", billingHostLoopSeq.Add(1))
-	sqlDB, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB.SetMaxOpenConns(8)
-	bunDB, err := dbinfra.NewBunDB(sqlDB, dbinfra.DialectSQLite)
-	if err != nil {
-		_ = sqlDB.Close()
-		t.Fatal(err)
-	}
-	store, err := billingstore.NewDurableStore(context.Background(), bunDB, billingstore.Config{StoreID: "billing-host-loop"})
-	if err != nil {
-		_ = bunDB.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	return store
-}
-
 func seedBillingHostLoopCatalog(t *testing.T) (*billingcompose.SnapshotCatalog, billing.PricingSnapshot, billing.ChargePolicy, billing.OperatorRateSnapshot) {
 	t.Helper()
 	catalog := billingcompose.NewSnapshotCatalog()
@@ -609,28 +582,6 @@ func seedBillingHostLoopCatalog(t *testing.T) (*billingcompose.SnapshotCatalog, 
 		t.Fatal(err)
 	}
 	return catalog, pricing, policy, operator
-}
-
-func provisionBillingHostLoopAccount(t *testing.T, store billing.AccountProvisioner, accountID string) {
-	t.Helper()
-	ctx := context.Background()
-	if err := store.CreateAccount(ctx, billing.Account{
-		ID:       accountID,
-		Currency: "USD",
-		Mode:     billing.AccountPrepaid,
-		State:    billing.AccountReady,
-		Version:  1,
-	}); err != nil {
-		t.Fatalf("CreateAccount: %v", err)
-	}
-	if _, err := store.PostFunding(ctx, billing.FundingInput{
-		AccountID: accountID,
-		Amount:    billing.Money{Nano: billingHostLoopOpeningNano, Currency: "USD"},
-		SourceKey: "opening-topup",
-		Reason:    "host-loop prepaid funding",
-	}); err != nil {
-		t.Fatalf("PostFunding: %v", err)
-	}
 }
 
 func injectBillingHostLoopUsageBackend(t *testing.T, executor *coreruntime.Executor, authoritativeCost bool) *atomic.Int32 {
