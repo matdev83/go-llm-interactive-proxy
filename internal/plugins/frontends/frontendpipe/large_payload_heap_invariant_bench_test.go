@@ -649,7 +649,7 @@ func TestLargePayloadHeap_LiveGCRetained_RealRuntime_ExecuteLargeBody(t *testing
 			var openCalls int
 			detector := compactiondetect.New(compactiondetect.Config{})
 			ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "real runtime ok", nil)
-			ex.Detector = detector
+			ex.CompactionDetector = detector
 			ex.LargeBodyGenerationID = "gen-real-runtime"
 			ex.LargeBodyCandidateDomainGeneration = "dom-gen-real-runtime"
 			ex.DefaultBackend = "stub"

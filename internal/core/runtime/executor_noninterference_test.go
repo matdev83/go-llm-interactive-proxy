@@ -70,7 +70,7 @@ func nonInterferenceExecutor(t *testing.T, backends map[string]execbackend.Backe
 		if err != nil {
 			t.Fatal(err)
 		}
-		ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+		ex.InterleavedProcessor = featurehost.NewInterleavedProcessorAdapter(proc)
 	}
 	return ex, st
 }
@@ -79,7 +79,7 @@ func nonInterferenceSecureExecutor(t *testing.T, backends map[string]execbackend
 	t.Helper()
 	ex, st := interleavedSecureExecutor(t, backends)
 	if !interleavedEnabled {
-		ex.Processor = nil
+		ex.InterleavedProcessor = nil
 	}
 	snap := extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		Workspace: voidWorkspaceResolver{},

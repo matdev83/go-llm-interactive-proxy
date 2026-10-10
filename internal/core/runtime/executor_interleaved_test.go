@@ -72,7 +72,7 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
@@ -292,7 +292,7 @@ func TestExecutor_VisibleInterleavedEndToEnd(t *testing.T) {
 	ex.Bus = hooks.New(hooks.Config{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "visible",
 		MaxMemoBytes:          4096,
@@ -517,7 +517,7 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{})
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "visible",
 		MaxMemoBytes:          4096,

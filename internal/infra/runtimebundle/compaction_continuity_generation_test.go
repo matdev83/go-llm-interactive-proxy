@@ -20,10 +20,10 @@ func TestProcessServices_CompactionDetectorInterfaceAndGenerationSharing(t *test
 	assert.False(t, ok, "ProcessServices must not have legacy CompactionDetector field")
 
 	// 2. Assert field type on executorBuildInput is the runtime.CompactionDetector interface.
-	buildField, ok := reflect.TypeFor[*executorBuildInput]().Elem().FieldByName("CompactionDetector")
-	require.True(t, ok, "executorBuildInput must have CompactionDetector field")
-	assert.Equal(t, reflect.Interface, buildField.Type.Kind(), "executorBuildInput.CompactionDetector must be an interface")
-	assert.Equal(t, "runtime.CompactionDetector", buildField.Type.String(), "executorBuildInput.CompactionDetector must be runtime.CompactionDetector")
+	buildField, ok := reflect.TypeFor[runtime.CorePorts]().FieldByName("CompactionDetector")
+	require.True(t, ok, "CorePorts must have CompactionDetector field")
+	assert.Equal(t, reflect.Interface, buildField.Type.Kind(), "CorePorts.CompactionDetector must be an interface")
+	assert.Equal(t, "runtime.CompactionDetector", buildField.Type.String(), "CorePorts.CompactionDetector must be runtime.CompactionDetector")
 
 	// 3. Test instantiation & no-closer invariant on ProcessServices.
 	ctx := context.Background()
@@ -48,7 +48,7 @@ func TestProcessServices_CompactionDetectorInterfaceAndGenerationSharing(t *test
 
 	// 4. Verify generation sharing: generation build inputs receive the exact same instance.
 	buildInput := executorBuildInput{
-		CompactionDetector: ps.StandardFeatures.CompactionDetector(),
+		CorePorts: runtime.CorePorts{CompactionDetector: ps.StandardFeatures.CompactionDetector()},
 	}
-	assert.Equal(t, detector, buildInput.CompactionDetector, "generation build input must receive same process-owned detector reference")
+	assert.Equal(t, detector, buildInput.CorePorts.CompactionDetector, "generation build input must receive same process-owned detector reference")
 }

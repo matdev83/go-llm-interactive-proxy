@@ -1032,7 +1032,7 @@ func TestPhase6_FaultMatrix_InterleavedContinuation(t *testing.T) {
 
 	ex := TestExecutor()
 	ex.Store = store
-	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "shape instructions",
 		MaxMemoBytes:          4096,
 		RegularTurnsRemaining: 2,

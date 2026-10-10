@@ -1028,7 +1028,7 @@ func expRun(t *testing.T, scenario expScenario) expRunResult {
 	ex, _ := interleavedSecureExecutor(t, map[string]execbackend.Backend{
 		expBackendID: expBackend(rec, backendEvents),
 	})
-	ex.Processor = nil
+	ex.InterleavedProcessor = nil
 	ex.Bus = bus
 
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{

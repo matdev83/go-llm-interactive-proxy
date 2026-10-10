@@ -275,7 +275,7 @@ func configureBeforeRequestExecutor(t *testing.T, d runtime.CompactionDetector, 
 			SessionOpeners:       openers,
 		}),
 	})
-	ex.CompactionRuntime = runtime.CompactionRuntime{Detector: d}
+	ex.CompactionDetector = d
 	return ex
 }
 

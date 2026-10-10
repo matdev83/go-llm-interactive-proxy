@@ -99,7 +99,7 @@ func TestExecutor_HiddenInterleavedContinuation_EmitsExecutorOnlyAndStoresMemo(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+	ex.InterleavedProcessor = featurehost.NewInterleavedProcessorAdapter(proc)
 	runtime.RegisterTestMemoStore(ex, memoStore)
 	wireInterleavedTestSteering(ex)
 
@@ -205,7 +205,7 @@ func interleavedVisibleExecutor(t *testing.T, backends map[string]execbackend.Ba
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+	ex.InterleavedProcessor = featurehost.NewInterleavedProcessorAdapter(proc)
 	runtime.RegisterTestMemoStore(ex, memoStore)
 	wireInterleavedTestSteering(ex)
 	return ex, st
@@ -445,7 +445,7 @@ func interleavedExecutor(t *testing.T, backends map[string]execbackend.Backend) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+	ex.InterleavedProcessor = featurehost.NewInterleavedProcessorAdapter(proc)
 	runtime.RegisterTestMemoStore(ex, memoStore)
 	wireInterleavedTestSteering(ex)
 	return ex, st
@@ -1367,7 +1367,7 @@ func TestExecutor_VisibleInterleavedContinuation_FlushesPartialTagAtEOF(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+	ex.InterleavedProcessor = featurehost.NewInterleavedProcessorAdapter(proc)
 	runtime.RegisterTestMemoStore(ex, memoStore)
 	wireInterleavedTestSteering(ex)
 

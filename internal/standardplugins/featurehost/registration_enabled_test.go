@@ -156,7 +156,7 @@ func TestCompileGeneration_KeepwarmRegistrationEnabled(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CompileGeneration: %v", err)
 			}
-			if got := out.CorePorts.MetricsSwap != nil; got != tc.wantManager {
+			if got := out.HostProjections.MetricsSwap != nil; got != tc.wantManager {
 				t.Fatalf("MetricsSwap present=%v want %v", got, tc.wantManager)
 			}
 			if got := out.CorePorts.PromptCacheMaintenance != nil; got != tc.wantManager {

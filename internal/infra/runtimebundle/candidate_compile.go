@@ -158,34 +158,33 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 	if err != nil {
 		return nil, fail(err)
 	}
-	convReader, stockConvReader := resolveCandidateConvReader(opts.CorePorts, ps.StandardFeatures)
+	corePorts := opts.CorePorts
+	corePorts.CompactionDetector = ps.StandardFeatures.CompactionDetector()
+	corePorts.ConversationViewReader, corePorts.ConversationReaderStockOrigin = resolveCandidateConvReader(corePorts, ps.StandardFeatures)
+	// Direct candidate compilation historically leaves maintenance unbound.
+	corePorts.PromptCacheMaintenance = nil
 	execRun, err := buildExecutorRuntime(executorBuildInput{
-		Bctx:                          bctx,
-		Ledger:                        ledger,
-		NowFn:                         nowFn,
-		Ext:                           ext,
-		Model:                         model,
-		Persistence:                   ps.persistence,
-		Security:                      sec,
-		Observability:                 &obs,
-		ControlPlane:                  ps.controlPlane,
-		UsageAuthority:                ps.UsageAuthority,
-		Concurrency:                   ps.concurrencyRT,
-		SnapshotGeneration:            ps.SnapshotGeneration,
-		TerminalWork:                  ps.terminalWorkRT,
-		SharedMutable:                 ps.sharedMutable,
-		AccountingStores:              ps.accountingStores,
-		Metering:                      ps.meteringRT,
-		BackendIdentities:             backendIDs,
-		CompactionDetector:            ps.StandardFeatures.CompactionDetector(),
-		BackgroundScheduler:           ps.BackgroundAux,
-		GenerationRunner:              in.GenerationRunner,
-		TerminalPolicyReader:          opts.CorePorts.TerminalPolicyReader,
-		ConversationReader:            convReader,
-		ConversationBootstrap:         opts.CorePorts.ConversationBootstrap,
-		ConversationReaderStockOrigin: stockConvReader,
-		ConversationStore:             ps.StandardFeatures.ConversationStore(),
-		InterleavedProcessor:          opts.CorePorts.InterleavedProcessor,
+		Bctx:                bctx,
+		Ledger:              ledger,
+		NowFn:               nowFn,
+		Ext:                 ext,
+		Model:               model,
+		Persistence:         ps.persistence,
+		Security:            sec,
+		Observability:       &obs,
+		ControlPlane:        ps.controlPlane,
+		UsageAuthority:      ps.UsageAuthority,
+		Concurrency:         ps.concurrencyRT,
+		SnapshotGeneration:  ps.SnapshotGeneration,
+		TerminalWork:        ps.terminalWorkRT,
+		SharedMutable:       ps.sharedMutable,
+		AccountingStores:    ps.accountingStores,
+		Metering:            ps.meteringRT,
+		BackendIdentities:   backendIDs,
+		CorePorts:           corePorts,
+		BackgroundScheduler: ps.BackgroundAux,
+		GenerationRunner:    in.GenerationRunner,
+		ConversationStore:   ps.StandardFeatures.ConversationStore(),
 	})
 	if err != nil {
 		return nil, fail(err)
@@ -250,7 +249,7 @@ func compileCandidate(ctx context.Context, in GenerationCompileInput) (*candidat
 			terminalRegistry:        ps.TerminalWorkRegistry,
 			terminalQueries:         ps.TerminalWorkQueries,
 			terminalMetrics:         ps.TerminalWorkMetrics,
-			corePorts:               opts.CorePorts,
+			hostProjections:         opts.HostProjections,
 		},
 		process: candidateProcessRefs{
 			store:                 ps.Continuity,

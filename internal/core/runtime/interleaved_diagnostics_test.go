@@ -48,7 +48,7 @@ func TestExecutor_InterleavedDiagnostics_HiddenFlowObservesTransitionsWithoutMem
 	ex.Rand = routing.NewSeededRng(2)
 	ex.Backends = backends
 	ex.Log = log
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,
@@ -145,7 +145,7 @@ func TestExecutor_InterleavedDiagnostics_ExpiredMemoEmitsExpiredWithoutBody(t *t
 		),
 	}
 	ex.Log = log
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		RegularTurnsRemaining: 2,
 	}, memoStore)
@@ -276,7 +276,7 @@ func TestExecutor_InterleavedDiagnostics_StoreSkipReasonsDifferentiated(t *testi
 	}
 	ex.Log = log
 	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,

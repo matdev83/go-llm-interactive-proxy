@@ -200,24 +200,24 @@ func TestCompileKeepwarmMetricsSwapAndAdminProjection(t *testing.T) {
 	}
 	// The swap must not run during composition: generic runtimebundle invokes
 	// it once per published generation, preserving publication-time behavior.
-	if gen.CorePorts.MetricsSwap == nil {
+	if gen.HostProjections.MetricsSwap == nil {
 		t.Fatal("expected non-nil MetricsSwap port for enabled keep-warm")
 	}
 	if got := gatheredSeriesNames(t, reg); hasSeries(got, "lip_prompt_cache_keepwarm_active_epochs") {
 		t.Fatalf("metrics swap ran during composition: series already present: %v", got)
 	}
-	gen.CorePorts.MetricsSwap()
+	gen.HostProjections.MetricsSwap()
 	if got := gatheredSeriesNames(t, reg); !hasSeries(got, "lip_prompt_cache_keepwarm_active_epochs") {
 		t.Fatalf("expected keep-warm series after exactly one swap delivery, got %v", got)
 	}
 	// Admin projection travels opaquely with the process-owned service.
-	if !gen.CorePorts.KeepwarmAdmin.Enabled {
+	if !gen.HostProjections.KeepwarmAdmin.Enabled {
 		t.Fatal("expected enabled keep-warm admin projection")
 	}
-	if gen.CorePorts.KeepwarmAdmin.Service == nil {
+	if gen.HostProjections.KeepwarmAdmin.Service == nil {
 		t.Fatal("expected non-nil keep-warm admin service")
 	}
-	if gen.CorePorts.TerminalPolicyProjection == nil {
+	if gen.HostProjections.TerminalPolicyProjection == nil {
 		t.Fatal("expected non-nil terminal policy projection factory")
 	}
 	// The lifecycle side-channel owns manager release.
@@ -260,7 +260,7 @@ func TestCompileKeepwarmDisabledOmitsPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
-	if gen.CorePorts.MetricsSwap != nil {
+	if gen.HostProjections.MetricsSwap != nil {
 		t.Fatal("expected nil MetricsSwap port for disabled keep-warm")
 	}
 	for _, life := range gen.Lifecycles {

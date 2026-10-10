@@ -143,6 +143,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 			Extensions:              ext,
 			FeaturePlanes:           featOut.Planes,
 			CorePorts:               featOut.CorePorts,
+			HostProjections:         featOut.HostProjections,
 			ReplaceCandidateSurface: true,
 		},
 		LiveFactoryKinds: in.LiveFactoryKinds,
@@ -205,7 +206,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (Generati
 	cand.execution.executor.PromptCacheMaintenance = featOut.CorePorts.PromptCacheMaintenance
 	// Defer the keep-warm metrics swap to PhasePublish: only an active,
 	// published generation may retarget process metrics.
-	if swap := featOut.CorePorts.MetricsSwap; swap != nil {
+	if swap := featOut.HostProjections.MetricsSwap; swap != nil {
 		ledger.AddAction("standard-features-metrics-publish", PhasePublish, func(context.Context) error {
 			swap()
 			return nil
@@ -302,9 +303,9 @@ func buildStandardHTTPInput(genCtx context.Context, cand *candidateAssembly, fro
 	if frozen != nil {
 		plugins = frozen.Plugins.Frontends
 	}
-	keepwarmAdmin := cand.operations.corePorts.KeepwarmAdmin
+	keepwarmAdmin := cand.operations.hostProjections.KeepwarmAdmin
 	var terminalPolicy httpcontract.TerminalDecisionPolicyInput
-	if project := cand.operations.corePorts.TerminalPolicyProjection; project != nil {
+	if project := cand.operations.hostProjections.TerminalPolicyProjection; project != nil {
 		terminalPolicy = project(cand.security.runtimeSnapshot, httpHeaders, maxBody, cand.security.secureSessionStore)
 	}
 	return httpcontract.StandardHTTPInput{
