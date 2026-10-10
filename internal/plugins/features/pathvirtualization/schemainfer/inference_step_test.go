@@ -44,18 +44,6 @@ func bindResolver(t *testing.T, inference pathvirtualization.ArgumentInference) 
 	return resolver
 }
 
-// TestRealInferenceSatisfiesTheResolverPort is the wiring assertion: the real
-// schema-facing step implements the lexical core's port, so the resolution order
-// can consult it without the lexical core importing a canonical contract.
-func TestRealInferenceSatisfiesTheResolverPort(t *testing.T) {
-	t.Parallel()
-
-	// The assignment to the interface type is the whole assertion: it does not
-	// compile unless the schema-facing step implements the lexical core's port.
-	var inference pathvirtualization.ArgumentInference = compileInference(t)
-	_ = inference
-}
-
 // TestRealInferenceResolvesThroughTheDesignOrder walks the whole order with the
 // real inference step behind it, using real declared schemas. This is the only test
 // that proves step 3 is reachable in production wiring rather than only against a
@@ -189,7 +177,7 @@ func TestRealInferenceResolvesThroughTheDesignOrder(t *testing.T) {
 // TestRealInferenceResolvesAreRepeatableAndIndependent proves the real step
 // publishes the same answer for the same declared bytes every time, and that the
 // selectors a resolution hands back are a private copy the caller cannot use to
-// reach the compiled policy.
+// reach the policy behind it or the next resolution.
 func TestRealInferenceResolvesAreRepeatableAndIndependent(t *testing.T) {
 	t.Parallel()
 
@@ -208,11 +196,24 @@ func TestRealInferenceResolvesAreRepeatableAndIndependent(t *testing.T) {
 	if len(wantSelectors) != 2 {
 		t.Fatalf("declared schema proved %q, want two selectors", wantSelectors)
 	}
-	// Zeroing what a resolution handed back must not reach the compiled policy.
-	first.ArgPointers = first.ArgPointers[:0]
-	after := resolver.Resolve("prover_tool", schema)
-	if got := canonicalPointers(after.ArgPointers); !equalStrings(got, wantSelectors) {
-		t.Fatalf("argument selectors after caller mutation = %q, want %q", got, wantSelectors)
+	// Overwrite what a resolution handed back and prove the next resolution is
+	// unaffected. Truncating the slice would only change the caller's own header, so
+	// the probe writes through every element the caller received.
+	clear(first.ArgPointers)
+	if got := canonicalPointers(resolver.Resolve("prover_tool", schema).ArgPointers); !equalStrings(got, wantSelectors) {
+		t.Fatalf("argument selectors after caller overwrite = %q, want %q", got, wantSelectors)
+	}
+	// The exact layers are the case that actually shares: one compiled selector set
+	// answers every resolution of an exactly named tool, so overwriting a result must
+	// not corrupt the compiled policy either.
+	builtIn := resolver.Resolve("read_file", nil)
+	if len(builtIn.ArgPointers) == 0 {
+		t.Fatal("the built-in profile resolved no selectors to test independence against")
+	}
+	wantBuiltIn := canonicalPointers(builtIn.ArgPointers)
+	clear(builtIn.ArgPointers)
+	if got := canonicalPointers(resolver.Resolve("read_file", nil).ArgPointers); !equalStrings(got, wantBuiltIn) {
+		t.Fatalf("built-in selectors after caller overwrite = %q, want %q", got, wantBuiltIn)
 	}
 }
 
