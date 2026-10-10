@@ -110,9 +110,9 @@ func inspect(ctx context.Context, repo, path, branch string, pr int) (snapshot, 
 		return state, err
 	}
 	found := false
-	for _, field := range strings.Split(worktrees, "\x00") {
-		if strings.HasPrefix(field, "worktree ") {
-			real, err := filepath.EvalSymlinks(strings.TrimPrefix(field, "worktree "))
+	for field := range strings.SplitSeq(worktrees, "\x00") {
+		if candidate, ok := strings.CutPrefix(field, "worktree "); ok {
+			real, err := filepath.EvalSymlinks(candidate)
 			if err == nil && real == path {
 				found = true
 			}
@@ -139,7 +139,7 @@ func inspect(ctx context.Context, repo, path, branch string, pr int) (snapshot, 
 	if err != nil {
 		return state, err
 	}
-	for _, name := range strings.Split(ignored, "\x00") {
+	for name := range strings.SplitSeq(ignored, "\x00") {
 		if name != "" {
 			state.Ignored = append(state.Ignored, name)
 		}
@@ -189,7 +189,7 @@ func activeUsers(ctx context.Context, path string) ([]string, error) {
 			}
 			owned := false
 			zombie := false
-			for _, line := range strings.Split(string(status), "\n") {
+			for line := range strings.SplitSeq(string(status), "\n") {
 				if strings.HasPrefix(line, "State:") {
 					fields := strings.Fields(line)
 					zombie = len(fields) > 1 && fields[1] == "Z"
@@ -226,7 +226,7 @@ func activeUsers(ctx context.Context, path string) ([]string, error) {
 			return nil, err
 		}
 		pid := ""
-		for _, line := range strings.Split(data, "\n") {
+		for line := range strings.SplitSeq(data, "\n") {
 			if strings.HasPrefix(line, "p") {
 				pid = line[1:]
 			}
@@ -285,7 +285,7 @@ func cleanup(ctx context.Context, path, branch string, pr int, apply, discardInd
 		return err
 	}
 	args := []string{"git", "diff", "--exit-code", state.Head, state.Merge, "--"}
-	for _, name := range strings.Split(paths, "\x00") {
+	for name := range strings.SplitSeq(paths, "\x00") {
 		if name != "" {
 			args = append(args, name)
 		}

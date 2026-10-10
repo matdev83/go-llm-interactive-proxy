@@ -16,6 +16,7 @@ func (p *otherProcess) startupCleanupError() error { return nil }
 func (p *otherProcess) accounting() (ProcessAccounting, error) {
 	return ProcessAccounting{Supported: false}, nil
 }
+
 func (p *otherProcess) kill() error {
 	if p.cmd.Process != nil {
 		return p.cmd.Process.Kill()

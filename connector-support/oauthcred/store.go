@@ -18,11 +18,22 @@ type Store interface {
 	Path() string
 }
 
-// FileStore is a file-backed TokenRecord store with atomic writes and restrictive permissions.
+// FileStore is a file-backed TokenRecord store with crash-safe atomic writes
+// and restrictive permissions: token bytes are flushed before the rename
+// publishes them, and the directory entry is flushed after the rename so a
+// crash cannot lose the newly stored credentials or resurrect deleted ones.
 type FileStore struct {
 	path string
 	mu   sync.Mutex
 }
+
+// fileSync and dirSync are the durability primitives Save and Delete rely on.
+// They are variables so package tests can prove the sync-before-publish
+// ordering and failure handling; production code always uses the OS calls.
+var (
+	fileSync = func(f *os.File) error { return f.Sync() }
+	dirSync  = syncDirectory
+)
 
 // NewFileStore creates a new FileStore at the specified path.
 func NewFileStore(path string) *FileStore {
@@ -98,12 +109,26 @@ func (s *FileStore) Save(rec TokenRecord) error {
 		return fmt.Errorf("oauthcred: write temp token file: %w", err)
 	}
 
+	// Flush the token bytes before the rename publishes them: without this a
+	// crash after the rename can leave the credential file present but empty
+	// or partial, and Load rejects that as corrupt.
+	if err := fileSync(tmpFile); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("oauthcred: sync temp token file: %w", err)
+	}
+
 	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("oauthcred: close temp token file: %w", err)
 	}
 
 	if err := os.Rename(tmpName, s.path); err != nil {
 		return fmt.Errorf("oauthcred: rename temp token file: %w", err)
+	}
+
+	// Make the published name durable too, so a crash cannot roll the refresh
+	// back to the previous credential record.
+	if err := dirSync(dir); err != nil {
+		return fmt.Errorf("oauthcred: sync token directory: %w", err)
 	}
 
 	return nil
@@ -118,8 +143,17 @@ func (s *FileStore) Delete() error {
 		return nil
 	}
 
-	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("oauthcred: remove token file: %w", err)
+	if err := os.Remove(s.path); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("oauthcred: remove token file: %w", err)
+		}
+		// Nothing changed on disk, so there is no removal to make durable.
+		return nil
+	}
+	// Make the removal durable, so a crash cannot resurrect credentials that
+	// the user explicitly logged out of.
+	if err := dirSync(filepath.Dir(s.path)); err != nil {
+		return fmt.Errorf("oauthcred: sync token directory after delete: %w", err)
 	}
 	return nil
 }
