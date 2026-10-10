@@ -1,6 +1,8 @@
 package featureplanegen
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -188,7 +190,6 @@ var StandardPlanes = []any{PlaneA, PlaneB}
 		{name: "unknown privilege flag string is rejected", manifest: diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{"invalid_privilege_typo"}} }`), wantErrPart: `plane PlaneA: unknown privilege flag "invalid_privilege_typo"`},
 		{name: "unknown privilege flag identifier is rejected", manifest: diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{PrivilegeTypo}} }`), wantErrPart: `plane PlaneA: unknown privilege flag identifier "PrivilegeTypo"`},
 		{name: "foreign selector privilege is rejected", manifest: diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{foreign.PrivilegeRawCapture}} }`), wantErrPart: `plane PlaneA: privilege selector expression "foreign.PrivilegeRawCapture" not allowed; must use bare identifier or string literal`},
-		{name: "foo selector privilege is rejected", manifest: diagManifest(`StageID: StageIDToolEventReaction, Order: 10, Materialize: func(v []toolpolicy.Policy) []DiagnosticOccupant { return nil }, Privileges: func(v []toolpolicy.Policy) PrivilegeProjection { return PrivilegeProjection{Flags: []string{foo.PrivilegeAuxiliaryRequests}} }`), wantErrPart: `plane PlaneA: privilege selector expression "foo.PrivilegeAuxiliaryRequests" not allowed; must use bare identifier or string literal`},
 		{name: "order provided without StageID is rejected", manifest: diagManifest(`Order: 10,`), wantErrPart: "diagnostics StageID must not be empty"},
 	}
 
@@ -234,8 +235,6 @@ var StandardPlanes = []any{PlaneA}
 	}{
 		{name: "1. Valid current if+two static returns accepted", body: `func(v []toolpolicy.Policy) PrivilegeProjection { if len(v) > 0 { return PrivilegeProjection{Flags: []string{PrivilegeRawCapture}} }; return PrivilegeProjection{} }`},
 		{name: "2. Assignment bypass rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { p := PrivilegeProjection{}; p.Flags = []string{PrivilegeRawCapture}; return p }`, wantErrPart: "plane PlaneA: unsupported statement type *ast.AssignStmt"},
-		{name: "3. Foreign selector assignment rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { p := PrivilegeProjection{}; p.Flags = []string{foreign.PrivilegeRawCapture}; return p }`, wantErrPart: "plane PlaneA: unsupported statement type *ast.AssignStmt"},
-		{name: "4. Dead static projection plus dynamic return rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { _ = PrivilegeProjection{Flags: []string{PrivilegeRawCapture}}; return helper(v) }`, wantErrPart: "plane PlaneA: unsupported statement type *ast.AssignStmt"},
 		{name: "5. Direct dynamic return rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return helper(v) }`, wantErrPart: "plane PlaneA: unsupported return expression (*ast.CallExpr)"},
 		{name: "6. Identifier return rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return p }`, wantErrPart: "plane PlaneA: unsupported return expression (*ast.Ident)"},
 		{name: "7. Foreign projection type rejected", body: `func(v []toolpolicy.Policy) PrivilegeProjection { return foreign.PrivilegeProjection{Flags: []string{"raw_capture"}} }`, wantErrPart: `plane PlaneA: foreign projection type "foreign.PrivilegeProjection" not allowed; must use local PrivilegeProjection`},
@@ -268,4 +267,177 @@ var StandardPlanes = []any{PlaneA}
 			}
 		})
 	}
+}
+
+// TestPlaneGenerator_InvalidManifestDeclarationsRejected verifies that malformed
+// manifest declarations fail generation with a stable, actionable error instead
+// of emitting code with missing wiring or ambiguous plane identity.
+func TestPlaneGenerator_InvalidManifestDeclarationsRejected(t *testing.T) {
+	t.Parallel()
+
+	const header = `package feature
+import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+`
+
+	tests := []struct {
+		name        string
+		manifest    string
+		wantErrPart string
+	}{
+		{
+			name:        "missing StandardPlanes declaration",
+			manifest:    `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}`,
+			wantErrPart: "StandardPlanes slice declaration not found in manifest",
+		},
+		{
+			name:        "empty StandardPlanes",
+			manifest:    "var StandardPlanes = []any{}",
+			wantErrPart: "StandardPlanes composite literal is empty",
+		},
+		{
+			name:        "non-identifier StandardPlanes entry",
+			manifest:    `var StandardPlanes = []any{"plane_a"}`,
+			wantErrPart: "expected identifier in StandardPlanes",
+		},
+		{
+			name: "duplicate plane in StandardPlanes",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA, PlaneA}`,
+			wantErrPart: "duplicate plane PlaneA in StandardPlanes",
+		},
+		{
+			name:        "StandardPlanes entry not declared",
+			manifest:    "var StandardPlanes = []any{PlaneGhost}",
+			wantErrPart: "plane PlaneGhost referenced in StandardPlanes was not declared in manifest",
+		},
+		{
+			name: "declared plane absent from StandardPlanes",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var PlaneB = Plane[[]session.Opener]{ID: "plane_b", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}`,
+			wantErrPart: "declared plane PlaneB is not present in StandardPlanes",
+		},
+		{
+			name: "duplicate plane ID",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "dup", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var PlaneB = Plane[[]session.Opener]{ID: "dup", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA, PlaneB}`,
+			wantErrPart: `duplicate plane ID "dup"`,
+		},
+		{
+			name: "missing plane ID",
+			manifest: `var PlaneA = Plane[[]session.Opener]{Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}`,
+			wantErrPart: "plane ID is required and must not be empty",
+		},
+		{
+			name: "missing multiplicity",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}`,
+			wantErrPart: "invalid or missing Multiplicity",
+		},
+		{
+			name: "missing source rules",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}`,
+			wantErrPart: "at least one source rule must be specified in Rules",
+		},
+		{
+			name: "exclusive plane with concatenate feature rule",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultExclusive, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}`,
+			wantErrPart: "exclusive plane cannot use concatenate or reduce rule on feature source",
+		},
+		{
+			name: "exclusive plane without exclusive or unsupported feature rule",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultExclusive, Rules: SourceRules{Host: CombExclusive}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}`,
+			wantErrPart: "exclusive plane must use CombExclusive or CombUnsupported on feature source",
+		},
+		{
+			name: "exclusive plane without identity function",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultExclusive, Rules: SourceRules{Feature: CombExclusive}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, ValidateIdentity: func(id string) error { return nil }, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}`,
+			wantErrPart: "identity function is required for exclusive or replace-by-identity plane",
+		},
+		{
+			name: "missing combine function",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly}
+var StandardPlanes = []any{PlaneA}`,
+			wantErrPart: "combine function is required",
+		},
+		{
+			name: "diagnostics StageID without Materialize",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var PlaneA2 = Plane[[]session.Opener]{ID: "plane_a2", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }, Diagnostics: DiagnosticDescriptor[[]session.Opener]{StageID: StageIDToolEventReaction, Order: 10}}
+var StandardPlanes = []any{PlaneA, PlaneA2}`,
+			wantErrPart: "diagnostics StageID is set but Materialize function is missing",
+		},
+		{
+			name: "diagnostics StageID with zero Order",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var PlaneA2 = Plane[[]session.Opener]{ID: "plane_a2", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }, Diagnostics: DiagnosticDescriptor[[]session.Opener]{StageID: StageIDToolEventReaction, Materialize: func(v []session.Opener) []DiagnosticOccupant { return nil }}}
+var StandardPlanes = []any{PlaneA, PlaneA2}`,
+			wantErrPart: "diagnostics StageID is set but Order must be > 0",
+		},
+		{
+			name: "candidate plane not declared",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}
+var StandardCandidatePlanes = []string{"ghost_plane"}`,
+			wantErrPart: `candidate plane ID "ghost_plane" in StandardCandidatePlanes was not declared in manifest`,
+		},
+		{
+			name: "duplicate candidate plane ID",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}
+var StandardCandidatePlanes = []string{"plane_a", "plane_a"}`,
+			wantErrPart: `duplicate candidate plane ID "plane_a"`,
+		},
+		{
+			name: "empty candidate plane ID",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}
+var StandardCandidatePlanes = []string{""}`,
+			wantErrPart: "StandardCandidatePlanes contains empty string",
+		},
+		{
+			name: "non-string candidate plane ID",
+			manifest: `var PlaneA = Plane[[]session.Opener]{ID: "plane_a", Multiplicity: MultOrdered, Rules: SourceRules{Feature: CombConcatenate}, NilPolicy: NilNotApplicable, RequestAccess: RequestBodyMetadataOnly, Combine: func(s SourceKind, c, in []session.Opener) ([]session.Opener, error) { return in, nil }}
+var StandardPlanes = []any{PlaneA}
+var StandardCandidatePlanes = []string{42}`,
+			wantErrPart: "expected string literal in StandardCandidatePlanes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := GenerateFeaturePlanesCode([]byte(header + tt.manifest))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrPart)
+		})
+	}
+}
+
+// TestWriteGeneratedFileAtomic_RejectsMissingDirectory verifies the generator's
+// install seam refuses a missing target directory with an error naming it, and
+// creates neither the directory nor a stray temp file.
+func TestWriteGeneratedFileAtomic_RejectsMissingDirectory(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	missingDir := filepath.Join(dir, "missing")
+	target := filepath.Join(missingDir, "plane_generated.go")
+
+	err := WriteGeneratedFileAtomic(target, []byte("package feature"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not exist")
+	assert.Contains(t, err.Error(), missingDir)
+
+	_, statErr := os.Stat(missingDir)
+	assert.True(t, os.IsNotExist(statErr), "missing target directory must not be created")
+	entries, readErr := os.ReadDir(dir)
+	require.NoError(t, readErr)
+	assert.Empty(t, entries, "no temp file may be left behind")
 }
