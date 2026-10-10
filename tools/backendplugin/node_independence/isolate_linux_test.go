@@ -238,6 +238,7 @@ func stageMaskFixture(t *testing.T) maskFixture {
 // masked and dropped privileges. It lives in the lane tool itself so the
 // assertions run against the real helper output rather than a reimplementation.
 func maskChild(t *testing.T) {
+	t.Helper()
 	dir := os.Getenv(rootHelperProbeDirEnv)
 	if dir == "" {
 		t.Fatal("probe directory not handed to the helper probe")
