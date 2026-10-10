@@ -86,6 +86,12 @@ func TestAutomationSelection_UsesExistingScriptAndConsumerContracts(t *testing.T
 	if !slices.Contains(scripts, "scripts/check-workflows.sh") {
 		t.Fatalf("workflow lint missing for a workflow edit: %v", scripts)
 	}
+	for _, workflow := range []string{".github/workflows/release.yml", ".github/workflows/backend-plugin-release-gates.yml"} {
+		qa, scripts = selectAutomation([]string{workflow})
+		if !slices.Contains(qa, "TestRaceCheckStagedScanPartitionsArchtestFromOrdinaryScopes") || !slices.Contains(scripts, "scripts/test-race-check.sh") {
+			t.Fatalf("race partition self-test missing for %s: %v %v", workflow, qa, scripts)
+		}
+	}
 	qa, scripts = selectAutomation([]string{"docs/guide.md", "internal/plugins/features/example/body.go"})
 	if len(qa) != 0 || len(scripts) != 0 {
 		t.Fatalf("ordinary edits broadened: %v %v", qa, scripts)

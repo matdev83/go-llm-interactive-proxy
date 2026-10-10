@@ -100,7 +100,7 @@ func selectAutomation(paths []string) ([]string, []string) {
 	var qa, scripts []string
 	for _, name := range paths {
 		switch name {
-		case "scripts/race-check.sh", "scripts/test-race-check.sh", "scripts/go-dev-guard.sh", "scripts/test-go-dev-guard.sh", ".github/workflows/race-fuzz-nightly.yml":
+		case "scripts/race-check.sh", "scripts/test-race-check.sh", "scripts/go-dev-guard.sh", "scripts/test-go-dev-guard.sh", ".github/workflows/race-fuzz-nightly.yml", ".github/workflows/release.yml", ".github/workflows/backend-plugin-release-gates.yml":
 			qa = append(qa, "TestRaceCheckDevHostGuard", "TestRaceCheckStagedScanPartitionsArchtestFromOrdinaryScopes")
 			scripts = append(scripts, "scripts/test-race-check.sh")
 		case "scripts/quality-checks.sh", "scripts/quality-gate.sh", "scripts/test-quality-checks.sh", "scripts/hooks/pre-commit", "scripts/staged-commit-checks.sh", ".githooks/pre-commit":
