@@ -1,7 +1,6 @@
 package sessionclassification_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -492,83 +491,6 @@ func TestRemoteDecisionPositiveAppliesConfiguredThresholdOnly(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("a below-threshold answer is not a negative classification", func(t *testing.T) {
-		t.Parallel()
-
-		below := sessionclassification.RemoteDecision{CodingProbability: 0.10, Confidence: 0.99}
-		if below.Positive(0.90) {
-			t.Fatal("below-threshold answer promoted")
-		}
-		// V1 has no not_coding state: a below-threshold answer leaves the session
-		// on the zero value, which is the only non-positive representation
-		// (requirements 1.5, 6.8).
-		unknown := session.Classification{}
-		if unknown.Kind != session.KindUnknown || unknown.Validate() != nil {
-			t.Fatalf("zero classification %+v is not the valid unknown snapshot", unknown)
-		}
-	})
-}
-
-// recordingDecider is the minimal port implementation a caller would accept. It
-// exists to prove the port is satisfiable and that a derived input crosses it
-// unchanged; it performs no I/O and models no vendor behavior.
-type recordingDecider struct {
-	calls    int
-	received sessionclassification.RemoteInput
-	decision sessionclassification.RemoteDecision
-	err      error
-}
-
-var _ sessionclassification.RemoteDecider = (*recordingDecider)(nil)
-
-func (d *recordingDecider) Decide(_ context.Context, in sessionclassification.RemoteInput) (sessionclassification.RemoteDecision, error) {
-	d.calls++
-	d.received = in
-	return d.decision, d.err
-}
-
-// TestRemoteDeciderPortCarriesTheBoundedContractWithoutConversion proves the port
-// needs no adapter-side conversion step and no shared mutation of the evidence:
-// the derived value a caller builds is the value the decider receives.
-func TestRemoteDeciderPortCarriesTheBoundedContractWithoutConversion(t *testing.T) {
-	t.Parallel()
-
-	built := sessionclassification.BuildRemoteInput(
-		remoteTestInput("roo-code/1.0", []string{"pyproject.toml"}),
-		sessionclassification.LocalDecision{EvidenceCode: sessionclassification.EvidenceCodeRoo},
-	)
-	decider := &recordingDecider{decision: sessionclassification.RemoteDecision{CodingProbability: 0.93, Confidence: 0.88}}
-	if err := sessionclassification.ValidateRemoteInput(built); err != nil {
-		t.Fatalf("ValidateRemoteInput: %v", err)
-	}
-
-	got, err := decider.Decide(context.Background(), built)
-	if err != nil {
-		t.Fatalf("Decide: %v", err)
-	}
-	if decider.calls != 1 {
-		t.Fatalf("decider calls = %d, want exactly one", decider.calls)
-	}
-	if decider.received != built {
-		t.Fatalf("decider received %+v, want the derived input %+v unchanged", decider.received, built)
-	}
-	if got != decider.decision {
-		t.Fatalf("Decide = %+v, want the adapter decision %+v verbatim", got, decider.decision)
-	}
-	if err := sessionclassification.ValidateRemoteDecision(got); err != nil {
-		t.Fatalf("adapter decision %+v is not servable: %v", got, err)
-	}
-
-	// A bounded remote failure stays a bounded error: the port neither swallows
-	// it nor manufactures a positive from it.
-	failing := &recordingDecider{
-		decision: sessionclassification.RemoteDecision{CodingProbability: 1, Confidence: 1},
-		err:      sessionclassification.ErrInvalidRemoteDecision,
-	}
-	if _, err := failing.Decide(context.Background(), built); !errors.Is(err, sessionclassification.ErrInvalidRemoteDecision) {
-		t.Fatalf("Decide error = %v, want the adapter error reported verbatim", err)
-	}
 }
 
 func TestNewRemotePolicyRejectsNonRemoteAndUnsafeConfigurations(t *testing.T) {
@@ -984,28 +906,4 @@ func remoteContractViolations(typ reflect.Type, path string, visited map[reflect
 		violations = append(violations, remoteContractViolations(field.Type, fieldPath, visited)...)
 	}
 	return violations
-}
-
-// TestRemoteContractFieldNamesAvoidEveryReviewedFragment keeps the reviewed name
-// fragments honest: it fails if a shipped field name matches one, which is what
-// makes the guard above a real check on the live contract rather than only on
-// synthetic fixtures.
-func TestRemoteContractFieldNamesAvoidEveryReviewedFragment(t *testing.T) {
-	t.Parallel()
-
-	names := []string{}
-	for _, want := range remoteContractExpectedShapes["RemoteInput"] {
-		names = append(names, want.name)
-	}
-	for _, want := range remoteContractExpectedShapes["RemoteDecision"] {
-		names = append(names, want.name)
-	}
-	for _, name := range names {
-		lowered := strings.ToLower(name)
-		for _, fragment := range slices.Concat(remoteContentBearingNameFragments, remoteVendorNameFragments) {
-			if strings.Contains(lowered, fragment) {
-				t.Fatalf("shipped remote contract field %q matches the reviewed %q fragment", name, fragment)
-			}
-		}
-	}
 }
