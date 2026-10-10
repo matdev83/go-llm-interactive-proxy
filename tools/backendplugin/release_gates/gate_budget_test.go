@@ -147,7 +147,10 @@ func TestMakeGateBudgets_RaceScanIsWorkflowOwned(t *testing.T) {
 func TestRaceScanWorkflows_RequireExhaustiveMatrixBeforeAggregate(t *testing.T) {
 	t.Parallel()
 
-	want := []string{"broad", "billing", "support", "runtime", "architecture"}
+	// scripts/race-check.sh isolates the billing and billing-store sweeps into
+	// their own lanes with 60m package budgets, so the exhaustive partition is
+	// six lanes and both release matrices must select all of them.
+	want := []string{"broad", "billing", "billingstore", "support", "runtime", "architecture"}
 	for _, workflow := range []struct {
 		path       string
 		consumerID string
@@ -167,8 +170,8 @@ func TestRaceScanWorkflows_RequireExhaustiveMatrixBeforeAggregate(t *testing.T) 
 		if !slices.Contains(workflowNeeds(t, workflow.path, workflow.consumerID), "race") {
 			t.Fatalf("%s job %q must depend on every race matrix lane", workflow.path, workflow.consumerID)
 		}
-		if got := workflowJobTimeoutMinutes(t, workflow.path, "race"); got.Expr != "${{ matrix.lane == 'billing' && 75 || 40 }}" {
-			t.Fatalf("%s race lane budget = %s, want billing 75m and other lanes 40m", workflow.path, got)
+		if got := workflowJobTimeoutMinutes(t, workflow.path, "race"); got.Expr != "${{ (matrix.lane == 'billing' || matrix.lane == 'billingstore') && 75 || 40 }}" {
+			t.Fatalf("%s race lane budget = %s, want billing and billing-store lanes 75m and other lanes 40m", workflow.path, got)
 		}
 		if got := workflowStepRun(t, workflow.path, "race", "Strict Linux race detector"); got != `bash scripts/race-check.sh --strict --lane "$RACE_LANE"` {
 			t.Fatalf("%s strict race command = %q", workflow.path, got)

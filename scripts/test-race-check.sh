@@ -59,37 +59,51 @@ for match in ' example/pkg/lipapi ' ' -skip ^TestSupportAgreementShadowPredicate
   verify_coverage
 done
 unset FAIL_MATCH
-# The nightly matrix selects JSON arrays per schedule. Validate each selection
-# before taking their union, so duplicated jobs cannot disappear in sort -u.
-mapfile -t workflow_matrices < <(
-  sed -n 's/^[[:space:]]*lane: //p' "$script_dir/../.github/workflows/race-fuzz-nightly.yml" |
-    grep -oE '\[[^]]*\]'
+# Every workflow that partitions the strict race scan must select the complete
+# lane partition. The nightly selects different JSON arrays per schedule;
+# release.yml and backend-plugin-release-gates.yml each declare one lane array.
+# Validate each workflow's union on its own: sharing one union across files
+# would hide a lane dropped from one workflow while another still runs it, the
+# way the billing-store lane disappeared from both release matrices in #856.
+race_workflows=(
+  .github/workflows/race-fuzz-nightly.yml
+  .github/workflows/release.yml
+  .github/workflows/backend-plugin-release-gates.yml
 )
-if (( ${#workflow_matrices[@]} == 0 )); then
-  echo 'Nightly workflow matrix contains no recognizable race lanes' >&2
-  exit 1
-fi
-: > "$fixture/workflow-lanes"
-for matrix in "${workflow_matrices[@]}"; do
-  lanes="$(printf '%s\n' "$matrix" | tr -d '\[\]" ' | tr ',' '\n')"
-  if [[ -z "$lanes" || "$(printf '%s\n' "$lanes" | sort)" != "$(printf '%s\n' "$lanes" | sort -u)" ]]; then
-    echo "Nightly workflow matrix contains empty or duplicate lanes: $matrix" >&2
+for race_workflow in "${race_workflows[@]}"; do
+  mapfile -t workflow_matrices < <(
+    sed -n 's/^[[:space:]]*lane: //p' "$script_dir/../$race_workflow" |
+      grep -oE '\[[^]]*\]'
+  )
+  if (( ${#workflow_matrices[@]} == 0 )); then
+    echo "$race_workflow contains no recognizable race lanes" >&2
     exit 1
   fi
-  printf '%s\n' "$lanes" >> "$fixture/workflow-lanes"
+  : > "$fixture/workflow-lanes"
+  for matrix in "${workflow_matrices[@]}"; do
+    lanes="$(printf '%s\n' "$matrix" | tr -d '\[\]" ' | tr ',' '\n')"
+    if [[ -z "$lanes" || "$(printf '%s\n' "$lanes" | sort)" != "$(printf '%s\n' "$lanes" | sort -u)" ]]; then
+      echo "$race_workflow matrix contains empty or duplicate lanes: $matrix" >&2
+      exit 1
+    fi
+    printf '%s\n' "$lanes" >> "$fixture/workflow-lanes"
+  done
+  mapfile -t workflow_lanes < <(sort -u "$fixture/workflow-lanes")
+  : > "$fixture/lane-calls"
+  for lane in "${workflow_lanes[@]}"; do
+    : > "$SCAN_CALLS"
+    bash "$script_dir/race-check.sh" --strict --lane "$lane" > "$fixture/lane.log" 2>&1
+    [[ "$(wc -l < "$SCAN_CALLS")" -eq 1 ]]
+    grep -Fx -- "$(cat "$SCAN_CALLS")" "$fixture/all-calls" >/dev/null
+    cat "$SCAN_CALLS" >> "$fixture/lane-calls"
+  done
+  sort "$fixture/all-calls" > "$fixture/all-sorted"
+  sort "$fixture/lane-calls" > "$fixture/lanes-sorted"
+  if ! diff "$fixture/all-sorted" "$fixture/lanes-sorted"; then
+    echo "$race_workflow race lane partition does not cover the full strict scan" >&2
+    exit 1
+  fi
 done
-mapfile -t workflow_lanes < <(sort -u "$fixture/workflow-lanes")
-: > "$fixture/lane-calls"
-for lane in "${workflow_lanes[@]}"; do
-  : > "$SCAN_CALLS"
-  bash "$script_dir/race-check.sh" --strict --lane "$lane" > "$fixture/lane.log" 2>&1
-  [[ "$(wc -l < "$SCAN_CALLS")" -eq 1 ]]
-  grep -Fx -- "$(cat "$SCAN_CALLS")" "$fixture/all-calls" >/dev/null
-  cat "$SCAN_CALLS" >> "$fixture/lane-calls"
-done
-sort "$fixture/all-calls" > "$fixture/all-sorted"
-sort "$fixture/lane-calls" > "$fixture/lanes-sorted"
-diff "$fixture/all-sorted" "$fixture/lanes-sorted"
 if bash "$script_dir/race-check.sh" --strict --lane invalid > "$fixture/invalid.log" 2>&1; then
   echo 'Invalid lane unexpectedly succeeded' >&2
   exit 1
