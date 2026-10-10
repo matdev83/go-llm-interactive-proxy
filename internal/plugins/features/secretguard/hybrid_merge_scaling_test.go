@@ -2,6 +2,7 @@ package secretguard
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -170,6 +171,48 @@ func TestScanOutcomeIndexedFindingsPreserveExactAttribution(t *testing.T) {
 	}
 }
 
+func TestScanCall_RejectsInconsistentJSONMirrorBeforeScanning(t *testing.T) {
+	const secret = "opaque-secret-value"
+	raw := `{"value":"` + secret + `"}`
+	for _, tc := range []struct {
+		name string
+		mode scanMode
+	}{
+		{name: "scan", mode: modeScan},
+		{name: "log", mode: modeLogScan},
+		{name: "redact", mode: modeRedact},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			call := baseCall()
+			call.Messages = nil
+			call.Instructions = nil
+			call.Items = []lipapi.Item{{
+				Kind: lipapi.ItemKindMessage,
+				Role: lipapi.RoleUser,
+				Content: []lipapi.ContentPart{{
+					Kind:       lipapi.ContentPartJSON,
+					Text:       raw,
+					Annotation: &lipapi.AnnotationPart{Type: "json_content", Data: json.RawMessage(`{"value":"different"}`)},
+				}},
+			}}
+			if err := call.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			before := lipapi.CloneCall(call)
+			out, err := scanCall(t.Context(), &call, newExactStub(secret, "SECRET", sdk.SourceCategoryProxyEnv), tc.mode, DefaultScanMaxBytes)
+			if err == nil {
+				t.Fatalf("mode %v accepted an inconsistent JSON mirror", tc.mode)
+			}
+			if len(out.Findings) != 0 || out.MutationCount != 0 || out.ScanLimitHit || len(out.exactPrivateFindings) != 0 || len(out.discoveryFindings) != 0 {
+				t.Fatalf("mirror rejection left scan state: %+v", out)
+			}
+			if !reflect.DeepEqual(call, before) {
+				t.Fatal("mirror rejection mutated the call")
+			}
+		})
+	}
+}
+
 func BenchmarkHybridMergeManyFragmentCall(b *testing.B) {
 	for _, n := range []int{256, 1024, 4096} {
 		b.Run(fmt.Sprint(n), func(b *testing.B) {
@@ -209,6 +252,13 @@ func BenchmarkHybridMergeDuplicateOverlapReports(b *testing.B) {
 func TestHybridMergeManyExactFragmentsAllocationBound(t *testing.T) {
 	const n = 2048
 	exact := manyExactFragments(n)
+	// Non-empty aliases make every group key carry alias bytes, so the old
+	// repeated group-key construction is observable as allocations. With empty
+	// aliases the same quadratic construction allocates nothing and the bound
+	// cannot reject it.
+	for i := range exact {
+		exact[i].finding.Aliases = []string{fmt.Sprintf("alias-%d", i)}
+	}
 	allocs := testing.AllocsPerRun(1, func() {
 		got := mergePrivateHybridFindings(exact, nil)
 		if len(got) != n {
@@ -220,6 +270,7 @@ func TestHybridMergeManyExactFragmentsAllocationBound(t *testing.T) {
 			}
 		}
 	})
+	t.Logf("allocations per merge = %.0f, bound = %d", allocs, 20*n)
 	// Linear allowance for owned occurrence bytes, indexing and sorted projection.
 	// The old repeated group-key construction allocates over two million objects.
 	if allocs > 20*n {
