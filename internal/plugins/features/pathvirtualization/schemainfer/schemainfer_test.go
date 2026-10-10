@@ -208,6 +208,28 @@ func TestInferArgumentsReadsDeclaredArgumentSchemas(t *testing.T) {
 	}
 }
 
+// TestInferArgumentsPublishesCanonicalOrderNotTraversalOrder pins the publication
+// order contract: inferred selectors are ordered by canonical spelling, not by the
+// order the walk happened to reach them.
+//
+// The two orders diverge when a container's subtree sorts after a sibling member
+// whose declared name extends the container's own name with a byte below `/` (0x2F).
+// The walk reaches the container first because `a` sorts before `a!path`, while the
+// canonical spelling orders `/a!path` first because `!` sorts before the separator.
+func TestInferArgumentsPublishesCanonicalOrderNotTraversalOrder(t *testing.T) {
+	t.Parallel()
+
+	// `a_path` is the normalized spelling of the declared member `a!path`, so the
+	// widened vocabulary is what makes that member a candidate at all.
+	got := inferAgainst(t, `{"type":"object","properties":{"a":{"type":"object","properties":{"path":{"type":"string"}}},"a!path":{"type":"string"}}}`, []string{"path", "a_path"})
+	if got.Outcome != schemainfer.OutcomeInferred {
+		t.Fatalf("outcome = %q, want %q", got.Outcome, schemainfer.OutcomeInferred)
+	}
+	if pointers := canonicalPointers(got.Pointers); !slices.Equal(pointers, []string{`/a!path`, `/a/path`}) {
+		t.Fatalf("pointers = %q, want the canonical order %q", pointers, []string{`/a!path`, `/a/path`})
+	}
+}
+
 // TestInferArgumentsRefusesPayloadConcepts pins requirement 3.4 and design.md
 // 221-222: a payload concept is never inferred and is never descended through,
 // whether the payload signal is the declared name, a normalized spelling of it,
