@@ -241,6 +241,7 @@ var allowedFeaturehostQualifiers = map[string]bool{
 	"GenerationInput":                  true,
 	"GenerationOutput":                 true,
 	"CorePorts":                        true,
+	"HostProjections":                  true,
 	"MetricsRegistry":                  true,
 	"Registration":                     true,
 	"ValidateSecretGuardRegistrations": true,

@@ -121,7 +121,7 @@ func newResponsePipelineForExecutor(executor *Executor, openMeta ...compaction.P
 	p.secureSessionMetrics = executor.SecureSessionMetrics
 	p.secureRecordingMandatory = executor.SecureSessionRecordingMandatory
 	p.backends = executor.Backends
-	p.detector = executor.Detector
+	p.detector = executor.CompactionDetector
 	if executor.RuntimeSnapshot != nil {
 		p.compactionObservers = executor.RuntimeSnapshot.CompactionObservers()
 		p.compactionPreservers = executor.RuntimeSnapshot.CompactionPreservers()

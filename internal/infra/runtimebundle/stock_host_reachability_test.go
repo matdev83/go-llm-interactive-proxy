@@ -1994,7 +1994,7 @@ func TestStockHost_ForgedConversationReaderStockOrigin_OverwrittenAndDeclined(t 
 
 	// Case 1: Nil sf - custom reader asserting stock origin is declined
 	resolvedReader, stockOrigin := runtimebundle.ResolveCandidateConvReaderForTest(featurehost.CorePorts{
-		ConversationReader:            forged,
+		ConversationViewReader:        forged,
 		ConversationReaderStockOrigin: true,
 	}, nil)
 	require.Equal(t, forged, resolvedReader)
@@ -2035,7 +2035,7 @@ func TestStockHost_ForgedConversationReaderStockOrigin_OverwrittenAndDeclined(t 
 
 	// Forged reader -> stock origin overwritten to false
 	resForgedReader, resForgedOrigin := runtimebundle.ResolveCandidateConvReaderForTest(featurehost.CorePorts{
-		ConversationReader:            forged,
+		ConversationViewReader:        forged,
 		ConversationReaderStockOrigin: true,
 	}, ps.StandardFeatures)
 	require.Equal(t, forged, resForgedReader)
@@ -2043,7 +2043,7 @@ func TestStockHost_ForgedConversationReaderStockOrigin_OverwrittenAndDeclined(t 
 
 	// Genuine stock reader with StockOrigin=true -> accepted
 	resStockReader, resStockOrigin := runtimebundle.ResolveCandidateConvReaderForTest(featurehost.CorePorts{
-		ConversationReader:            stockReader,
+		ConversationViewReader:        stockReader,
 		ConversationReaderStockOrigin: true,
 	}, ps.StandardFeatures)
 	require.Equal(t, stockReader, resStockReader)
@@ -2051,7 +2051,7 @@ func TestStockHost_ForgedConversationReaderStockOrigin_OverwrittenAndDeclined(t 
 
 	// Unspecified reader (nil) with StandardFeatures present -> defaults to genuine stock reader and true
 	resNilReader, resNilOrigin := runtimebundle.ResolveCandidateConvReaderForTest(featurehost.CorePorts{
-		ConversationReader:            nil,
+		ConversationViewReader:        nil,
 		ConversationReaderStockOrigin: false,
 	}, ps.StandardFeatures)
 	require.Equal(t, stockReader, resNilReader)

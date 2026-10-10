@@ -78,7 +78,7 @@ func TestBuild_interleavedDisabled_leavesExecutorInert(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: interleavedBuildTestRegistry(t),
 	})
-	if built.Executor().Processor != nil {
+	if built.Executor().InterleavedProcessor != nil {
 		t.Fatal("disabled interleaved must not wire Processor")
 	}
 }
@@ -91,7 +91,7 @@ func TestBuild_interleavedEnabled_wiresExecutor(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: interleavedBuildTestRegistry(t),
 	})
-	if built.Executor().Processor == nil {
+	if built.Executor().InterleavedProcessor == nil {
 		t.Fatal("enabled interleaved must wire Processor")
 	}
 }
@@ -115,7 +115,7 @@ func TestBuild_interleavedEnabled_loadsInstructionsFile(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: interleavedBuildTestRegistry(t),
 	})
-	proc := built.Executor().Processor
+	proc := built.Executor().InterleavedProcessor
 	if proc == nil {
 		t.Fatal("expected non-nil Processor")
 	}
@@ -213,9 +213,9 @@ func TestInterleavedProcessor_SingleConstructionPerGeneration(t *testing.T) {
 	defer func() { _ = cand.Close() }()
 
 	// Executor must consume ONLY CorePorts.InterleavedProcessor (exact pointer equality, no duplicate construction)
-	if cand.Executor().Processor != featOut.CorePorts.InterleavedProcessor {
+	if cand.Executor().InterleavedProcessor != featOut.CorePorts.InterleavedProcessor {
 		t.Fatalf("dual processor construction detected: executor processor %p != CorePorts processor %p",
-			cand.Executor().Processor, featOut.CorePorts.InterleavedProcessor)
+			cand.Executor().InterleavedProcessor, featOut.CorePorts.InterleavedProcessor)
 	}
 }
 

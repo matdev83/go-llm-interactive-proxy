@@ -229,7 +229,7 @@ func TestCandidateAttemptTransform_runsAfterInterleavedShapeBeforeCapabilities(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex.Processor = featurehost.NewInterleavedProcessorAdapter(proc)
+	ex.InterleavedProcessor = featurehost.NewInterleavedProcessorAdapter(proc)
 	ex.Backends = map[string]execbackend.Backend{
 		"thinker-be": *interleavedBackend(
 			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),

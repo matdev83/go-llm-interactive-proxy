@@ -150,7 +150,7 @@ func TestExecutor_ParallelCommitMemoFailureEndsALegScope(t *testing.T) {
 	ex.Rand = routing.NewSeededRng(2)
 	ex.ALegLifecycle = lc
 	ex.Backends = backends
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,

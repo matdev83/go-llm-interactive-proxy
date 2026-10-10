@@ -133,7 +133,7 @@ func TestParallelLoser_Strengthened(t *testing.T) {
 	// Setup spy memo store
 	innerMemo := interleavedthinking.NewMemoStore(4096)
 	memoStore := &spyMemoStore{inner: innerMemo}
-	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "Think step by step.",
 		StreamToClient:        "hidden",
 		MaxMemoBytes:          4096,

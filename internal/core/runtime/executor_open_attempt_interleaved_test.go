@@ -129,7 +129,7 @@ func TestExecutor_OpenAttempt_ShapesThinkerCallBeforeOpen(t *testing.T) {
 		),
 		"unused-exec": recoverableInterleavedBackend(nil),
 	}
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step and emit a memo."}, nil)
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step and emit a memo."}, nil)
 
 	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
 	stream, err := ex.Execute(context.Background(), call)
@@ -204,7 +204,7 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 			capture,
 		),
 	}
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, memoStore)
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, memoStore)
 	runtime.RegisterTestMemoStore(ex, memoStore)
 	cv := wireInterleavedTestSteering(ex)
 
@@ -369,7 +369,7 @@ func TestExecutor_OpenAttempt_ThinkerCycleCursorAdvancesAfterSuccessfulOpen(t *t
 			func(lipapi.Call) {},
 		),
 	}
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, interleavedthinking.NewMemoStore(4096))
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, interleavedthinking.NewMemoStore(4096))
 
 	selector := "[thinker]thinker-be:m^bad:m^ok:m"
 	wantSeq := []interleavedstate.CycleEntry{
@@ -454,7 +454,7 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 			func(lipapi.Call) {},
 		),
 	}
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, memoStore)
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, memoStore)
 	runtime.RegisterTestMemoStore(ex, memoStore)
 	cv := wireInterleavedTestSteering(ex)
 
@@ -558,7 +558,7 @@ func TestExecutor_OpenAttempt_NonThinkerSelectorInert(t *testing.T) {
 			capture,
 		),
 	}
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, memoStore)
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step."}, memoStore)
 	runtime.RegisterTestMemoStore(ex, memoStore)
 
 	call := interleavedBaseCall("stub:m")
@@ -764,7 +764,7 @@ func TestExecutor_OpenAttempt_InterleavedShapingRunsAfterTransformsBeforeComplet
 		),
 		"unused-exec": recoverableInterleavedBackend(nil),
 	}
-	ex.Processor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step and emit a memo."}, nil)
+	ex.InterleavedProcessor = runtime.NewTestInterleavedProcessor(t, interleavedthinking.Config{Instructions: "Think step by step and emit a memo."}, nil)
 
 	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
 	stream, err := ex.Execute(context.Background(), call)

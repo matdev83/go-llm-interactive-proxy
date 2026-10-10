@@ -39,6 +39,13 @@ Keep `main` branch clean. It should be only a PR merge receiver, never a merge d
 
 The source-change gate limits a commit or PR to **100 modified `*.go` files** (100 changed files gate on Go sources). Skill, catalog, and documentation paths do not consume this gate. Split large Go refactors so they stay reviewable and mergeable. Pre-commit, the recommended pre-push hook, and PR CI apply the same limit to staged paths or the branch vs its merge base. Default `go test ./internal/qa` also fails when the worktree has more than 100 dirty `*.go` files (no override). Admin override for hooks/CI only: `LIP_ALLOW_LARGE_CHANGE=1` for one command, `git config lip.allowLargeChange true` locally, or the `allow-large-change` PR label in CI. Do not use `--no-verify` to skip this check; that also skips secret scanning. The overrides are maintainer-only: agents never set them or apply the label. When the gate fires, stop, propose a split into slices, and report.
 
+## Dependabot PRs
+
+- Dependabot groups are per dependency family (`.github/dependabot.yml`). Handle each PR on its own; do not bundle families into one rescue PR.
+- A failing family is skipped, not fixed in place: merge the green PRs, comment on the failing one, and track the incompatibility in an issue. Add an `ignore` rule only with that issue linked.
+- Dependabot cannot sync consumer/fixture modules. If "All Go modules tidy and test" fails on drift, run `bash scripts/tidy-all-modules.sh` on the PR branch and push the result as one `build(deps): synchronize module metadata` commit.
+- Keep each Dependabot PR to its own slice; do not wait for unrelated PRs.
+
 ## Skill Loading
 
 - Architecture/package boundary/feature design: `golang-hexagonal-architecture`, `golang-design-patterns`, `golang-project-layout`.

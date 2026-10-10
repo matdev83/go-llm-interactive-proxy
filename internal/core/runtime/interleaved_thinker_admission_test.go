@@ -432,7 +432,7 @@ func newBarrierRig(t *testing.T, mode string, inner lipapi.ManagedEventStream) *
 		beforeFinal:   newParkGate(),
 	}
 	store := newBarrierMemoStore(turn)
-	ex.Processor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
+	ex.InterleavedProcessor = NewTestInterleavedProcessor(t, interleavedthinking.Config{
 		Instructions:          "think",
 		StreamToClient:        mode,
 		MaxMemoBytes:          4096,
@@ -440,7 +440,7 @@ func newBarrierRig(t *testing.T, mode string, inner lipapi.ManagedEventStream) *
 	}, store)
 	RegisterTestMemoStore(ex, store)
 
-	real, err := ex.Processor.BeginTurn(context.Background(), InterleavedTurnInput{
+	real, err := ex.InterleavedProcessor.BeginTurn(context.Background(), InterleavedTurnInput{
 		ALegID:         from.facts.aLegID,
 		Selector:       from.facts.baseline.Route.Selector,
 		Backend:        from.attempt.snapshot().cand.Primary.Backend,

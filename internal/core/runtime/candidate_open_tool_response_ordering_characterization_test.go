@@ -303,7 +303,7 @@ func algStreamingTransport() lipapi.BackendTransportCaps {
 func algSecureExecutor(t *testing.T, backends map[string]execbackend.Backend, bus *hooks.Bus, snapOpts extensions.SnapshotOptions) *runtime.Executor {
 	t.Helper()
 	ex, _ := interleavedSecureExecutor(t, backends)
-	ex.Processor = nil
+	ex.InterleavedProcessor = nil
 	if bus != nil {
 		ex.Bus = bus
 	}

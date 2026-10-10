@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -63,7 +64,8 @@ type BuildOptions struct {
 	// reuse startup-merged lifecycles/extensions. Legacy [CompileCandidate]
 	// callers leave this false (nil overlay fields mean "no override").
 	// CorePorts carries minimal fixed consumer-owned core interfaces compiled by featurehost.
-	CorePorts               featurehost.CorePorts
+	CorePorts               runtime.CorePorts
+	HostProjections         featurehost.HostProjections
 	ReplaceCandidateSurface bool
 }
 

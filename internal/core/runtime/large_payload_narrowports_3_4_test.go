@@ -287,13 +287,13 @@ func TestLargePayload34_StockNilPortsAreNoOpFacts(t *testing.T) {
 	if cfg.Extension.RuntimeSnapshot != nil {
 		t.Fatal("zero RuntimeSnapshot must be nil")
 	}
-	if cfg.Extension.TerminalPolicyReader != nil {
+	if cfg.Core.TerminalPolicyReader != nil {
 		t.Fatal("zero TerminalPolicyReader must be nil (generation default)")
 	}
-	if cfg.Interleaved.Processor != nil {
+	if cfg.Core.InterleavedProcessor != nil {
 		t.Fatal("zero Interleaved.Processor must be nil (no-op)")
 	}
-	if cfg.Compaction.Detector != nil {
+	if cfg.Core.CompactionDetector != nil {
 		t.Fatal("zero Compaction.Detector must be nil (observation disabled)")
 	}
 	if cfg.Compaction.BackgroundAux != nil {

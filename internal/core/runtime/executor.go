@@ -37,7 +37,6 @@ type Executor struct {
 	AccountingRuntime
 	ObservabilityRuntime
 	ExtensionRuntime
-	InterleavedRuntime
 	CompactionRuntime
 
 	lifecycleMu     sync.Mutex

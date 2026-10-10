@@ -477,7 +477,7 @@ func fcmNewFixture(t *testing.T) *fcmFixture {
 		fcmBackendID: recordingBackend(fcmBackendID, &opens, lipapi.NewFixedEventStream(fcmBackendEvents())),
 	}
 	ex, _ := interleavedSecureExecutor(t, backends)
-	ex.Processor = nil
+	ex.InterleavedProcessor = nil
 	ex.Bus = corehooks.New(corehooks.Config{ToolReactors: []sdkhooks.ToolReactor{f.reactor}})
 	ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(ex.Bus, extensions.SnapshotOptions{
 		Workspace: fcmResolver{},
