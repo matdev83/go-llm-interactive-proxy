@@ -54,17 +54,58 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+    # Wait a few days so yanked or broken releases never reach a PR.
+    cooldown:
+      default-days: 3
+    # Bun 1.3 changes NUL-delimited journal identity semantics; re-enable once
+    # the compatibility work lands. Patch updates keep flowing.
+    ignore:
+      - dependency-name: "github.com/uptrace/bun*"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+    # One group per dependency family (first match wins). A breaking release in
+    # one family blocks only its own PR instead of a 30-directory bundle.
     groups:
       go-patch:
-        patterns:
-          - "*"
         update-types:
           - patch
-      go-minor:
         patterns:
           - "*"
+      go-provider-sdks:
         update-types:
           - minor
+        patterns:
+          - "github.com/anthropics/*"
+          - "github.com/openai/*"
+          - "github.com/aws/*"
+          - "google.golang.org/genai"
+          - "cloud.google.com/*"
+      go-grpc-proto:
+        update-types:
+          - minor
+        patterns:
+          - "google.golang.org/grpc*"
+          - "google.golang.org/protobuf"
+          - "google.golang.org/genproto*"
+      go-telemetry:
+        update-types:
+          - minor
+        patterns:
+          - "go.opentelemetry.io/*"
+          - "github.com/prometheus/*"
+      go-storage:
+        update-types:
+          - minor
+        patterns:
+          - "modernc.org/*"
+          - "github.com/jackc/*"
+          - "github.com/oschwald/*"
+      go-minor:
+        update-types:
+          - minor
+        patterns:
+          - "*"
 
   - package-ecosystem: github-actions
     directory: /
